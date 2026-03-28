@@ -33,7 +33,7 @@ $Tab::CloseOverlay()
 $RButton::CloseOverlay()
 #HotIf
 
-#HotIf WinActive(GAME_WIN_FILTER) && gCanOverride && !gOverlayVisible
+#HotIf WinActive(GAME_WIN_FILTER) && gCanOverride && !gOverlayVisible && IsMinimapAllowed()
 $Tab::HandleTab()
 #HotIf
 
@@ -83,6 +83,7 @@ CloseOverlayIfFocusLeftGame() {
 
 UpdateMapState() {
     global gCanOverride, gResolvedMapName, gResolvedMapPath, gTrackedGameHwnd
+    global gOverlayVisible, gCurrentMapPath, gCurrentMapName, gPic
 
     activeHwnd := WinActive(GAME_WIN_FILTER)
     if !activeHwnd {
@@ -92,12 +93,21 @@ UpdateMapState() {
         return
     }
 
+    ; Auto-close overlay when minimap is no longer allowed (battle, loading screen, etc.)
+    if gOverlayVisible && !IsMinimapAllowed() {
+        CloseOverlay()
+    }
+
     gTrackedGameHwnd := activeHwnd
     mapName := ReadCurrentMapName()
     if (mapName = "") {
         gCanOverride := false
         gResolvedMapName := ""
         gResolvedMapPath := ""
+        ; Scene changed to one with no readable map name — close overlay.
+        if gOverlayVisible {
+            CloseOverlay()
+        }
         return
     }
 
@@ -106,12 +116,23 @@ UpdateMapState() {
         gCanOverride := false
         gResolvedMapName := mapName
         gResolvedMapPath := ""
+        ; New scene has no custom minimap image — close overlay.
+        if gOverlayVisible {
+            CloseOverlay()
+        }
         return
     }
 
     gCanOverride := true
     gResolvedMapName := mapName
     gResolvedMapPath := mapPath
+
+    ; Hot-swap the minimap image if the scene changed to a different map.
+    if gOverlayVisible && (gCurrentMapPath != mapPath) {
+        gPic.Value := mapPath
+        gCurrentMapName := mapName
+        gCurrentMapPath := mapPath
+    }
 }
 
 ShowDebugState() {

@@ -111,6 +111,40 @@ GetModuleBaseAddress(hProcess, moduleName) {
     return 0
 }
 
+; Returns true only when game state is 10 and the player is not in battle.
+IsMinimapAllowed() {
+    cached := GetCachedProcessHandleAndBase()
+    if !cached.ok {
+        return false
+    }
+    valBuf := Buffer(4, 0)
+    ok := DllCall(
+        "ReadProcessMemory",
+        "Ptr", cached.handle,
+        "Ptr", cached.modBase + GAME_STATE_OFFSET,
+        "Ptr", valBuf.Ptr,
+        "UPtr", 4,
+        "UPtr*", 0,
+        "Int"
+    )
+    if !ok || NumGet(valBuf, 0, "Int") != 10 {
+        return false
+    }
+    ok := DllCall(
+        "ReadProcessMemory",
+        "Ptr", cached.handle,
+        "Ptr", cached.modBase + BATTLE_STATE_OFFSET,
+        "Ptr", valBuf.Ptr,
+        "UPtr", 4,
+        "UPtr*", 0,
+        "Int"
+    )
+    if !ok {
+        return false
+    }
+    return NumGet(valBuf, 0, "Int") = 0
+}
+
 ; Reads the map filename from memory (e.g. "MAP007.map") and returns the
 ; base name with .map swapped for .jpg (e.g. "MAP007.jpg") for minimap lookup.
 ReadCurrentMapName() {
