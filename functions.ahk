@@ -547,3 +547,103 @@ EnsureMarkerControl() {
     ; Added after gPic so the marker draws above the map image.
     gMarkerDot := gGui.AddPicture("x0 y0 w" MARKER_SIZE " h" MARKER_SIZE " Hidden", MARKER_PNG)
 }
+
+; ── Launcher ─────────────────────────────────────────────────────
+
+; Resolves the game executable path.
+; Priority: A_ScriptDir\main.exe → config.ini GamePath → file picker prompt.
+LoadLauncherConfig() {
+    global gGamePath, gGameArgs, gLaunchOnStartup, CONFIG_INI, PROCESS_EXE
+
+    ; 1. Check for main.exe next to the script (same directory install).
+    localExe := A_ScriptDir "\" PROCESS_EXE
+    if FileExist(localExe) {
+        gGamePath := localExe
+    }
+
+    ; 2. Read config.ini overrides (GamePath only used if local exe wasn't found).
+    if FileExist(CONFIG_INI) {
+        if (gGamePath = "") {
+            cfgPath := Trim(IniRead(CONFIG_INI, "Launcher", "GamePath", ""))
+            if (cfgPath != "" && FileExist(cfgPath)) {
+                gGamePath := cfgPath
+            }
+        }
+        gGameArgs := Trim(IniRead(CONFIG_INI, "Launcher", "GameArgs", ""))
+        startupVal := Trim(IniRead(CONFIG_INI, "Launcher", "LaunchOnStartup", "__MISSING__"))
+        if (startupVal != "__MISSING__") {
+            gLaunchOnStartup := (startupVal = "1")
+        }
+    }
+
+    ; 3. Still no path — ask the user to locate it.
+    if (gGamePath = "") {
+        PromptForGamePath()
+    }
+}
+
+; Opens a file-picker dialog for the user to locate the game executable.
+; Saves the selected path to config.ini for future runs.
+PromptForGamePath() {
+    global gGamePath, PROCESS_EXE
+
+    selected := FileSelect(
+        1,
+        A_ScriptDir,
+        "Locate " PROCESS_EXE " (game executable)",
+        "Executables (*.exe)"
+    )
+    if (selected = "") {
+        TrayTip("AHK Minimap", "No game path selected — launcher disabled.", "Iconx")
+        return
+    }
+    if !FileExist(selected) {
+        TrayTip("AHK Minimap", "Selected file does not exist.", "Iconx")
+        return
+    }
+    gGamePath := selected
+    SaveGamePathToConfig(selected)
+    TrayTip("AHK Minimap", "Game path set:`n" selected, "Iconi")
+}
+
+; Persists the game executable path into config.ini.
+SaveGamePathToConfig(path) {
+    global CONFIG_INI
+    IniWrite(path, CONFIG_INI, "Launcher", "GamePath")
+}
+
+; Launches a new game client instance.
+; Uses the game executable's parent directory as the working directory.
+LaunchGameInstance() {
+    global gGamePath, gGameArgs
+
+    if (gGamePath = "" || !FileExist(gGamePath)) {
+        TrayTip("AHK Minimap", "Game path not configured or file missing.`nUse tray menu → Set Game Path.", "Iconx")
+        return
+    }
+
+    workDir := ""
+    SplitPath(gGamePath, , &workDir)
+    try {
+        if (gGameArgs != "") {
+            Run('"' gGamePath '" ' gGameArgs, workDir)
+        } else {
+            Run('"' gGamePath '"', workDir)
+        }
+        TrayTip("AHK Minimap", "Game instance launched.", "Iconi")
+    } catch as err {
+        TrayTip("AHK Minimap", "Failed to launch game:`n" err.Message, "Iconx")
+    }
+}
+
+; Returns the number of windows matching the game process name.
+CountGameInstances() {
+    global GAME_WIN_FILTER
+    try {
+        ids := WinGetList(GAME_WIN_FILTER)
+        return ids.Length
+    } catch {
+        return 0
+    }
+}
+

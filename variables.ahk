@@ -1,5 +1,5 @@
 ; === Constants ===
-global PROCESS_EXE := "main.exe"
+global PROCESS_EXE := "main_client.exe"
 global GAME_WIN_FILTER := "ahk_exe " PROCESS_EXE
 ; RVAs from main.exe — do not use fixed absolute addresses (bases differ per process / ASLR).
 global MAP_FILE_OFFSET := 0x340EC5
@@ -23,6 +23,12 @@ global SOURCE_MAP_W := 400
 global SOURCE_MAP_H := 300
 global MARKER_SIZE := 9
 global MARKER_PNG := A_ScriptDir "\marker.png"
+
+; === Launcher config ===
+global CONFIG_INI := A_ScriptDir "\config.ini"
+global gGamePath := ""           ; Resolved path to the game executable.
+global gGameArgs := ""           ; Optional command-line arguments for the game.
+global gLaunchOnStartup := true ; Auto-launch one game instance on minimap startup.
 
 ; === Caches ===
 ; Calibration: maps\calibration.ini only (one [Section] per map name).

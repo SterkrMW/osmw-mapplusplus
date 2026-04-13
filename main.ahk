@@ -9,6 +9,15 @@ SetTitleMatchMode(2)
 #Include variables.ahk
 #Include functions.ahk
 
+; ── Launcher startup ─────────────────────────────────────────────
+
+LoadLauncherConfig()
+
+; Auto-launch a game instance on startup / re-launch.
+if (gLaunchOnStartup) {
+    LaunchGameInstance()
+}
+
 ; ── Startup checks ───────────────────────────────────────────────
 
 if !DirExist(MAP_DIR) {
@@ -17,6 +26,19 @@ if !DirExist(MAP_DIR) {
 if !FileExist(MARKER_PNG) {
     TrayTip("AHK Minimap", "marker.png missing next to script — position marker disabled.`n" MARKER_PNG, "Iconi")
 }
+
+; ── Tray menu ────────────────────────────────────────────────────
+
+trayMenu := A_TrayMenu
+trayMenu.Delete()
+trayMenu.Add("Launch Game`tCtrl+Alt+L", (*) => LaunchGameInstance())
+trayMenu.Add("Set Game Path...", (*) => PromptForGamePath())
+trayMenu.Add()
+trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
+trayMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
+trayMenu.Add()
+trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
+trayMenu.Default := "Launch Game`tCtrl+Alt+L"
 
 ; ── Timers ───────────────────────────────────────────────────────
 
@@ -40,6 +62,7 @@ $Tab::HandleTab()
 ^!r::Reload()
 ^!q::ExitApp()
 ^!d::ShowDebugState()
+^!l::LaunchGameInstance()
 ^!1::CaptureCalibrationPoint(1)
 ^!2::CaptureCalibrationPoint(2)
 ^!3::ApplyCalibrationFromPoints()
