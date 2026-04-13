@@ -3,8 +3,10 @@ global PROCESS_EXE := "main.exe"
 global GAME_WIN_FILTER := "ahk_exe " PROCESS_EXE
 ; RVAs from main.exe — do not use fixed absolute addresses (bases differ per process / ASLR).
 global MAP_FILE_OFFSET := 0x340EC5
-global POS_X_OFFSET := 0x3049E8
-global POS_Y_OFFSET := 0x3049EC
+; global POS_X_OFFSET := 0x3049E8
+; global POS_Y_OFFSET := 0x3049EC
+global POS_X_OFFSET := 0x30B2D0
+global POS_Y_OFFSET := 0x30B2D4
 global GAME_STATE_OFFSET := 0x34313C
 global BATTLE_STATE_OFFSET := 0x301DE4
 global MAP_FILE_LEN := 20
