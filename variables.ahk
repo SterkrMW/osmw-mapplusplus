@@ -58,3 +58,8 @@ global gTrackedGameHwnd := 0
 global gCachedPID := 0
 global gCachedProcessHandle := 0
 global gCachedModuleBase := 0
+
+; === NPC Generator ===
+global NPC_OUTPUT_FILE := A_ScriptDir "\npc_generated.txt"
+global NPC_ID_START := 0x80020000
+global gNpcNextId := NPC_ID_START

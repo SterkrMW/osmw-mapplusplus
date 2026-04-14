@@ -12,6 +12,7 @@ SetTitleMatchMode(2)
 ; ── Launcher startup ─────────────────────────────────────────────
 
 LoadLauncherConfig()
+LoadNpcNextId()
 
 ; Auto-launch a game instance on startup / re-launch.
 if (gLaunchOnStartup) {
@@ -37,6 +38,8 @@ trayMenu.Add()
 trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
 trayMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
 trayMenu.Add()
+trayMenu.Add("Generate NPC`tCtrl+Alt+N", (*) => GenerateNpcEntry())
+trayMenu.Add()
 trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
 trayMenu.Default := "Launch Game`tCtrl+Alt+L"
 
@@ -51,22 +54,23 @@ OnExit((*) => ReleaseCachedProcessHandle())
 ; ── Hotkeys ──────────────────────────────────────────────────────
 
 #HotIf gOverlayVisible && IsGameOrOverlayActive()
-$Tab::CloseOverlay()
-$RButton::CloseOverlay()
+$Tab:: CloseOverlay()
+$RButton:: CloseOverlay()
 #HotIf
 
 #HotIf WinActive(GAME_WIN_FILTER) && gCanOverride && !gOverlayVisible && IsMinimapAllowed()
-$Tab::HandleTab()
+$Tab:: HandleTab()
 #HotIf
 
-^!r::Reload()
-^!q::ExitApp()
-^!d::ShowDebugState()
-^!l::LaunchGameInstance()
-^!1::CaptureCalibrationPoint(1)
-^!2::CaptureCalibrationPoint(2)
-^!3::ApplyCalibrationFromPoints()
-^!4::ExportCurrentCalibrationToFile()
+^!r:: Reload()
+^!q:: ExitApp()
+^!d:: ShowDebugState()
+^!l:: LaunchGameInstance()
+^!n:: GenerateNpcEntry()
+^!1:: CaptureCalibrationPoint(1)
+^!2:: CaptureCalibrationPoint(2)
+^!3:: ApplyCalibrationFromPoints()
+^!4:: ExportCurrentCalibrationToFile()
 
 ; ── Core handlers ────────────────────────────────────────────────
 

@@ -647,3 +647,99 @@ CountGameInstances() {
     }
 }
 
+; ── NPC Generator ────────────────────────────────────────────────
+
+; Loads the next NPC ID counter from config.ini, falling back to NPC_ID_START.
+LoadNpcNextId() {
+    global gNpcNextId, NPC_ID_START, CONFIG_INI
+    if FileExist(CONFIG_INI) {
+        saved := Trim(IniRead(CONFIG_INI, "NpcGenerator", "NextId", ""))
+        if (saved != "") {
+            gNpcNextId := Integer(saved)
+            return
+        }
+    }
+    gNpcNextId := NPC_ID_START
+}
+
+; Persists the current NPC ID counter to config.ini.
+SaveNpcNextId() {
+    global gNpcNextId, CONFIG_INI
+    IniWrite(Format("0x{:08X}", gNpcNextId), CONFIG_INI, "NpcGenerator", "NextId")
+}
+
+; Reads the raw map filename from game memory (e.g. "MAP007.map") and returns
+; the base name without extension (e.g. "MAP007").
+ReadCurrentMapBaseName() {
+    global gLastReadStatus
+
+    cached := GetCachedProcessHandleAndBase()
+    if !cached.ok {
+        return ""
+    }
+
+    targetAddr := cached.modBase + MAP_FILE_OFFSET
+    rawBytes := Buffer(MAP_FILE_LEN, 0)
+    bytesRead := 0
+    ok := DllCall(
+        "ReadProcessMemory",
+        "Ptr", cached.handle,
+        "Ptr", targetAddr,
+        "Ptr", rawBytes.Ptr,
+        "UPtr", MAP_FILE_LEN,
+        "UPtr*", &bytesRead,
+        "Int"
+    )
+
+    if (!ok || bytesRead < 1) {
+        return ""
+    }
+
+    mapFile := StrGet(rawBytes, MAP_FILE_LEN, "CP0")
+    mapFile := Trim(mapFile, " `t`r`n`0")
+    if (mapFile = "") {
+        return ""
+    }
+    ; Strip extension to get base name (e.g. "MAP007").
+    return RegExReplace(mapFile, "\.[^.]+$", "")
+}
+
+; Captures the current player position and map, then appends a new NPC entry
+; to the output file in TypeScript-compatible object literal format.
+GenerateNpcEntry() {
+    global gNpcNextId, NPC_OUTPUT_FILE
+
+    ; Read raw player position from game memory.
+    rawPos := ReadRawPlayerPosition()
+    if !rawPos.ok {
+        TrayTip("NPC Generator", "Failed to read player position from memory.", "Iconx")
+        return
+    }
+
+    ; Get map identifier (e.g. "MAP007").
+    mapBase := ReadCurrentMapBaseName()
+    if (mapBase = "") {
+        TrayTip("NPC Generator", "Failed to read map name from memory.", "Iconx")
+        return
+    }
+
+    ; Build NPC entry in TypeScript-compatible format.
+    idHex := Format("0x{:08X}", gNpcNextId)
+    entry := "`t{`n"
+        . "`t`tid: " idHex ",`n"
+        . "`t`tname: 'Placeholder',`n"
+        . "`t`tfile: 135,`n"
+        . "`t`tmap: MapID." mapBase ",`n"
+        . "`t`tpoint: { x: " rawPos.x ", y: " rawPos.y " },`n"
+        . "`t`tdirection: Direction.South,`n"
+        . "`t},`n"
+
+    ; Append to output file.
+    FileAppend(entry, NPC_OUTPUT_FILE, "UTF-8")
+
+    ; Increment and persist the counter.
+    gNpcNextId += 1
+    SaveNpcNextId()
+
+    TrayTip("NPC Generator", "NPC " idHex " added`nPos: " rawPos.x ", " rawPos.y "`nMap: " mapBase, "Iconi")
+}
