@@ -1,0 +1,21 @@
+﻿
+
+
+	
+	
+	
+
+
+	
+	
+	
+
+	
+	{
+		id: 0x8002003F,
+		name: 'Placeholder',
+		file: 135,
+		map: MapID.MAP303,
+		point: { x: 1564, y: 525 },
+		direction: Direction.South,
+	},
