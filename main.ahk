@@ -37,8 +37,10 @@ trayMenu.Add("Set Game Path...", (*) => PromptForGamePath())
 trayMenu.Add()
 trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
 trayMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
+trayMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
+trayMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
 trayMenu.Add()
-trayMenu.Add("Generate NPC`tCtrl+Alt+N", (*) => GenerateNpcEntry())
+; trayMenu.Add("Generate NPC`tCtrl+Alt+N", (*) => GenerateNpcEntry())
 trayMenu.Add()
 trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
 trayMenu.Default := "Launch Game`tCtrl+Alt+L"
@@ -66,7 +68,9 @@ $Tab:: HandleTab()
 ^!q:: ExitApp()
 ^!d:: ShowDebugState()
 ^!l:: LaunchGameInstance()
-^!n:: GenerateNpcEntry()
+^!s:: CalibrateSignaturesNow()
+^!v:: VerifyResolution()
+; ^!n:: GenerateNpcEntry()
 ^!1:: CaptureCalibrationPoint(1)
 ^!2:: CaptureCalibrationPoint(2)
 ^!3:: ApplyCalibrationFromPoints()
@@ -164,13 +168,19 @@ UpdateMapState() {
 
 ShowDebugState() {
     global gCanOverride, gResolvedMapName, gResolvedMapPath, gLastReadStatus, gLastPosStatus
-    global gLastRawX, gLastRawY
+    global gLastRawX, gLastRawY, gResolvedOffsets, gResolvedBuildStamp, gFallbackOffsets
     msg := "CanOverride: " gCanOverride "`n"
         . "ReadStatus: " gLastReadStatus "`n"
         . "PosStatus: " gLastPosStatus "`n"
         . "RawX: " gLastRawX " RawY: " gLastRawY "`n"
         . "MapName: " (gResolvedMapName = "" ? "<empty>" : gResolvedMapName) "`n"
-        . "MapPath: " (gResolvedMapPath = "" ? "<missing>" : gResolvedMapPath)
+        . "MapPath: " (gResolvedMapPath = "" ? "<missing>" : gResolvedMapPath) "`n`n"
+        . "Build: " (gResolvedBuildStamp ? Format("0x{:08X}", gResolvedBuildStamp) : "<unresolved>") "`n"
+    for _, name in SIGNATURE_NAMES {
+        rva := GetResolvedOffset(name)
+        src := gResolvedOffsets.Has(name) ? "sig" : "fallback"
+        msg .= "  " name ": " Format("0x{:08X}", rva) " (" src ")`n"
+    }
     MsgBox(msg, "AHK Minimap Debug")
 }
 
@@ -385,7 +395,7 @@ UpdateMarkerPosition() {
     ok := DllCall(
         "ReadProcessMemory",
         "Ptr", cached.handle,
-        "Ptr", cached.modBase + POS_X_OFFSET,
+        "Ptr", cached.modBase + GetResolvedOffset("POS_X_OFFSET"),
         "Ptr", posBuf.Ptr,
         "UPtr", 8,
         "UPtr*", 0,

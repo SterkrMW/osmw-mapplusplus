@@ -1,5 +1,7 @@
+#Requires AutoHotkey v2.0
+
 ; === Constants ===
-global PROCESS_EXE := "main_client.exe"
+global PROCESS_EXE := "main.exe"
 global GAME_WIN_FILTER := "ahk_exe " PROCESS_EXE
 ; RVAs from main.exe — do not use fixed absolute addresses (bases differ per process / ASLR).
 global MAP_FILE_OFFSET := 0x340EC5
@@ -63,3 +65,16 @@ global gCachedModuleBase := 0
 global NPC_OUTPUT_FILE := A_ScriptDir "\npc_generated.txt"
 global NPC_ID_START := 0x80020000
 global gNpcNextId := NPC_ID_START
+
+; === Signature-based RVA discovery ===
+; Hardcoded RVAs that get discovered and resolved at runtime. The values here
+; serve two purposes: bootstrap input for signature capture (Ctrl+Alt+S), and
+; runtime fallback when no cache or signature is available.
+global SIGNATURE_NAMES := ["MAP_FILE_OFFSET", "POS_X_OFFSET", "POS_Y_OFFSET", "GAME_STATE_OFFSET", "BATTLE_STATE_OFFSET"]
+global gFallbackOffsets := Map("MAP_FILE_OFFSET", MAP_FILE_OFFSET, "POS_X_OFFSET", POS_X_OFFSET, "POS_Y_OFFSET", POS_Y_OFFSET, "GAME_STATE_OFFSET", GAME_STATE_OFFSET, "BATTLE_STATE_OFFSET", BATTLE_STATE_OFFSET)
+global SIGNATURES_INI := A_ScriptDir "\signatures.ini"
+global OFFSETS_CACHE_INI := A_ScriptDir "\offsets_cache.ini"
+; name (string) → RVA (Integer). Populated lazily once per process attach.
+global gResolvedOffsets := Map()
+; PE TimeDateStamp (UInt) of the build that gResolvedOffsets was resolved against.
+global gResolvedBuildStamp := 0
