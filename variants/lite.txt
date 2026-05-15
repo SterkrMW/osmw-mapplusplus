@@ -1,0 +1,2 @@
+# Lite variant — minimap + window layout only.
+window_layout.ahk

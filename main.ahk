@@ -14,7 +14,8 @@ SetTitleMatchMode(2)
 
 LoadLauncherConfig()
 LoadNpcNextId()
-GenerateAddonIncludes()
+if !A_IsCompiled
+    GenerateAddonIncludes()
 LoadAddonEnabledStates()
 
 ; Auto-launch a game instance on startup / re-launch.

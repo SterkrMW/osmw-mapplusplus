@@ -1,0 +1,3 @@
+# Battle variant — combat-focused subset.
+battle_send.ahk
+chat_toggle.ahk
