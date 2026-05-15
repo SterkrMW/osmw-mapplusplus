@@ -8,11 +8,13 @@ SetTitleMatchMode(2)
 
 #Include variables.ahk
 #Include functions.ahk
+#Include *i _addons.ahk
 
 ; ── Launcher startup ─────────────────────────────────────────────
 
 LoadLauncherConfig()
 LoadNpcNextId()
+GenerateAddonIncludes()
 
 ; Auto-launch a game instance on startup / re-launch.
 if (gLaunchOnStartup) {
@@ -42,6 +44,7 @@ trayMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
 trayMenu.Add()
 ; trayMenu.Add("Generate NPC`tCtrl+Alt+N", (*) => GenerateNpcEntry())
 trayMenu.Add()
+FireAddonHook("OnTrayMenu", trayMenu)
 trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
 trayMenu.Default := "Launch Game`tCtrl+Alt+L"
 
@@ -52,6 +55,7 @@ SetTimer(UpdateMapState, 250)
 SetTimer(UpdateMarkerPosition, 0)
 SetTimer(CloseOverlayIfFocusLeftGame, 100)
 OnExit((*) => ReleaseCachedProcessHandle())
+FireAddonHook("OnInit")
 
 ; ── Hotkeys ──────────────────────────────────────────────────────
 
@@ -94,6 +98,7 @@ CloseOverlay() {
         gGui.Hide()
         gOverlayVisible := false
         SetTimer(UpdateMarkerPosition, 0)
+        FireAddonHook("OnOverlayHide")
     }
 }
 
@@ -115,6 +120,7 @@ CloseOverlayIfFocusLeftGame() {
 UpdateMapState() {
     global gCanOverride, gResolvedMapName, gResolvedMapPath, gTrackedGameHwnd
     global gOverlayVisible, gCurrentMapPath, gCurrentMapName, gPic
+    static sPrevMapName := ""
 
     activeHwnd := WinActive(GAME_WIN_FILTER)
     if !activeHwnd {
@@ -135,6 +141,11 @@ UpdateMapState() {
         gCanOverride := false
         gResolvedMapName := ""
         gResolvedMapPath := ""
+        if (sPrevMapName != "") {
+            prev := sPrevMapName
+            sPrevMapName := ""
+            FireAddonHook("OnMapChange", "", prev)
+        }
         ; Scene changed to one with no readable map name — close overlay.
         if gOverlayVisible {
             CloseOverlay()
@@ -147,6 +158,11 @@ UpdateMapState() {
         gCanOverride := false
         gResolvedMapName := mapName
         gResolvedMapPath := ""
+        if (mapName != sPrevMapName) {
+            prev := sPrevMapName
+            sPrevMapName := mapName
+            FireAddonHook("OnMapChange", mapName, prev)
+        }
         ; New scene has no custom minimap image — close overlay.
         if gOverlayVisible {
             CloseOverlay()
@@ -157,6 +173,11 @@ UpdateMapState() {
     gCanOverride := true
     gResolvedMapName := mapName
     gResolvedMapPath := mapPath
+    if (mapName != sPrevMapName) {
+        prev := sPrevMapName
+        sPrevMapName := mapName
+        FireAddonHook("OnMapChange", mapName, prev)
+    }
 
     ; Hot-swap the minimap image if the scene changed to a different map.
     if gOverlayVisible && (gCurrentMapPath != mapPath) {
@@ -346,6 +367,7 @@ ShowOrToggleOverlay(mapName, mapPath) {
         gCurrentMapPath := mapPath
         SetTimer(UpdateMarkerPosition, 60)
         UpdateMarkerPosition()
+        FireAddonHook("OnOverlayShow", mapName)
         return
     }
 
@@ -364,6 +386,7 @@ ShowOrToggleOverlay(mapName, mapPath) {
         gOverlayVisible := true
         SetTimer(UpdateMarkerPosition, 60)
         UpdateMarkerPosition()
+        FireAddonHook("OnOverlayShow", mapName)
     }
 }
 

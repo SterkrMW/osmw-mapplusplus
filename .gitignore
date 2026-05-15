@@ -3,3 +3,5 @@
 *.zip
 config.ini
 /releases
+_addons.ahk
+addons/chat_toggle.ahk

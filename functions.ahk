@@ -1324,3 +1324,82 @@ CalibrateSignaturesNow() {
     }
     MsgBox(summary, "Calibrate Signatures")
 }
+
+; ── Addon system ─────────────────────────────────────────────────
+
+; Registers an addon-owned RVA into the shared signature/rescan system.
+; Call at global scope (outside any function) so it runs at include time.
+; After this, CalibrateSignaturesNow() and EnsureResolvedOffsetsForBuild()
+; will scan/cache the offset alongside core app offsets, and
+; GetResolvedOffset(name) returns the live-resolved value or the fallback.
+RegisterAddonOffset(name, fallbackRva) {
+    global SIGNATURE_NAMES, gFallbackOffsets
+    SIGNATURE_NAMES.Push(name)
+    gFallbackOffsets[name] := fallbackRva
+}
+
+RegisterAddon(addonMap) {
+    global gAddonHooks
+    if !addonMap.Has("name") || addonMap["name"] = "" {
+        TrayTip("Addon System", "RegisterAddon() called without a 'name' key — ignored.", "Iconx")
+        return
+    }
+    gAddonHooks.Push(addonMap)
+}
+
+FireAddonHook(hookName, params*) {
+    global gAddonHooks
+    for _, addonMap in gAddonHooks {
+        if !addonMap.Has(hookName)
+            continue
+        fn := addonMap[hookName]
+        if !(fn is Func)
+            continue
+        try {
+            fn(params*)
+        } catch as err {
+            addonName := addonMap.Has("name") ? addonMap["name"] : "<unnamed>"
+            TrayTip("Addon Error [" addonName "]", hookName ": " err.Message, "Iconx")
+        }
+    }
+}
+
+GenerateAddonIncludes() {
+    global ADDONS_DIR, ADDONS_INCLUDE_FILE
+    addonFiles := []
+    if DirExist(ADDONS_DIR) {
+        loop files, ADDONS_DIR "\*.ahk" {
+            addonFiles.Push(A_LoopFileName)
+        }
+        addonFiles := _SortStrArray(addonFiles)
+    }
+
+    newContent := ""
+    for _, fname in addonFiles {
+        newContent .= "#Include addons\" fname "`n"
+    }
+
+    existingContent := FileExist(ADDONS_INCLUDE_FILE) ? FileRead(ADDONS_INCLUDE_FILE) : ""
+    if (newContent = existingContent)
+        return
+
+    if FileExist(ADDONS_INCLUDE_FILE)
+        FileDelete(ADDONS_INCLUDE_FILE)
+    if (newContent != "")
+        FileAppend(newContent, ADDONS_INCLUDE_FILE, "UTF-8")
+
+    Reload()
+}
+
+_SortStrArray(arr) {
+    joined := ""
+    for _, v in arr
+        joined .= v "`n"
+    sorted := Sort(Trim(joined, "`n"), "D`n")
+    out := []
+    loop parse, sorted, "`n" {
+        if (A_LoopField != "")
+            out.Push(A_LoopField)
+    }
+    return out
+}

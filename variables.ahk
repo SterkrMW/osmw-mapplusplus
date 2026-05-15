@@ -30,7 +30,7 @@ global MARKER_PNG := A_ScriptDir "\marker.png"
 global CONFIG_INI := A_ScriptDir "\config.ini"
 global gGamePath := ""           ; Resolved path to the game executable.
 global gGameArgs := ""           ; Optional command-line arguments for the game.
-global gLaunchOnStartup := true ; Auto-launch one game instance on minimap startup.
+global gLaunchOnStartup := false ; Auto-launch one game instance on minimap startup.
 
 ; === Caches ===
 ; Calibration: maps\calibration.ini only (one [Section] per map name).
@@ -78,3 +78,8 @@ global OFFSETS_CACHE_INI := A_ScriptDir "\offsets_cache.ini"
 global gResolvedOffsets := Map()
 ; PE TimeDateStamp (UInt) of the build that gResolvedOffsets was resolved against.
 global gResolvedBuildStamp := 0
+
+; === Addon system ===
+global gAddonHooks := []
+global ADDONS_DIR := A_ScriptDir "\addons"
+global ADDONS_INCLUDE_FILE := A_ScriptDir "\_addons.ahk"
