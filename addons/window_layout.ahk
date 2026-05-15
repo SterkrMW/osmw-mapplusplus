@@ -22,21 +22,24 @@ _WindowLayout_OnInit() {
 _WindowLayout_OnTrayMenu(trayMenu) {
     global _WindowLayout_DefaultLayout, _WindowLayout_DefaultMenu
 
-    trayMenu.Add("Apply Layout`tCtrl+Shift+L", (*) => _WindowLayout_ApplyDefaultLayout())
+    layoutMenu := Menu()
+    layoutMenu.Add("Apply`tCtrl+Shift+L", (*) => _WindowLayout_ApplyDefaultLayout())
 
     applyMenu := Menu()
     for name in ["Reset", "Single", "Grid2x2", "CenterFocus"]
         applyMenu.Add(name, _WindowLayout_ApplyPreset.Bind(name))
-    trayMenu.Add("Apply Layout >", applyMenu)
+    layoutMenu.Add("Apply Preset", applyMenu)
 
-    trayMenu.Add("Set Main Character...", (*) => _WindowLayout_PromptMainCharacter())
+    layoutMenu.Add("Set Main Character...", (*) => _WindowLayout_PromptMainCharacter())
 
     defaultMenu := Menu()
     for name in ["Reset", "Single", "Grid2x2", "CenterFocus"]
         defaultMenu.Add(name, _WindowLayout_SetDefaultLayout.Bind(name))
     try defaultMenu.Check(_WindowLayout_DefaultLayout)
     _WindowLayout_DefaultMenu := defaultMenu
-    trayMenu.Add("Set Default Layout >", defaultMenu)
+    layoutMenu.Add("Set Default", defaultMenu)
+
+    trayMenu.Add("Window Layout", layoutMenu)
 }
 
 _WindowLayout_LoadConfig() {

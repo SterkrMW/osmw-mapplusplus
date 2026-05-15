@@ -11,8 +11,10 @@ RegisterAddon(Map(
 #HotIf
 
 _InventoryToggle_OnTrayMenu(trayMenu) {
-    trayMenu.Add("Open Inventory (Click)`tAlt+E",       (*) => _InventoryToggle_OpenInventory())
-    trayMenu.Add("Open Inventory (Send Alt+I)`tAlt+Shift+E", (*) => _InventoryToggle_OpenInventoryAlt())
+    invMenu := Menu()
+    invMenu.Add("Open (Click)`tAlt+E",            (*) => _InventoryToggle_OpenInventory())
+    invMenu.Add("Open (Send Alt+I)`tAlt+Shift+E", (*) => _InventoryToggle_OpenInventoryAlt())
+    trayMenu.Add("Inventory", invMenu)
 }
 
 _InventoryToggle_OpenInventory() {

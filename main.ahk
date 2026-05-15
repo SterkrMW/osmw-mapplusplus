@@ -38,12 +38,7 @@ trayMenu.Delete()
 trayMenu.Add("Launch Game`tCtrl+Alt+L", (*) => LaunchGameInstance())
 trayMenu.Add("Set Game Path...", (*) => PromptForGamePath())
 trayMenu.Add()
-trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
-trayMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
-trayMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
-trayMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
-trayMenu.Add()
-; trayMenu.Add("Generate NPC`tCtrl+Alt+N", (*) => GenerateNpcEntry())
+FireAddonHook("OnTrayMenu", trayMenu)
 trayMenu.Add()
 if gAddonHooks.Length > 0 {
     addonsMenu := Menu()
@@ -55,9 +50,14 @@ if gAddonHooks.Length > 0 {
     }
     trayMenu.Add("Addons", addonsMenu)
 }
-FireAddonHook("OnTrayMenu", trayMenu)
+trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
+trayMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
+trayMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
+trayMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
+trayMenu.Add()
 trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
 trayMenu.Default := "Launch Game`tCtrl+Alt+L"
+A_IconTip := "osMW Maps++"
 
 ; ── Timers ───────────────────────────────────────────────────────
 
