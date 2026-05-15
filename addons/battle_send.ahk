@@ -3,6 +3,7 @@
 global _BattleSend_PROCESS_ACCESS := 0x0008 | 0x0010 | 0x0020 | 0x0400
 
 RegisterAddonOffset("BattleAction", 0x30B5F8)
+RegisterAddonOffset("PetBattleAction", 0x3029C4)
 
 RegisterAddon(Map(
     "name",       "BattleSend",
@@ -41,20 +42,20 @@ _BattleSend_SendToFighting() {
             continue
         }
         actionBuf := Buffer(4, 0)
-        ok := DllCall("ReadProcessMemory",
-            "Ptr", handle,
-            "Ptr", modBase + GetResolvedOffset("BattleAction"),
-            "Ptr", actionBuf.Ptr,
-            "UPtr", 4, "UPtr*", 0, "Int")
-        if !ok || NumGet(actionBuf, 0, "Int") != 255 {
-            DllCall("CloseHandle", "Ptr", handle)
-            continue
+        for _, offsetName in ["BattleAction", "PetBattleAction"] {
+            ok := DllCall("ReadProcessMemory",
+                "Ptr", handle,
+                "Ptr", modBase + GetResolvedOffset(offsetName),
+                "Ptr", actionBuf.Ptr,
+                "UPtr", 4, "UPtr*", 0, "Int")
+            if !ok || NumGet(actionBuf, 0, "Int") != 255
+                continue
+            DllCall("WriteProcessMemory",
+                "Ptr", handle,
+                "Ptr", modBase + GetResolvedOffset(offsetName),
+                "Ptr", buf.Ptr,
+                "UPtr", 4, "UPtr*", 0, "Int")
         }
-        DllCall("WriteProcessMemory",
-            "Ptr", handle,
-            "Ptr", modBase + GetResolvedOffset("BattleAction"),
-            "Ptr", buf.Ptr,
-            "UPtr", 4, "UPtr*", 0, "Int")
         DllCall("CloseHandle", "Ptr", handle)
     }
 }
