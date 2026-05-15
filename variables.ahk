@@ -27,7 +27,7 @@ global MARKER_SIZE := 9
 global MARKER_PNG := A_ScriptDir "\marker.png"
 
 ; === Launcher config ===
-global CONFIG_INI := A_ScriptDir "\config.ini"
+global CONFIG_INI := ResolveWritableIniPath("config.ini")
 global gGamePath := ""           ; Resolved path to the game executable.
 global gGameArgs := ""           ; Optional command-line arguments for the game.
 global gLaunchOnStartup := false ; Auto-launch one game instance on minimap startup.
@@ -72,8 +72,11 @@ global gNpcNextId := NPC_ID_START
 ; runtime fallback when no cache or signature is available.
 global SIGNATURE_NAMES := ["MAP_FILE_OFFSET", "POS_X_OFFSET", "POS_Y_OFFSET", "GAME_STATE_OFFSET", "BATTLE_STATE_OFFSET"]
 global gFallbackOffsets := Map("MAP_FILE_OFFSET", MAP_FILE_OFFSET, "POS_X_OFFSET", POS_X_OFFSET, "POS_Y_OFFSET", POS_Y_OFFSET, "GAME_STATE_OFFSET", GAME_STATE_OFFSET, "BATTLE_STATE_OFFSET", BATTLE_STATE_OFFSET)
-global SIGNATURES_INI := A_ScriptDir "\signatures.ini"
-global OFFSETS_CACHE_INI := A_ScriptDir "\offsets_cache.ini"
+; INIs live next to the script when writable; otherwise %AppData% so users who
+; install under Program Files (or whose folder is locked by AV/Controlled Folder
+; Access) don't hit "Access denied" on writes.
+global SIGNATURES_INI := ResolveWritableIniPath("signatures.ini")
+global OFFSETS_CACHE_INI := ResolveWritableIniPath("offsets_cache.ini")
 ; name (string) → RVA (Integer). Populated lazily once per process attach.
 global gResolvedOffsets := Map()
 ; PE TimeDateStamp (UInt) of the build that gResolvedOffsets was resolved against.

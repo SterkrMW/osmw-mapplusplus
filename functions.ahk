@@ -1119,6 +1119,37 @@ BuildKeyForStamp(stamp) {
     return "Build_" Format("{:08X}", stamp)
 }
 
+ResolveWritableIniPath(filename) {
+    scriptPath := A_ScriptDir "\" filename
+    if IsPathWritable(scriptPath) {
+        return scriptPath
+    }
+    fallbackDir := A_AppData "\osMW Maps++"
+    if !DirExist(fallbackDir) {
+        try DirCreate(fallbackDir)
+    }
+    fallbackPath := fallbackDir "\" filename
+    ; Carry over any existing file so users don't lose state when their folder
+    ; becomes unwritable (e.g. moved into Program Files post-install).
+    if (FileExist(scriptPath) && !FileExist(fallbackPath)) {
+        try FileCopy(scriptPath, fallbackPath)
+    }
+    return fallbackPath
+}
+
+IsPathWritable(path) {
+    try {
+        f := FileOpen(path, "a")
+        if !IsObject(f) {
+            return false
+        }
+        f.Close()
+        return true
+    } catch {
+        return false
+    }
+}
+
 LoadOffsetsCacheForBuild(stamp) {
     out := Map()
     if !FileExist(OFFSETS_CACHE_INI) {
