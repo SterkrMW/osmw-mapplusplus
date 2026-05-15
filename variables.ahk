@@ -81,5 +81,6 @@ global gResolvedBuildStamp := 0
 
 ; === Addon system ===
 global gAddonHooks := []
+global gDisabledAddons := Map()   ; addon name → true when disabled
 global ADDONS_DIR := A_ScriptDir "\addons"
 global ADDONS_INCLUDE_FILE := A_ScriptDir "\_addons.ahk"

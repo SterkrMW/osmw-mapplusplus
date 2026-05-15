@@ -1348,9 +1348,12 @@ RegisterAddon(addonMap) {
 }
 
 FireAddonHook(hookName, params*) {
-    global gAddonHooks
+    global gAddonHooks, gDisabledAddons
     for _, addonMap in gAddonHooks {
         if !addonMap.Has(hookName)
+            continue
+        addonName := addonMap.Has("name") ? addonMap["name"] : "<unnamed>"
+        if gDisabledAddons.Has(addonName) && gDisabledAddons[addonName]
             continue
         fn := addonMap[hookName]
         if !(fn is Func)
@@ -1358,9 +1361,35 @@ FireAddonHook(hookName, params*) {
         try {
             fn(params*)
         } catch as err {
-            addonName := addonMap.Has("name") ? addonMap["name"] : "<unnamed>"
             TrayTip("Addon Error [" addonName "]", hookName ": " err.Message, "Iconx")
         }
+    }
+}
+
+LoadAddonEnabledStates() {
+    global gAddonHooks, gDisabledAddons, CONFIG_INI
+    if !FileExist(CONFIG_INI)
+        return
+    for _, addonMap in gAddonHooks {
+        name := addonMap.Has("name") ? addonMap["name"] : ""
+        if (name = "")
+            continue
+        val := Trim(IniRead(CONFIG_INI, "Addons", name, "1"))
+        if (val = "0")
+            gDisabledAddons[name] := true
+    }
+}
+
+_ToggleAddon(addonName, menuObj, *) {
+    global gDisabledAddons, CONFIG_INI
+    if gDisabledAddons.Has(addonName) && gDisabledAddons[addonName] {
+        gDisabledAddons.Delete(addonName)
+        menuObj.Check(addonName)
+        IniWrite("1", CONFIG_INI, "Addons", addonName)
+    } else {
+        gDisabledAddons[addonName] := true
+        menuObj.Uncheck(addonName)
+        IniWrite("0", CONFIG_INI, "Addons", addonName)
     }
 }
 

@@ -15,6 +15,7 @@ SetTitleMatchMode(2)
 LoadLauncherConfig()
 LoadNpcNextId()
 GenerateAddonIncludes()
+LoadAddonEnabledStates()
 
 ; Auto-launch a game instance on startup / re-launch.
 if (gLaunchOnStartup) {
@@ -44,6 +45,16 @@ trayMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
 trayMenu.Add()
 ; trayMenu.Add("Generate NPC`tCtrl+Alt+N", (*) => GenerateNpcEntry())
 trayMenu.Add()
+if gAddonHooks.Length > 0 {
+    addonsMenu := Menu()
+    for _idx, _am in gAddonHooks {
+        _n := _am.Has("name") ? _am["name"] : "<unnamed>"
+        addonsMenu.Add(_n, _ToggleAddon.Bind(_n, addonsMenu))
+        if !gDisabledAddons.Has(_n) || !gDisabledAddons[_n]
+            addonsMenu.Check(_n)
+    }
+    trayMenu.Add("Addons", addonsMenu)
+}
 FireAddonHook("OnTrayMenu", trayMenu)
 trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
 trayMenu.Default := "Launch Game`tCtrl+Alt+L"
