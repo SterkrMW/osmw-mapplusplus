@@ -26,14 +26,14 @@ _WindowLayout_OnTrayMenu(trayMenu) {
     layoutMenu.Add("Apply`tCtrl+Shift+L", (*) => _WindowLayout_ApplyDefaultLayout())
 
     applyMenu := Menu()
-    for name in ["Reset", "Single", "Grid2x2", "CenterFocus"]
+    for name in ["Reset", "Single", "Grid2x2", "Grid3x2", "CenterFocus", "DiceLeft", "DiceRight"]
         applyMenu.Add(name, _WindowLayout_ApplyPreset.Bind(name))
     layoutMenu.Add("Apply Preset", applyMenu)
 
     layoutMenu.Add("Set Main Character...", (*) => _WindowLayout_PromptMainCharacter())
 
     defaultMenu := Menu()
-    for name in ["Reset", "Single", "Grid2x2", "CenterFocus"]
+    for name in ["Reset", "Single", "Grid2x2", "Grid3x2", "CenterFocus", "DiceLeft", "DiceRight"]
         defaultMenu.Add(name, _WindowLayout_SetDefaultLayout.Bind(name))
     try defaultMenu.Check(_WindowLayout_DefaultLayout)
     _WindowLayout_DefaultMenu := defaultMenu
@@ -106,7 +106,7 @@ _WindowLayout_ApplyDefaultLayout() {
 }
 
 _WindowLayout_ApplyPreset(layoutName, *) {
-    static validLayouts := ["Reset", "Single", "Grid2x2", "CenterFocus"]
+    static validLayouts := ["Reset", "Single", "Grid2x2", "Grid3x2", "CenterFocus", "DiceLeft", "DiceRight"]
     found := false
     for n in validLayouts
         if n = layoutName
@@ -152,6 +152,21 @@ _WindowLayout_ComputeSlots(layoutName, winW, winH) {
             {x: ox,        y: oy + winH},
             {x: ox + winW, y: oy + winH}
         ]
+    if layoutName = "Grid3x2" {
+        pad  := 8
+        gridW := 3 * winW + 2 * pad
+        gridH := 2 * winH + pad
+        bx   := ox + Max(0, (sw - gridW) // 2)
+        by   := oy + Max(0, (sh - gridH) // 2)
+        col1 := bx
+        col2 := bx + winW + pad
+        col3 := bx + 2 * (winW + pad)
+        row2 := by + winH + pad
+        return [
+            {x: col1, y: by},   {x: col2, y: by},   {x: col3, y: by},
+            {x: col1, y: row2}, {x: col2, y: row2}, {x: col3, y: row2}
+        ]
+    }
     if layoutName = "CenterFocus"
         return [
             {x: ox + (sw - winW) // 2, y: oy + (sh - winH) // 2},  ; center — main char
@@ -160,6 +175,20 @@ _WindowLayout_ComputeSlots(layoutName, winW, winH) {
             {x: ox,                    y: oy + sh - winH},            ; bottom-left
             {x: ox + sw - winW,        y: oy + sh - winH}             ; bottom-right
         ]
+    if layoutName = "DiceLeft" || layoutName = "DiceRight" {
+        clusterW := 2 * winW
+        bx := (layoutName = "DiceLeft") ? ox : ox + sw - clusterW
+        topY    := oy
+        bottomY := oy + sh - winH
+        centerY := oy + (sh - winH) // 2
+        return [
+            {x: bx + winW // 2, y: centerY},  ; center — main char (drawn on top)
+            {x: bx,             y: topY},     ; top-left
+            {x: bx + winW,      y: topY},     ; top-right
+            {x: bx,             y: bottomY},  ; bottom-left
+            {x: bx + winW,      y: bottomY}   ; bottom-right
+        ]
+    }
     return []
 }
 
