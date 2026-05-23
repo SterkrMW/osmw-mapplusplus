@@ -497,21 +497,29 @@ GetOverlayPositionForGameWindow() {
     global OVERLAY_W, OVERLAY_H, MINIMAP_MAP_INSET
     totalW := OVERLAY_W + 2 * MINIMAP_MAP_INSET
     totalH := OVERLAY_H + 2 * MINIMAP_MAP_INSET
-    ; Center overlay against the active game window when possible.
+
     hwnd := WinActive(GAME_WIN_FILTER)
     if !hwnd {
         hwnd := WinExist(GAME_WIN_FILTER)
     }
 
     if hwnd {
-        WinGetPos(&winX, &winY, &winW, &winH, "ahk_id " hwnd)
+        ; Use the client rect so centering ignores invisible DWM borders,
+        ; the title bar, and DPI-scaled window chrome.
+        rc := Buffer(16, 0)
+        DllCall("user32\GetClientRect", "Ptr", hwnd, "Ptr", rc)
+        clientW := NumGet(rc, 8, "Int")
+        clientH := NumGet(rc, 12, "Int")
+        pt := Buffer(8, 0)
+        DllCall("user32\ClientToScreen", "Ptr", hwnd, "Ptr", pt)
+        clientX := NumGet(pt, 0, "Int")
+        clientY := NumGet(pt, 4, "Int")
         return {
-            x: Floor(winX + ((winW - totalW) / 2)),
-            y: Floor(winY + ((winH - totalH) / 2) + 12)
+            x: Floor(clientX + ((clientW - totalW) / 2)),
+            y: Floor(clientY + ((clientH - totalH) / 2))
         }
     }
 
-    ; Fallback if game window isn't found.
     return {
         x: Floor((A_ScreenWidth - totalW) / 2),
         y: Floor((A_ScreenHeight - totalH) / 2)
