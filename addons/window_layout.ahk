@@ -12,7 +12,8 @@ RegisterAddon(Map(
     "OnInit",     _WindowLayout_OnInit
 ))
 
-^+l:: _WindowLayout_ApplyDefaultLayout()
+^+l:: _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary())
+^+k:: _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex())
 
 _WindowLayout_OnInit() {
     global _WindowLayout_MainCharacter
@@ -25,7 +26,8 @@ _WindowLayout_OnTrayMenu(trayMenu) {
     global _WindowLayout_DefaultLayout, _WindowLayout_DefaultMenu, _WindowLayout_TargetMonitor, _WindowLayout_DisplayMenu
 
     layoutMenu := Menu()
-    layoutMenu.Add("Apply`tCtrl+Shift+L", (*) => _WindowLayout_ApplyDefaultLayout())
+    layoutMenu.Add("Apply (Primary)`tCtrl+Shift+L", (*) => _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary()))
+    layoutMenu.Add("Apply (Secondary)`tCtrl+Shift+K", (*) => _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex()))
 
     applyMenu := Menu()
     for name in ["Reset", "Single", "Grid2x2", "Grid3x2", "CenterFocus", "DiceLeft", "DiceRight"]
@@ -69,7 +71,7 @@ _WindowLayout_SaveConfig() {
 _WindowLayout_PromptMainCharacter() {
     global _WindowLayout_MainCharacter
 
-    if _WindowLayout_GetTopLevelGameWindows().Length = 0
+    if GetTopLevelGameWindows().Length = 0
         return
 
     names := _WindowLayout_GetCharacterNames()
@@ -101,7 +103,7 @@ _WindowLayout_PromptMainCharacter() {
 _WindowLayout_GetCharacterNames() {
     seen  := Map()
     names := []
-    for hwnd in _WindowLayout_GetTopLevelGameWindows() {
+    for hwnd in GetTopLevelGameWindows() {
         title := WinGetTitle("ahk_id " hwnd)
         if RegExMatch(title, "Behemoth:\s+(.+?)\s+ID\b", &m) {
             name := m[1]
@@ -114,12 +116,12 @@ _WindowLayout_GetCharacterNames() {
     return names
 }
 
-_WindowLayout_ApplyDefaultLayout() {
+_WindowLayout_ApplyDefaultLayout(monitorIdx := unset) {
     global _WindowLayout_DefaultLayout
-    _WindowLayout_ApplyPreset(_WindowLayout_DefaultLayout)
+    _WindowLayout_ApplyPreset(_WindowLayout_DefaultLayout, monitorIdx)
 }
 
-_WindowLayout_ApplyPreset(layoutName, *) {
+_WindowLayout_ApplyPreset(layoutName, monitorIdx := unset, *) {
     static validLayouts := ["Reset", "Single", "Grid2x2", "Grid3x2", "CenterFocus", "DiceLeft", "DiceRight"]
     found := false
     for n in validLayouts
@@ -127,11 +129,11 @@ _WindowLayout_ApplyPreset(layoutName, *) {
             found := true
     if !found
         return
-    windows := _WindowLayout_GetTopLevelGameWindows()
+    monIdx := IsSet(monitorIdx) ? monitorIdx : _WindowLayout_ResolveMonitor()
+    windows := FilterWindowsOnMonitor(GetTopLevelGameWindows(), monIdx)
     if (windows.Length = 0)
         return
     ordered := _WindowLayout_OrderWindows(windows)
-    monIdx  := _WindowLayout_ResolveMonitor()
 
     if layoutName = "Reset" {
         MonitorGetWorkArea(monIdx, &wl, &wt)
@@ -206,20 +208,6 @@ _WindowLayout_ComputeSlots(layoutName, winW, winH, monIdx) {
         ]
     }
     return []
-}
-
-_WindowLayout_GetTopLevelGameWindows() {
-    global GAME_WIN_FILTER
-    result := []
-    for hwnd in WinGetList(GAME_WIN_FILTER) {
-        ; Skip child windows and owned popups (chat panel, sub-dialogs, etc.)
-        if DllCall("GetParent", "Ptr", hwnd, "Ptr") != 0
-            continue
-        if DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr") != 0  ; GW_OWNER = 4
-            continue
-        result.Push(hwnd)
-    }
-    return result
 }
 
 _WindowLayout_OrderWindows(windows) {

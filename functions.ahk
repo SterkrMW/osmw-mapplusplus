@@ -630,9 +630,85 @@ SaveGamePathToConfig(path) {
     IniWrite(path, CONFIG_INI, "Launcher", "GamePath")
 }
 
+GetSecondaryMonitorIndex() {
+    primary := MonitorGetPrimary()
+    Loop MonitorGetCount() {
+        if A_Index != primary
+            return A_Index
+    }
+    return primary
+}
+
+ResolveMonitorForHotkey(which) {
+    if (which = "secondary")
+        return GetSecondaryMonitorIndex()
+    return MonitorGetPrimary()
+}
+
+; Returns the monitor index whose bounds contain the window center.
+GetWindowMonitorIndex(hwnd) {
+    WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+    cx := x + w // 2
+    cy := y + h // 2
+    Loop MonitorGetCount() {
+        MonitorGet(A_Index, &ml, &mt, &mr, &mb)
+        if (cx >= ml && cx < mr && cy >= mt && cy < mb)
+            return A_Index
+    }
+    return MonitorGetPrimary()
+}
+
+FilterWindowsOnMonitor(windows, monIdx) {
+    result := []
+    for hwnd in windows {
+        if GetWindowMonitorIndex(hwnd) = monIdx
+            result.Push(hwnd)
+    }
+    return result
+}
+
+GetTopLevelGameWindows() {
+    global GAME_WIN_FILTER
+    result := []
+    for hwnd in WinGetList(GAME_WIN_FILTER) {
+        if DllCall("GetParent", "Ptr", hwnd, "Ptr") != 0
+            continue
+        if DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr") != 0  ; GW_OWNER = 4
+            continue
+        result.Push(hwnd)
+    }
+    return result
+}
+
+WaitForNewGameWindow(beforeHwnds, timeoutMs := 15000) {
+    beforeSet := Map()
+    for hwnd in beforeHwnds
+        beforeSet[hwnd] := true
+    deadline := A_TickCount + timeoutMs
+    while (A_TickCount < deadline) {
+        for hwnd in GetTopLevelGameWindows() {
+            if !beforeSet.Has(hwnd)
+                return hwnd
+        }
+        Sleep 200
+    }
+    return 0
+}
+
+CenterWindowOnMonitor(hwnd, monIdx) {
+    MonitorGetWorkArea(monIdx, &wl, &wt, &wr, &wb)
+    WinGetPos(, , &winW, &winH, "ahk_id " hwnd)
+    sw := wr - wl
+    sh := wb - wt
+    x := wl + (sw - winW) // 2
+    y := wt + (sh - winH) // 2
+    WinMove(x, y, , , "ahk_id " hwnd)
+}
+
 ; Launches a new game client instance.
 ; Uses the game executable's parent directory as the working directory.
-LaunchGameInstance() {
+; monitorWhich: "primary" (default) or "secondary" — centers the new window on that display.
+LaunchGameInstance(monitorWhich := "primary") {
     global gGamePath, gGameArgs
 
     if (gGamePath = "" || !FileExist(gGamePath)) {
@@ -640,6 +716,7 @@ LaunchGameInstance() {
         return
     }
 
+    before := GetTopLevelGameWindows()
     workDir := ""
     SplitPath(gGamePath, , &workDir)
     try {
@@ -648,10 +725,24 @@ LaunchGameInstance() {
         } else {
             Run('"' gGamePath '"', workDir)
         }
-        TrayTip("AHK Minimap", "Game instance launched.", "Iconi")
     } catch as err {
         TrayTip("AHK Minimap", "Failed to launch game:`n" err.Message, "Iconx")
+        return
     }
+
+    monIdx := ResolveMonitorForHotkey(monitorWhich)
+    if (monitorWhich = "secondary" && monIdx = MonitorGetPrimary() && MonitorGetCount() = 1) {
+        TrayTip("AHK Minimap", "Only one display — centering on primary.", "Iconi")
+    }
+
+    hwnd := WaitForNewGameWindow(before)
+    if !hwnd {
+        TrayTip("AHK Minimap", "Game launched but window not detected.", "Iconx")
+        return
+    }
+
+    CenterWindowOnMonitor(hwnd, monIdx)
+    TrayTip("AHK Minimap", "Game instance launched.", "Iconi")
 }
 
 ; Returns the number of windows matching the game process name.

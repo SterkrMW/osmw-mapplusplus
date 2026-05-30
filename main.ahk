@@ -20,7 +20,7 @@ LoadAddonEnabledStates()
 
 ; Auto-launch a game instance on startup / re-launch.
 if (gLaunchOnStartup) {
-    LaunchGameInstance()
+    LaunchGameInstance("primary")
 }
 
 ; ── Startup checks ───────────────────────────────────────────────
@@ -36,7 +36,8 @@ if !FileExist(MARKER_PNG) {
 
 trayMenu := A_TrayMenu
 trayMenu.Delete()
-trayMenu.Add("Launch Game`tCtrl+Alt+L", (*) => LaunchGameInstance())
+trayMenu.Add("Launch Game`tCtrl+Alt+L", (*) => LaunchGameInstance("primary"))
+trayMenu.Add("Launch Game (Secondary)`tCtrl+Alt+K", (*) => LaunchGameInstance("secondary"))
 trayMenu.Add("Set Game Path...", (*) => PromptForGamePath())
 trayMenu.Add()
 FireAddonHook("OnTrayMenu", trayMenu)
@@ -83,7 +84,8 @@ $Tab:: HandleTab()
 ^!r:: Reload()
 ^!q:: ExitApp()
 ^!d:: ShowDebugState()
-^!l:: LaunchGameInstance()
+^!l:: LaunchGameInstance("primary")
+^!k:: LaunchGameInstance("secondary")
 ^!s:: CalibrateSignaturesNow()
 ^!v:: VerifyResolution()
 ; ^!n:: GenerateNpcEntry()
