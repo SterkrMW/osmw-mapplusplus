@@ -53,9 +53,11 @@ if gAddonHooks.Length > 0 {
     trayMenu.Add("Addons", addonsMenu)
 }
 trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
-trayMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
-trayMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
-trayMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
+debugMenu := Menu()
+debugMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
+debugMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
+debugMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
+trayMenu.Add("Debug", debugMenu)
 trayMenu.Add()
 trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
 trayMenu.Default := "Launch Game`tCtrl+Alt+L"
@@ -83,9 +85,10 @@ $Tab:: HandleTab()
 
 ^!r:: Reload()
 ^!q:: ExitApp()
-^!d:: ShowDebugState()
+#HotIf IsGameOrOverlayActive()
 ^!l:: LaunchGameInstance("primary")
 ^!k:: LaunchGameInstance("secondary")
+^!d:: ShowDebugState()
 ^!s:: CalibrateSignaturesNow()
 ^!v:: VerifyResolution()
 ; ^!n:: GenerateNpcEntry()
@@ -93,6 +96,7 @@ $Tab:: HandleTab()
 ^!2:: CaptureCalibrationPoint(2)
 ^!3:: ApplyCalibrationFromPoints()
 ^!4:: ExportCurrentCalibrationToFile()
+#HotIf
 
 ; ── Core handlers ────────────────────────────────────────────────
 

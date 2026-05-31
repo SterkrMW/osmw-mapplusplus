@@ -10,7 +10,9 @@ RegisterAddon(Map(
     "OnTrayMenu", _BattleSend_OnTrayMenu
 ))
 
+#HotIf WinActive(GAME_WIN_FILTER)
 +!q:: _BattleSend_SendToFighting()
+#HotIf
 
 _BattleSend_OnTrayMenu(trayMenu) {
     trayMenu.Add("Send Alt+Q to Fighting`tShift+Alt+Q", (*) => _BattleSend_SendToFighting())

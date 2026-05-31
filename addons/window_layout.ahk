@@ -12,8 +12,10 @@ RegisterAddon(Map(
     "OnInit",     _WindowLayout_OnInit
 ))
 
+#HotIf WinActive(GAME_WIN_FILTER)
 ^+l:: _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary())
 ^+k:: _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex())
+#HotIf
 
 _WindowLayout_OnInit() {
     global _WindowLayout_MainCharacter
@@ -129,7 +131,7 @@ _WindowLayout_ApplyPreset(layoutName, monitorIdx := unset, *) {
             found := true
     if !found
         return
-    monIdx := IsSet(monitorIdx) ? monitorIdx : _WindowLayout_ResolveMonitor()
+    monIdx := (IsSet(monitorIdx) && monitorIdx is Integer) ? monitorIdx : _WindowLayout_ResolveMonitor()
     windows := FilterWindowsOnMonitor(GetTopLevelGameWindows(), monIdx)
     if (windows.Length = 0)
         return

@@ -1,2 +1,4 @@
 # Lite variant — minimap + window layout only.
+chat_toggle.ahk
+inventory_toggle.ahk
 window_layout.ahk
