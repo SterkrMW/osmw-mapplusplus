@@ -8,6 +8,7 @@ SetTitleMatchMode(2)
 
 #Include variables.ahk
 #Include functions.ahk
+#Include settings.ahk
 #Include *i _addons.ahk
 
 ; ── Launcher startup ─────────────────────────────────────────────
@@ -38,20 +39,12 @@ trayMenu := A_TrayMenu
 trayMenu.Delete()
 trayMenu.Add("Launch Game`tCtrl+Alt+L", (*) => LaunchGameInstance("primary"))
 trayMenu.Add("Launch Game (Secondary)`tCtrl+Alt+K", (*) => LaunchGameInstance("secondary"))
-trayMenu.Add("Set Game Path...", (*) => PromptForGamePath())
+trayMenu.Add("Launch Clients + Apply Layout`tCtrl+Alt+5", (*) => LaunchClientsAndApplyLayout())
+trayMenu.Add("Send Enter Until Ready`tCtrl+Alt+E", (*) => SendEnterUntilReady())
 trayMenu.Add()
 FireAddonHook("OnTrayMenu", trayMenu)
 trayMenu.Add()
-if gAddonHooks.Length > 0 {
-    addonsMenu := Menu()
-    for _idx, _am in gAddonHooks {
-        _n := _am.Has("name") ? _am["name"] : "<unnamed>"
-        addonsMenu.Add(_n, _ToggleAddon.Bind(_n, addonsMenu))
-        if !gDisabledAddons.Has(_n) || !gDisabledAddons[_n]
-            addonsMenu.Check(_n)
-    }
-    trayMenu.Add("Addons", addonsMenu)
-}
+trayMenu.Add("Settings…`tCtrl+Alt+,", (*) => ShowSettingsWindow())
 trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
 debugMenu := Menu()
 debugMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
@@ -85,9 +78,12 @@ $Tab:: HandleTab()
 
 ^!r:: Reload()
 ^!q:: ExitApp()
+^!,:: ShowSettingsWindow()
 #HotIf IsGameOrOverlayActive()
 ^!l:: LaunchGameInstance("primary")
 ^!k:: LaunchGameInstance("secondary")
+^!5:: LaunchClientsAndApplyLayout()
+^!e:: SendEnterUntilReady()
 ^!d:: ShowDebugState()
 ^!s:: CalibrateSignaturesNow()
 ^!v:: VerifyResolution()

@@ -31,6 +31,21 @@ global CONFIG_INI := ResolveWritableIniPath("config.ini")
 global gGamePath := ""           ; Resolved path to the game executable.
 global gGameArgs := ""           ; Optional command-line arguments for the game.
 global gLaunchOnStartup := false ; Auto-launch one game instance on minimap startup.
+; Windows "run on login" registry entry (per-user, no admin). The registry is the
+; source of truth for this setting — not config.ini — so it can't drift from the
+; Task Manager Startup tab.
+global STARTUP_RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
+global STARTUP_RUN_NAME := "osMW Maps++"
+global gMultiClientCount := 5    ; How many clients the multi-client launch task starts.
+global gMultiClientDelay := 0    ; Delay (ms) between each client launch in that task.
+; Settings window handle, for the single-instance guard.
+global gSettingsGui := 0
+; Monitor overrides for the "primary"/"secondary" launch targets. 0 = auto:
+; primary follows the OS primary display, secondary picks the first non-primary
+; display. Set to a 1-based monitor index to pin either target — this is how
+; users with more than two displays choose which monitors to use.
+global gPrimaryMonitorOverride := 0
+global gSecondaryMonitorOverride := 0
 
 ; === Caches ===
 ; Calibration: maps\calibration.ini only (one [Section] per map name).

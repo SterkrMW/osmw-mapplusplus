@@ -1,15 +1,15 @@
 #Requires AutoHotkey v2.0
 
-global _WindowLayout_DefaultLayout := "SideBySide"
+global _WindowLayout_DefaultLayout := "Grid2x2"
 global _WindowLayout_MainCharacter  := ""
 global _WindowLayout_TargetMonitor  := 0  ; 0 = primary
-global _WindowLayout_DefaultMenu    := 0
-global _WindowLayout_DisplayMenu    := 0
 
 RegisterAddon(Map(
-    "name",       "WindowLayout",
-    "OnTrayMenu", _WindowLayout_OnTrayMenu,
-    "OnInit",     _WindowLayout_OnInit
+    "name",          "WindowLayout",
+    "settingsLabel", "Window Layout",
+    "OnTrayMenu",    _WindowLayout_OnTrayMenu,
+    "OnSettings",    _WindowLayout_OnSettings,
+    "OnInit",        _WindowLayout_OnInit
 ))
 
 #HotIf WinActive(GAME_WIN_FILTER)
@@ -25,8 +25,8 @@ _WindowLayout_OnInit() {
 }
 
 _WindowLayout_OnTrayMenu(trayMenu) {
-    global _WindowLayout_DefaultLayout, _WindowLayout_DefaultMenu, _WindowLayout_TargetMonitor, _WindowLayout_DisplayMenu
-
+    ; Action items only — configuration (default layout, main character, target
+    ; display) lives in the Settings window's Window Layout tab.
     layoutMenu := Menu()
     layoutMenu.Add("Apply (Primary)`tCtrl+Shift+L", (*) => _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary()))
     layoutMenu.Add("Apply (Secondary)`tCtrl+Shift+K", (*) => _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex()))
@@ -36,24 +36,66 @@ _WindowLayout_OnTrayMenu(trayMenu) {
         applyMenu.Add(name, _WindowLayout_ApplyPreset.Bind(name))
     layoutMenu.Add("Apply Preset", applyMenu)
 
-    layoutMenu.Add("Set Main Character...", (*) => _WindowLayout_PromptMainCharacter())
-
-    defaultMenu := Menu()
-    for name in ["Reset", "Single", "Grid2x2", "Grid3x2", "CenterFocus", "DiceLeft", "DiceRight"]
-        defaultMenu.Add(name, _WindowLayout_SetDefaultLayout.Bind(name))
-    try defaultMenu.Check(_WindowLayout_DefaultLayout)
-    _WindowLayout_DefaultMenu := defaultMenu
-    layoutMenu.Add("Set Default", defaultMenu)
-
-    displayMenu := Menu()
-    displayMenu.Add(_WindowLayout_DisplayLabel(0), _WindowLayout_SetTargetMonitor.Bind(0))
-    Loop MonitorGetCount()
-        displayMenu.Add(_WindowLayout_DisplayLabel(A_Index), _WindowLayout_SetTargetMonitor.Bind(A_Index))
-    try displayMenu.Check(_WindowLayout_DisplayLabel(_WindowLayout_TargetMonitor))
-    _WindowLayout_DisplayMenu := displayMenu
-    layoutMenu.Add("Set Display", displayMenu)
-
     trayMenu.Add("Window Layout", layoutMenu)
+}
+
+; Contributes the Window Layout tab to the Settings window. ctx = { gui, tab,
+; saveHandlers }; the core has already selected this addon's tab and added a
+; Section anchor, so controls position with xs/ys.
+_WindowLayout_OnSettings(ctx) {
+    global _WindowLayout_DefaultLayout, _WindowLayout_MainCharacter, _WindowLayout_TargetMonitor
+
+    g := ctx.gui
+    presets := ["Reset", "Single", "Grid2x2", "Grid3x2", "CenterFocus", "DiceLeft", "DiceRight"]
+
+    g.Add("Text", "xs y+16 w130", "Default layout:")
+    layoutDdl := g.Add("DropDownList", "x+10 yp-3 w200", presets)
+    layoutDdl.Value := _WindowLayout_IndexOf(presets, _WindowLayout_DefaultLayout, 3)  ; default Grid2x2
+
+    ; Main character — seed the combo with any currently-detected names plus the
+    ; saved value, but allow free text so it can be set with no game windows open.
+    names := _WindowLayout_GetCharacterNames()
+    if (_WindowLayout_MainCharacter != "" && !_WindowLayout_ArrayHas(names, _WindowLayout_MainCharacter))
+        names.InsertAt(1, _WindowLayout_MainCharacter)
+    g.Add("Text", "xs y+14 w130", "Main character:")
+    charCombo := g.Add("ComboBox", "x+10 yp-3 w200", names)
+    charCombo.Text := _WindowLayout_MainCharacter
+
+    g.Add("Text", "xs y+14 w130", "Target display:")
+    monChoices := ["Primary (auto)"]
+    Loop MonitorGetCount()
+        monChoices.Push(_WindowLayout_DisplayLabel(A_Index))
+    displayDdl := g.Add("DropDownList", "x+10 yp-3 w220", monChoices)
+    displayDdl.Value := (_WindowLayout_TargetMonitor >= 1 && _WindowLayout_TargetMonitor <= MonitorGetCount())
+        ? _WindowLayout_TargetMonitor + 1 : 1
+
+    ctx.saveHandlers.Push(() => _WindowLayout_ApplySettings(
+        presets[layoutDdl.Value], Trim(charCombo.Text),
+        (displayDdl.Value <= 1) ? 0 : displayDdl.Value - 1))
+}
+
+; Persists the values chosen in the Settings window's Window Layout tab.
+_WindowLayout_ApplySettings(layout, mainChar, targetMonitor) {
+    global _WindowLayout_DefaultLayout, _WindowLayout_MainCharacter, _WindowLayout_TargetMonitor
+    _WindowLayout_DefaultLayout := layout
+    _WindowLayout_MainCharacter := mainChar
+    _WindowLayout_TargetMonitor := targetMonitor
+    _WindowLayout_SaveConfig()
+}
+
+; 1-based position of needle in arr, or fallbackIdx when not present.
+_WindowLayout_IndexOf(arr, needle, fallbackIdx) {
+    for i, v in arr
+        if (v = needle)
+            return i
+    return fallbackIdx
+}
+
+_WindowLayout_ArrayHas(arr, needle) {
+    for v in arr
+        if (v = needle)
+            return true
+    return false
 }
 
 _WindowLayout_LoadConfig() {
@@ -242,28 +284,6 @@ _WindowLayout_ActivateMainCharacter(ordered) {
     title := WinGetTitle("ahk_id " ordered[1])
     if InStr(title, _WindowLayout_MainCharacter, false)
         WinActivate("ahk_id " ordered[1])
-}
-
-_WindowLayout_SetDefaultLayout(name, *) {
-    global _WindowLayout_DefaultLayout, _WindowLayout_DefaultMenu
-    prev := _WindowLayout_DefaultLayout
-    _WindowLayout_DefaultLayout := name
-    _WindowLayout_SaveConfig()
-    if IsObject(_WindowLayout_DefaultMenu) {
-        try _WindowLayout_DefaultMenu.Uncheck(prev)
-        try _WindowLayout_DefaultMenu.Check(name)
-    }
-}
-
-_WindowLayout_SetTargetMonitor(idx, *) {
-    global _WindowLayout_TargetMonitor, _WindowLayout_DisplayMenu
-    prev := _WindowLayout_TargetMonitor
-    _WindowLayout_TargetMonitor := idx
-    _WindowLayout_SaveConfig()
-    if IsObject(_WindowLayout_DisplayMenu) {
-        try _WindowLayout_DisplayMenu.Uncheck(_WindowLayout_DisplayLabel(prev))
-        try _WindowLayout_DisplayMenu.Check(_WindowLayout_DisplayLabel(idx))
-    }
 }
 
 _WindowLayout_DisplayLabel(idx) {

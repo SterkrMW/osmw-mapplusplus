@@ -48,7 +48,7 @@ $ReleasesDir   = Join-Path $RepoRoot 'releases'
 $MainScript    = Join-Path $RepoRoot 'main.ahk'
 $AddonsInclude = Join-Path $RepoRoot '_addons.ahk'
 $MarkerPng     = Join-Path $RepoRoot 'marker.png'
-$MapDir        = Join-Path $RepoRoot 'map'
+$MapDir        = Join-Path $RepoRoot 'maps'
 
 function Resolve-Ahk2Exe {
     param([string] $Override)

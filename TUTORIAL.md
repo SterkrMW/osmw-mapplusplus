@@ -92,14 +92,22 @@ Right-click the tray icon for the main menu:
 |------|---------|
 | **Launch Game** | Start a client on the primary monitor |
 | **Launch Game (Secondary)** | Start a client on the secondary monitor |
-| **Set Game Path…** | Point Maps++ at your `main.exe` |
-| **Window Layout** | Arrange multiple game windows (Full / Lite) |
+| **Window Layout** | Apply window arrangements (Full / Lite) |
 | **Chat** | Chat panel shortcuts (Full / Battle) |
 | **Inventory** | Open inventory shortcuts (Full only) |
 | **Send Alt+Q to Fighting** | Battle command helper (Full / Battle) |
-| **Addons** | Enable or disable individual addons |
+| **Settings…** | Open the settings window (game path, launcher, monitors, Window Layout, addons) |
 | **Reload** | Restart Maps++ (picks up config changes) |
 | **Exit** | Quit the app |
+
+All configuration now lives in **Settings…** (or **Ctrl+Alt+,**): game path and arguments,
+**start Maps++ automatically when Windows starts**, launch-a-client-on-startup, multi-client
+count/delay, primary/secondary monitors, the Window Layout defaults, and enabling/disabling
+addons. The tray keeps only the quick **actions**.
+
+> **Run on Windows start-up** is a per-user setting (no admin needed). When enabled, Maps++
+> registers itself to launch at login; disabling removes that entry. You can also remove it
+> from **Task Manager → Startup apps** — the checkbox reflects the real state either way.
 
 ---
 
@@ -115,6 +123,7 @@ Global shortcuts work while the game or minimap overlay is focused.
 | **Right-click** | Close minimap (while overlay is open) |
 | **Ctrl+Alt+L** | Launch game on primary monitor |
 | **Ctrl+Alt+K** | Launch game on secondary monitor |
+| **Ctrl+Alt+,** | Open the Settings window |
 | **Ctrl+Alt+R** | Reload Maps++ |
 | **Ctrl+Alt+Q** | Exit Maps++ |
 
@@ -127,12 +136,14 @@ Arranges all open game windows on one monitor. Window **size is never changed**�
 | **Ctrl+Shift+L** | Apply your default layout on the **primary** monitor |
 | **Ctrl+Shift+K** | Apply your default layout on the **secondary** monitor |
 
-**Tray → Window Layout** also offers:
+**Tray → Window Layout** offers one-time **Apply Preset** layouts: Reset, Single, Grid2x2,
+Grid3x2, CenterFocus, DiceLeft, DiceRight.
 
-- **Apply Preset** — one-time layouts: Reset, Single, Grid2x2, Grid3x2, CenterFocus, DiceLeft, DiceRight
-- **Set Default** — choose which preset **Ctrl+Shift+L/K** uses
-- **Set Main Character** — pick which character’s window is centered or brought to front
-- **Set Display** — which monitor presets target when you have multiple screens
+The Window Layout **configuration** lives in **Settings… → Window Layout**:
+
+- **Default layout** — which preset **Ctrl+Shift+L/K** uses
+- **Main character** — which character’s window is centered or brought to front
+- **Target display** — which monitor presets target when you have multiple screens
 
 **Layout presets at a glance:**
 
@@ -183,6 +194,8 @@ Common settings:
 GamePath=C:\Path\To\Your\main.exe
 GameArgs=
 LaunchOnStartup=0
+PrimaryMonitor=0
+SecondaryMonitor=0
 
 [WindowLayout]
 DefaultLayout=Grid2x2
@@ -201,6 +214,8 @@ InventoryToggle=1
 | `GamePath` | Full path to `main.exe` |
 | `GameArgs` | Extra command-line arguments passed when launching the game |
 | `LaunchOnStartup` | `1` = launch a game client when Maps++ starts |
+| `PrimaryMonitor` | Display for **Ctrl+Alt+L**. `0` = OS primary; `1`, `2`, … = specific display |
+| `SecondaryMonitor` | Display for **Ctrl+Alt+K**. `0` = first non-primary; `1`, `2`, … = specific display |
 | `DefaultLayout` | Preset used by **Ctrl+Shift+L/K** |
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |
@@ -256,6 +271,10 @@ The `maps\` folder must sit next to `mapsplusplus.exe`. Re-extract the full rele
 ### Only one monitor / secondary launch centers on primary
 
 With a single display, **Ctrl+Alt+K** still launches a client but centers it on the only monitor available.
+
+### More than two monitors / wrong displays used
+
+By default **Ctrl+Alt+L** uses your OS primary display and **Ctrl+Alt+K** uses the first non-primary one. If you have three or more screens and want different ones, set `PrimaryMonitor` and `SecondaryMonitor` in `config.ini` to the 1-based display index you want (e.g. `SecondaryMonitor=3`), then **Reload**. An index that isn't currently connected falls back to the default behaviour.
 
 ---
 

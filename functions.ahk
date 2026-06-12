@@ -571,7 +571,8 @@ EnsureMarkerControl() {
 ; Resolves the game executable path.
 ; Priority: A_ScriptDir\main.exe → config.ini GamePath → file picker prompt.
 LoadLauncherConfig() {
-    global gGamePath, gGameArgs, gLaunchOnStartup, CONFIG_INI, PROCESS_EXE
+    global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay, CONFIG_INI, PROCESS_EXE
+    global gPrimaryMonitorOverride, gSecondaryMonitorOverride
 
     ; 1. Check for main.exe next to the script (same directory install).
     localExe := A_ScriptDir "\" PROCESS_EXE
@@ -592,6 +593,21 @@ LoadLauncherConfig() {
         if (startupVal != "__MISSING__") {
             gLaunchOnStartup := (startupVal = "1")
         }
+        cnt := Trim(IniRead(CONFIG_INI, "Launcher", "MultiClientCount", "5"))
+        if (IsInteger(cnt) && Integer(cnt) >= 1)
+            gMultiClientCount := Integer(cnt)
+        dly := Trim(IniRead(CONFIG_INI, "Launcher", "MultiClientDelay", "0"))
+        if (IsInteger(dly) && Integer(dly) >= 0)
+            gMultiClientDelay := Integer(dly)
+        ; Monitor overrides (0 = auto). Validation against the live monitor count
+        ; happens at resolve time so a display that is temporarily disconnected
+        ; doesn't permanently discard the user's choice.
+        primMon := Trim(IniRead(CONFIG_INI, "Launcher", "PrimaryMonitor", "0"))
+        if (IsInteger(primMon) && Integer(primMon) >= 0)
+            gPrimaryMonitorOverride := Integer(primMon)
+        secMon := Trim(IniRead(CONFIG_INI, "Launcher", "SecondaryMonitor", "0"))
+        if (IsInteger(secMon) && Integer(secMon) >= 0)
+            gSecondaryMonitorOverride := Integer(secMon)
     }
 
     ; 3. Still no path — ask the user to locate it.
@@ -624,6 +640,38 @@ PromptForGamePath() {
     TrayTip("AHK Minimap", "Game path set:`n" selected, "Iconi")
 }
 
+; The command Windows runs at login to start Maps++. For a compiled build that's
+; just the exe; for a loose script it's the AutoHotkey interpreter plus the script.
+GetStartupCommand() {
+    if A_IsCompiled
+        return '"' A_ScriptFullPath '"'
+    return '"' A_AhkPath '" "' A_ScriptFullPath '"'
+}
+
+; True when the per-user "run on login" registry value exists.
+IsRunOnStartupEnabled() {
+    global STARTUP_RUN_KEY, STARTUP_RUN_NAME
+    try {
+        RegRead(STARTUP_RUN_KEY, STARTUP_RUN_NAME)
+        return true
+    }
+    return false
+}
+
+; Enables or disables launching Maps++ when Windows starts. Enabling (re)writes
+; the value to the current executable path, so it survives the app being moved.
+SetRunOnStartup(enabled) {
+    global STARTUP_RUN_KEY, STARTUP_RUN_NAME
+    try {
+        if (enabled)
+            RegWrite(GetStartupCommand(), "REG_SZ", STARTUP_RUN_KEY, STARTUP_RUN_NAME)
+        else if IsRunOnStartupEnabled()
+            RegDelete(STARTUP_RUN_KEY, STARTUP_RUN_NAME)
+    } catch as err {
+        TrayTip("AHK Minimap", "Could not update Windows startup setting:`n" err.Message, "Iconx")
+    }
+}
+
 ; Persists the game executable path into config.ini.
 SaveGamePathToConfig(path) {
     global CONFIG_INI
@@ -640,8 +688,17 @@ GetSecondaryMonitorIndex() {
 }
 
 ResolveMonitorForHotkey(which) {
-    if (which = "secondary")
+    global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    count := MonitorGetCount()
+    if (which = "secondary") {
+        ; Honor a pinned secondary display when it is currently connected;
+        ; otherwise fall back to the first non-primary monitor.
+        if (gSecondaryMonitorOverride >= 1 && gSecondaryMonitorOverride <= count)
+            return gSecondaryMonitorOverride
         return GetSecondaryMonitorIndex()
+    }
+    if (gPrimaryMonitorOverride >= 1 && gPrimaryMonitorOverride <= count)
+        return gPrimaryMonitorOverride
     return MonitorGetPrimary()
 }
 
@@ -743,6 +800,168 @@ LaunchGameInstance(monitorWhich := "primary") {
 
     CenterWindowOnMonitor(hwnd, monIdx)
     TrayTip("AHK Minimap", "Game instance launched.", "Iconi")
+}
+
+; Returns the Func object for a globally-defined function name, or "" when no
+; such function exists in this build. Used so core code can call into an addon
+; (e.g. WindowLayout) without a static reference that would break variants that
+; don't bundle that addon. The dynamic deref avoids load-time #Warn noise.
+GetFuncByName(name) {
+    try
+        return %name%
+    catch
+        return ""
+}
+
+; Launches game client instances, then arranges them on the target monitor using
+; the WindowLayout addon's current default layout. Each new window is centered on
+; the target monitor as it appears so the layout pass (which only arranges windows
+; on that monitor) picks them all up. In variants without the WindowLayout addon
+; the clients are still launched and centered on the primary display — only the
+; layout pass is skipped.
+; count: number of clients (defaults to the configured gMultiClientCount).
+LaunchClientsAndApplyLayout(count := 0) {
+    global gGamePath, gGameArgs, gMultiClientCount, gMultiClientDelay
+
+    if (count < 1)
+        count := gMultiClientCount
+
+    if (gGamePath = "" || !FileExist(gGamePath)) {
+        TrayTip("AHK Minimap", "Game path not configured or file missing.`nUse tray menu → Set Game Path.", "Iconx")
+        return
+    }
+
+    workDir := ""
+    SplitPath(gGamePath, , &workDir)
+    resolveFn := GetFuncByName("_WindowLayout_ResolveMonitor")
+    monIdx := resolveFn ? resolveFn() : MonitorGetPrimary()
+
+    ; Snapshot existing windows, then fire the launches so the clients' startup
+    ; time overlaps instead of being serialized one-wait-per-client. An optional
+    ; per-launch delay paces the burst for games that dislike simultaneous starts.
+    before := Map()
+    for hwnd in GetTopLevelGameWindows()
+        before[hwnd] := true
+
+    launchCmd := (gGameArgs != "") ? '"' gGamePath '" ' gGameArgs : '"' gGamePath '"'
+    started := 0
+    Loop count {
+        try {
+            Run(launchCmd, workDir)
+            started++
+        } catch as err {
+            TrayTip("AHK Minimap", "Failed to launch game:`n" err.Message, "Iconx")
+            break
+        }
+        if (A_Index < count && gMultiClientDelay > 0)
+            Sleep gMultiClientDelay
+    }
+    if (started = 0)
+        return
+
+    ; Collect new windows as they appear, centering each onto the target monitor
+    ; once so the layout pass picks them all up.
+    seen := Map()
+    launched := []
+    deadline := A_TickCount + 20000
+    while (launched.Length < started && A_TickCount < deadline) {
+        for hwnd in GetTopLevelGameWindows() {
+            if before.Has(hwnd) || seen.Has(hwnd)
+                continue
+            seen[hwnd] := true
+            CenterWindowOnMonitor(hwnd, monIdx)
+            launched.Push(hwnd)
+        }
+        if (launched.Length < started)
+            Sleep 100
+    }
+
+    if (launched.Length = 0) {
+        TrayTip("AHK Minimap", "No new game windows detected.", "Iconx")
+        return
+    }
+
+    applyFn := GetFuncByName("_WindowLayout_ApplyDefaultLayout")
+    if applyFn {
+        applyFn(monIdx)
+        TrayTip("AHK Minimap", launched.Length " client(s) launched and arranged.", "Iconi")
+    } else {
+        TrayTip("AHK Minimap", launched.Length " client(s) launched and centered.", "Iconi")
+    }
+}
+
+; Persists all [Launcher] settings into config.ini from the current globals.
+SaveLauncherConfig() {
+    global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
+    global gPrimaryMonitorOverride, gSecondaryMonitorOverride, CONFIG_INI
+    IniWrite(gGamePath, CONFIG_INI, "Launcher", "GamePath")
+    IniWrite(gGameArgs, CONFIG_INI, "Launcher", "GameArgs")
+    IniWrite(gLaunchOnStartup ? "1" : "0", CONFIG_INI, "Launcher", "LaunchOnStartup")
+    IniWrite(gMultiClientCount, CONFIG_INI, "Launcher", "MultiClientCount")
+    IniWrite(gMultiClientDelay, CONFIG_INI, "Launcher", "MultiClientDelay")
+    IniWrite(gPrimaryMonitorOverride, CONFIG_INI, "Launcher", "PrimaryMonitor")
+    IniWrite(gSecondaryMonitorOverride, CONFIG_INI, "Launcher", "SecondaryMonitor")
+}
+
+; Reads the game-state integer from a specific window's process.
+; stateRva: the resolved RVA of GAME_STATE_OFFSET (same across instances of one build).
+; Returns the state value, or -1 if the process or memory could not be read.
+ReadGameStateForWindow(hwnd, stateRva) {
+    pid := 0
+    try pid := WinGetPID("ahk_id " hwnd)
+    if !pid
+        return -1
+    handle := DllCall("OpenProcess", "UInt", 0x0010 | 0x0400, "Int", 0, "UInt", pid, "Ptr")
+    if !handle
+        return -1
+    result := -1
+    modBase := GetModuleBaseAddress(handle, PROCESS_EXE)
+    if modBase {
+        buf := Buffer(4, 0)
+        ok := DllCall("ReadProcessMemory",
+            "Ptr", handle,
+            "Ptr", modBase + stateRva,
+            "Ptr", buf.Ptr,
+            "UPtr", 4, "UPtr*", 0, "Int")
+        if ok
+            result := NumGet(buf, 0, "Int")
+    }
+    DllCall("CloseHandle", "Ptr", handle)
+    return result
+}
+
+; Sends Enter to each game client whose game state is below GAME_STATE_READY,
+; repeating until every client reaches that state (or a timeout fires). Used to
+; click through intro/login prompts on freshly launched clients.
+SendEnterUntilReady() {
+    SetKeyDelay 0, 100
+    static GAME_STATE_READY := 5
+    rva := GetResolvedOffset("GAME_STATE_OFFSET")
+    deadline := A_TickCount + 30000
+
+    Loop {
+        windows := GetTopLevelGameWindows()
+        if (windows.Length = 0) {
+            TrayTip("AHK Minimap", "No game windows found.", "Iconx")
+            return
+        }
+        pending := 0
+        for hwnd in windows {
+            state := ReadGameStateForWindow(hwnd, rva)
+            if (state < 0 || state >= GAME_STATE_READY)  ; read failed or already ready
+                continue
+            pending++
+            try ControlSend("{Enter}", , "ahk_id " hwnd)
+        }
+        if (pending = 0)
+            break
+        if (A_TickCount >= deadline) {
+            TrayTip("AHK Minimap", "Timed out — " pending " client(s) still not ready.", "Iconx")
+            return
+        }
+        Sleep 100
+    }
+    TrayTip("AHK Minimap", "All clients ready (game state " GAME_STATE_READY "+).", "Iconi")
 }
 
 ; Returns the number of windows matching the game process name.
@@ -1510,15 +1729,17 @@ LoadAddonEnabledStates() {
     }
 }
 
-_ToggleAddon(addonName, menuObj, *) {
+; Sets an addon's enabled state and persists it to config.ini.
+; Enable/disable takes effect live for hook dispatch (FireAddonHook reads
+; gDisabledAddons each fire); already-registered hotkeys persist until Reload.
+SetAddonEnabled(addonName, enabled) {
     global gDisabledAddons, CONFIG_INI
-    if gDisabledAddons.Has(addonName) && gDisabledAddons[addonName] {
-        gDisabledAddons.Delete(addonName)
-        menuObj.Check(addonName)
+    if (enabled) {
+        if gDisabledAddons.Has(addonName)
+            gDisabledAddons.Delete(addonName)
         IniWrite("1", CONFIG_INI, "Addons", addonName)
     } else {
         gDisabledAddons[addonName] := true
-        menuObj.Uncheck(addonName)
         IniWrite("0", CONFIG_INI, "Addons", addonName)
     }
 }
