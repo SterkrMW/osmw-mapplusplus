@@ -56,6 +56,11 @@ trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
 trayMenu.Default := "Launch Game`tCtrl+Alt+L"
 A_IconTip := "osMW Maps++"
 
+; ── Startup notification ─────────────────────────────────────────
+
+Sleep(100)  ; let Windows register the tray icon before showing toast
+TrayTip("osMW Maps++ is running", "Press Tab in-game to open the minimap overlay.", "Iconi")
+
 ; ── Timers ───────────────────────────────────────────────────────
 
 SetTimer(UpdateMapState, 250)
