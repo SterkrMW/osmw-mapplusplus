@@ -4,8 +4,11 @@
 
 GetGameProcessId() {
     global gTrackedGameHwnd
-    if WinActive(GAME_WIN_FILTER) {
-        return WinGetPID("A")
+    ; Prefer the HWND WinActive already returned — never use "A", which can
+    ; vanish between the check and WinGetPID during Alt-Tab / focus changes.
+    activeHwnd := WinActive(GAME_WIN_FILTER)
+    if activeHwnd {
+        try return WinGetPID("ahk_id " activeHwnd)
     }
     if (gTrackedGameHwnd && WinExist("ahk_id " gTrackedGameHwnd)) {
         ; Validate the tracked HWND still belongs to PROCESS_EXE.
