@@ -1,4 +1,5 @@
 # Lite variant — minimap + window layout only.
 chat_toggle.ahk
+discord_rpc.ahk
 inventory_toggle.ahk
 window_layout.ahk

@@ -1,5 +1,6 @@
 # Full variant — all addons bundled.
 battle_send.ahk
 chat_toggle.ahk
+discord_rpc.ahk
 inventory_toggle.ahk
 window_layout.ahk
