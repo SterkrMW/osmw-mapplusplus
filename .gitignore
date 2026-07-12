@@ -5,3 +5,5 @@ config.ini
 /releases
 _addons.ahk
 addons/chat_toggle.ahk
+/docs/superpowers
+/.superpowers

@@ -10,12 +10,18 @@ RegisterAddon(Map(
     "OnTrayMenu", _BattleSend_OnTrayMenu
 ))
 
-#HotIf WinActive(GAME_WIN_FILTER)
-+!q:: _BattleSend_SendToFighting()
-#HotIf
+RegisterHotkeyAction(Map(
+    "id", "battleSend",
+    "label", "Send Alt+Q to fighting clients",
+    "category", "Battle",
+    "default", "+!q",
+    "addon", "BattleSend",
+    "handler", _BattleSend_SendToFighting,
+    "hotIfWinActive", true
+))
 
 _BattleSend_OnTrayMenu(trayMenu) {
-    trayMenu.Add("Send Alt+Q to Fighting`tShift+Alt+Q", (*) => _BattleSend_SendToFighting())
+    trayMenu.Add("Send Alt+Q to Fighting`t" GetHotkeyDisplay("battleSend"), (*) => _BattleSend_SendToFighting())
 }
 
 _BattleSend_SendToFighting() {

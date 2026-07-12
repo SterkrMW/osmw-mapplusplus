@@ -12,10 +12,24 @@ RegisterAddon(Map(
     "OnInit",        _WindowLayout_OnInit
 ))
 
-#HotIf WinActive(GAME_WIN_FILTER)
-^+l:: _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary())
-^+k:: _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex())
-#HotIf
+RegisterHotkeyAction(Map(
+    "id", "windowLayoutPrimary",
+    "label", "Apply default layout (primary monitor)",
+    "category", "Window Layout",
+    "default", "^+l",
+    "addon", "WindowLayout",
+    "handler", (*) => _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary()),
+    "hotIfWinActive", true
+))
+RegisterHotkeyAction(Map(
+    "id", "windowLayoutSecondary",
+    "label", "Apply default layout (secondary monitor)",
+    "category", "Window Layout",
+    "default", "^+k",
+    "addon", "WindowLayout",
+    "handler", (*) => _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex()),
+    "hotIfWinActive", true
+))
 
 _WindowLayout_OnInit() {
     global _WindowLayout_MainCharacter
@@ -28,8 +42,8 @@ _WindowLayout_OnTrayMenu(trayMenu) {
     ; Action items only — configuration (default layout, main character, target
     ; display) lives in the Settings window's Window Layout tab.
     layoutMenu := Menu()
-    layoutMenu.Add("Apply (Primary)`tCtrl+Shift+L", (*) => _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary()))
-    layoutMenu.Add("Apply (Secondary)`tCtrl+Shift+K", (*) => _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex()))
+    layoutMenu.Add("Apply (Primary)`t" GetHotkeyDisplay("windowLayoutPrimary"), (*) => _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary()))
+    layoutMenu.Add("Apply (Secondary)`t" GetHotkeyDisplay("windowLayoutSecondary"), (*) => _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex()))
 
     applyMenu := Menu()
     for name in ["Reset", "Single", "Grid2x2", "Grid3x2", "CenterFocus", "DiceLeft", "DiceRight"]

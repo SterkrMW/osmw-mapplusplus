@@ -9,6 +9,7 @@ SetTitleMatchMode(2)
 #Include variables.ahk
 #Include functions.ahk
 #Include settings.ahk
+#Include hotkeys.ahk
 #Include *i _addons.ahk
 
 ; ── Launcher startup ─────────────────────────────────────────────
@@ -18,6 +19,8 @@ LoadNpcNextId()
 if !A_IsCompiled
     GenerateAddonIncludes()
 LoadAddonEnabledStates()
+RegisterCoreHotkeyActions()
+LoadHotkeyOverrides()
 
 ; Auto-launch a game instance on startup / re-launch.
 if (gLaunchOnStartup) {
@@ -35,26 +38,7 @@ if !FileExist(MARKER_PNG) {
 
 ; ── Tray menu ────────────────────────────────────────────────────
 
-trayMenu := A_TrayMenu
-trayMenu.Delete()
-trayMenu.Add("Launch Game`tCtrl+Alt+L", (*) => LaunchGameInstance("primary"))
-trayMenu.Add("Launch Game (Secondary)`tCtrl+Alt+K", (*) => LaunchGameInstance("secondary"))
-trayMenu.Add("Launch Clients + Apply Layout`tCtrl+Alt+5", (*) => LaunchClientsAndApplyLayout())
-trayMenu.Add("Send Enter Until Ready`tCtrl+Alt+E", (*) => SendEnterUntilReady())
-trayMenu.Add()
-FireAddonHook("OnTrayMenu", trayMenu)
-trayMenu.Add()
-trayMenu.Add("Settings…`tCtrl+Alt+,", (*) => ShowSettingsWindow())
-trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
-debugMenu := Menu()
-debugMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
-debugMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
-debugMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
-trayMenu.Add("Debug", debugMenu)
-trayMenu.Add()
-trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
-trayMenu.Default := "Launch Game`tCtrl+Alt+L"
-A_IconTip := "osMW Maps++"
+RebuildTrayMenu()
 
 ; ── Startup notification ─────────────────────────────────────────
 
@@ -69,26 +53,12 @@ SetTimer(UpdateMarkerPosition, 0)
 SetTimer(CloseOverlayIfFocusLeftGame, 100)
 OnExit((*) => ReleaseCachedProcessHandle())
 FireAddonHook("OnInit")
+ApplyAllHotkeys()
 
-; ── Hotkeys ──────────────────────────────────────────────────────
-
-#HotIf gOverlayVisible && IsGameOrOverlayActive()
-$Tab:: CloseOverlay()
-$RButton:: CloseOverlay()
-#HotIf
-
-#HotIf WinActive(GAME_WIN_FILTER) && gCanOverride && !gOverlayVisible && IsMinimapAllowed()
-$Tab:: HandleTab()
-#HotIf
+; ── Fixed hotkeys (not rebindable) ───────────────────────────────
 
 ^!r:: Reload()
 ^!q:: ExitApp()
-^!,:: ShowSettingsWindow()
-#HotIf IsGameOrOverlayActive()
-^!l:: LaunchGameInstance("primary")
-^!k:: LaunchGameInstance("secondary")
-^!5:: LaunchClientsAndApplyLayout()
-^!e:: SendEnterUntilReady()
 ^!d:: ShowDebugState()
 ^!s:: CalibrateSignaturesNow()
 ^!v:: VerifyResolution()
@@ -97,9 +67,31 @@ $Tab:: HandleTab()
 ^!2:: CaptureCalibrationPoint(2)
 ^!3:: ApplyCalibrationFromPoints()
 ^!4:: ExportCurrentCalibrationToFile()
-#HotIf
 
 ; ── Core handlers ────────────────────────────────────────────────
+
+RebuildTrayMenu() {
+    trayMenu := A_TrayMenu
+    trayMenu.Delete()
+    trayMenu.Add("Launch Game`t" GetHotkeyDisplay("launchPrimary"), (*) => LaunchGameInstance("primary"))
+    trayMenu.Add("Launch Game (Secondary)`t" GetHotkeyDisplay("launchSecondary"), (*) => LaunchGameInstance("secondary"))
+    trayMenu.Add("Launch Clients + Apply Layout`t" GetHotkeyDisplay("launchClientsLayout"), (*) => LaunchClientsAndApplyLayout())
+    trayMenu.Add("Send Enter Until Ready`t" GetHotkeyDisplay("sendEnterUntilReady"), (*) => SendEnterUntilReady())
+    trayMenu.Add()
+    FireAddonHook("OnTrayMenu", trayMenu)
+    trayMenu.Add()
+    trayMenu.Add("Settings…`t" GetHotkeyDisplay("openSettings"), (*) => ShowSettingsWindow())
+    trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
+    debugMenu := Menu()
+    debugMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
+    debugMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
+    debugMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
+    trayMenu.Add("Debug", debugMenu)
+    trayMenu.Add()
+    trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
+    trayMenu.Default := "Launch Game`t" GetHotkeyDisplay("launchPrimary")
+    A_IconTip := "osMW Maps++"
+}
 
 HandleTab() {
     if gOverlayVisible {

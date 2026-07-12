@@ -33,10 +33,11 @@ _Settings_Build() {
         }
     }
 
-    tabNames := ["Launcher"]
+    tabNames := ["Launcher", "Hotkeys"]
     for c in contributors
         tabNames.Push(c.label)
     tabNames.Push("Addons")
+    hotkeysTabIndex := 2
     addonsTabIndex := tabNames.Length
 
     g := Gui("+AlwaysOnTop -MinimizeBox", "osMW Maps++ — Settings")
@@ -44,7 +45,7 @@ _Settings_Build() {
     g.OnEvent("Close", (*) => _Settings_Close())
     g.OnEvent("Escape", (*) => _Settings_Close())
 
-    tab := g.Add("Tab3", "w470 h330", tabNames)
+    tab := g.Add("Tab3", "w470 h520", tabNames)
     ; Absolute top-left of each tab's content area. Every tab's FIRST control must
     ; anchor here: xp/yp would reference the previous tab's last control (which
     ; sits at the bottom), so switching tabs alone does not reset the cursor.
@@ -81,11 +82,17 @@ _Settings_Build() {
     secondaryDdl := g.Add("DropDownList", "x+10 yp-3 w220", _Settings_MonitorChoices())
     secondaryDdl.Value := _Settings_MonitorIndexToChoice(gSecondaryMonitorOverride)
 
+    secondaryDdl.Value := _Settings_MonitorIndexToChoice(gSecondaryMonitorOverride)
+
+    ; ---- Hotkeys tab ----
+    tab.UseTab(hotkeysTabIndex)
+    hotkeyRows := _Settings_BuildHotkeysTab(g, contentX, contentY)
+
     ; ---- Addon-contributed tabs ----
     saveHandlers := []
     ctx := { gui: g, tab: tab, saveHandlers: saveHandlers }
     for i, c in contributors {
-        tab.UseTab(1 + i)
+        tab.UseTab(2 + i)
         ; Section anchor (absolute) so addons position with xs/ys, never tab-relative coords.
         g.Add("Text", "x" contentX " y" contentY " Section w0 h0")
         try {
@@ -111,8 +118,8 @@ _Settings_Build() {
 
     ; ---- Buttons ----
     tab.UseTab()
-    g.Add("Button", "x291 y348 w90 Default", "OK").OnEvent("Click", DoSave)
-    g.Add("Button", "x389 y348 w90", "Cancel").OnEvent("Click", (*) => _Settings_Close())
+    g.Add("Button", "x291 y538 w90 Default", "OK").OnEvent("Click", DoSave)
+    g.Add("Button", "x389 y538 w90", "Cancel").OnEvent("Click", (*) => _Settings_Close())
 
     g.Show("AutoSize")
 
@@ -141,6 +148,12 @@ _Settings_Build() {
         SaveLauncherConfig()
         SetRunOnStartup(autoStartCb.Value ? true : false)
 
+        if IsObject(hotkeyRows) && hotkeyRows.Length {
+            if !_Settings_SaveHotkeys(hotkeyRows) {
+                return
+            }
+        }
+
         for entry in addonChecks
             SetAddonEnabled(entry.name, entry.ctrl.Value ? true : false)
 
@@ -148,17 +161,106 @@ _Settings_Build() {
             try handler()
         }
 
+        ApplyAllHotkeys()
+        RebuildTrayMenu()
+
         _Settings_Close()
         TrayTip("AHK Minimap", "Settings saved.", "Iconi")
     }
 }
 
 _Settings_Close() {
-    global gSettingsGui
+    global gSettingsGui, gSettingsHotkeyRows
+    CancelHotkeyCapture()
+    gSettingsHotkeyRows := 0
     if IsObject(gSettingsGui) {
         try gSettingsGui.Destroy()
     }
     gSettingsGui := 0
+}
+
+_Settings_BuildHotkeysTab(g, contentX, contentY) {
+    g.SetFont()
+    g.Add("Text", "x" contentX " y" contentY " w430",
+        "Click a shortcut, then press the new keys. Esc cancels.")
+    rows := []
+    prevCategory := ""
+    y := contentY + 28
+    for action in GetHotkeyActionsForSettings() {
+        cat := action.Has("category") ? action["category"] : "Other"
+        if (cat != prevCategory) {
+            if (prevCategory != "")
+                y += 10
+            g.SetFont("s9 Bold")
+            g.Add("Text", "x" contentX " y" y " w430 c333333", cat)
+            g.SetFont()
+            y += 22
+            prevCategory := cat
+        }
+        g.Add("Text", "x" (contentX + 8) " y" y " w232", action["label"])
+        btn := g.Add("Button", "x" (contentX + 250) " y" (y - 3) " w120", FormatHotkeyDisplay(action["chord"]))
+        resetBtn := g.Add("Button", "x" (contentX + 376) " y" (y - 3) " w54", "Reset")
+        row := Map(
+            "id", action["id"],
+            "action", action,
+            "pending", action["chord"],
+            "default", action["default"],
+            "button", btn,
+            "allowMouse", action.Has("allowMouse") && action["allowMouse"]
+        )
+        btn.OnEvent("Click", _Settings_HotkeyBtnClick.Bind(row))
+        resetBtn.OnEvent("Click", _Settings_HotkeyReset.Bind(row))
+        rows.Push(row)
+        y += 28
+    }
+    resetAllBtn := g.Add("Button", "x" contentX " y" (y + 10) " w140", "Reset all to defaults")
+    resetAllBtn.OnEvent("Click", _Settings_HotkeyResetAll.Bind(rows))
+    global gSettingsHotkeyRows := rows
+    return rows
+}
+
+_Settings_HotkeyBtnClick(row, *) {
+    StartHotkeyCapture(row, (chord) => row["pending"] := chord)
+}
+
+_Settings_HotkeyReset(row, *) {
+    row["pending"] := row["default"]
+    row["button"].Text := FormatHotkeyDisplay(row["default"])
+}
+
+_Settings_HotkeyResetAll(rows, *) {
+    for row in rows {
+        row["pending"] := row["default"]
+        row["button"].Text := FormatHotkeyDisplay(row["default"])
+    }
+}
+
+_Settings_SaveHotkeys(rows) {
+    global gHotkeyActions, gHotkeyReserved
+    seen := Map()
+    for row in rows {
+        chord := NormalizeHotkeyChord(row["pending"])
+        if !IsHotkeyChordValid(chord) {
+            TrayTip("Hotkeys", "Invalid shortcut for " row["action"]["label"] ".", "Iconx")
+            return false
+        }
+        for reserved in gHotkeyReserved {
+            if (StrLower(chord) = StrLower(reserved)) {
+                TrayTip("Hotkeys", FormatHotkeyDisplay(chord) " is reserved (Reload, Exit, or debug/calibration).", "Iconx")
+                return false
+            }
+        }
+        if seen.Has(chord) {
+            TrayTip("Hotkeys", "Duplicate shortcut: " FormatHotkeyDisplay(chord), "Iconx")
+            return false
+        }
+        seen[chord] := row["action"]["label"]
+    }
+    for row in rows {
+        gHotkeyActions[row["id"]]["chord"] := row["pending"]
+    }
+    SaveHotkeyOverrides()
+    return true
 }
 
 _Settings_BrowseGamePath(editCtrl, *) {

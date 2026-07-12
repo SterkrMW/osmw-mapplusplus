@@ -26,8 +26,7 @@ RegisterAddon(Map(
     "settingsLabel", "Discord",
     "OnInit",        _DiscordRpc_OnInit,
     "OnSettings",    _DiscordRpc_OnSettings,
-    "OnMapChange",   _DiscordRpc_OnMapChange,
-    "OnTrayMenu",    _DiscordRpc_OnTrayMenu
+    "OnMapChange",   _DiscordRpc_OnMapChange
 ))
 
 _DiscordRpc_OnInit() {
@@ -37,9 +36,6 @@ _DiscordRpc_OnInit() {
         _DiscordRpc_Start()
 }
 
-_DiscordRpc_OnTrayMenu(trayMenu) {
-    trayMenu.Add("Clear Discord Presence", (*) => _DiscordRpc_ClearAndDisconnect())
-}
 
 _DiscordRpc_OnSettings(ctx) {
     global _DiscordRpc_Enabled

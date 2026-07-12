@@ -1731,7 +1731,8 @@ LoadAddonEnabledStates() {
 
 ; Sets an addon's enabled state and persists it to config.ini.
 ; Enable/disable takes effect live for hook dispatch (FireAddonHook reads
-; gDisabledAddons each fire); already-registered hotkeys persist until Reload.
+; gDisabledAddons each fire). Hotkeys for disabled addons are skipped on the
+; next ApplyAllHotkeys() (e.g. when Settings is saved).
 SetAddonEnabled(addonName, enabled) {
     global gDisabledAddons, CONFIG_INI
     if (enabled) {

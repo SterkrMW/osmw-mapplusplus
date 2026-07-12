@@ -113,6 +113,8 @@ addons. The tray keeps only the quick **actions**.
 
 ## Hotkey Reference
 
+Everyday shortcuts can be changed under **Settings → Hotkeys** (click a shortcut, press new keys, then OK). Changes apply immediately — no Reload needed. The tables below list the **default** bindings.
+
 Global shortcuts work while the game or minimap overlay is focused.
 
 ### Core (all variants)

@@ -5,15 +5,29 @@ RegisterAddon(Map(
     "OnTrayMenu", _InventoryToggle_OnTrayMenu
 ))
 
-#HotIf WinActive(GAME_WIN_FILTER)
-!+e::  _InventoryToggle_OpenInventory()
-!e:: _InventoryToggle_OpenInventoryAlt()
-#HotIf
+RegisterHotkeyAction(Map(
+    "id", "inventoryOpenClick",
+    "label", "Open inventory (click)",
+    "category", "Inventory",
+    "default", "!e",
+    "addon", "InventoryToggle",
+    "handler", _InventoryToggle_OpenInventory,
+    "hotIfWinActive", true
+))
+RegisterHotkeyAction(Map(
+    "id", "inventoryOpenSend",
+    "label", "Open inventory (send Alt+I)",
+    "category", "Inventory",
+    "default", "!+e",
+    "addon", "InventoryToggle",
+    "handler", _InventoryToggle_OpenInventoryAlt,
+    "hotIfWinActive", true
+))
 
 _InventoryToggle_OnTrayMenu(trayMenu) {
     invMenu := Menu()
-    invMenu.Add("Open (Click)`tAlt+E",            (*) => _InventoryToggle_OpenInventory())
-    invMenu.Add("Open (Send Alt+I)`tAlt+Shift+E", (*) => _InventoryToggle_OpenInventoryAlt())
+    invMenu.Add("Open (Click)`t" GetHotkeyDisplay("inventoryOpenClick"), (*) => _InventoryToggle_OpenInventory())
+    invMenu.Add("Open (Send Alt+I)`t" GetHotkeyDisplay("inventoryOpenSend"), (*) => _InventoryToggle_OpenInventoryAlt())
     trayMenu.Add("Inventory", invMenu)
 }
 
