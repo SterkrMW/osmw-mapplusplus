@@ -2,4 +2,5 @@
 chat_toggle.ahk
 discord_rpc.ahk
 inventory_toggle.ahk
+view_mode.ahk
 window_layout.ahk

@@ -183,6 +183,15 @@ Useful when multi-boxing: hide chat on alts to reduce clutter, or shrink chat gl
 
 Use this to confirm or send the same battle command across all fighting characters at once.
 
+### View Mode (Full / Lite / Battle)
+
+| Hotkey | Action |
+|--------|--------|
+| **Ctrl+1** | Cycle view mode on **all** clients (0→3, wrap) |
+| **Ctrl+2** | Toggle view mode 0/1 on **all** clients (0→1; 1/2/3→0) |
+
+Echoes the in-game **F2** view-mode cycle across every open client without focusing each window.
+
 ---
 
 ## Configuration (`config.ini`)
