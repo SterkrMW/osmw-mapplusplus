@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map POIs</title>
+    <link rel="stylesheet" href="../common/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Title bar -->
+    <header class="title-bar" id="title-bar">
+        <div class="title-bar-drag">
+            <span class="title-bar-icon">📍</span>
+            <span class="title-bar-title" id="winTitle">Map POIs</span>
+        </div>
+        <div class="title-bar-controls">
+            <button class="title-btn title-btn-close" id="btnTitleClose" title="Close">✕</button>
+        </div>
+    </header>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <input type="text" id="searchInput" class="input" placeholder="Search POIs by name or type...">
+        <button class="btn btn-sm btn-primary" id="btnAddPoiHeader">+ Add POI</button>
+    </div>
+
+    <!-- Table Container -->
+    <div class="table-container">
+        <table class="table" id="poiTable">
+            <thead>
+                <tr>
+                    <th>Label</th>
+                    <th>Type</th>
+                    <th>X</th>
+                    <th>Y</th>
+                </tr>
+            </thead>
+            <tbody id="poiBody">
+                <!-- Dynamically populated from POI store -->
+            </tbody>
+        </table>
+        <div class="empty-state" id="emptyState" style="display: none;">
+            No points of interest saved for this map yet.
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-left">
+            <button class="btn btn-sm btn-danger" id="btnDeleteSelected">Delete selected</button>
+            <button class="btn btn-sm" id="btnExport">Export map</button>
+        </div>
+        <div class="footer-right">
+            <button class="btn btn-sm" id="btnClose">Close</button>
+        </div>
+    </footer>
+
+    <!-- Embedded Add POI Modal -->
+    <div class="modal-overlay" id="addPoiModal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Add POI at current position</span>
+                <button class="title-btn" id="btnModalClose">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-coord" id="modalCoordText">Woodlingor at 100, 200</div>
+                <label class="field">
+                    <span class="field-label">Label</span>
+                    <input type="text" id="modalLabelInput" class="input" placeholder="e.g. Blacksmith, Portal">
+                </label>
+                <label class="field">
+                    <span class="field-label">Type</span>
+                    <select id="modalKindSelect" class="select"></select>
+                </label>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" id="btnModalAdd">Add</button>
+                <button class="btn" id="btnModalCancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>

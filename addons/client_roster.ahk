@@ -161,40 +161,59 @@ _ClientRoster_Hide() {
 }
 
 _ClientRoster_EnsureGui() {
-    global _ClientRoster_Gui, _ClientRoster_List
+    global _ClientRoster_Gui
 
     if IsObject(_ClientRoster_Gui) && _ClientRoster_Gui.Hwnd {
         return
     }
-    ; +ToolWindow keeps it off the taskbar; WS_EX_NOACTIVATE (E0x08000000) so
-    ; showing or clicking it never pulls focus away from the game.
-    g := Gui("+AlwaysOnTop +ToolWindow -MaximizeBox +E0x08000000", "Maps++ Clients")
-    g.MarginX := 6
-    g.MarginY := 6
-    g.SetFont("s9")
-    lv := g.Add("ListView", "w330 r6 -Multi NoSortHdr Grid", ["Character", "Zone", "Status"])
-    lv.OnEvent("DoubleClick", _ClientRoster_OnRowActivate)
+
+    dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
+    dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
+    wvSettings := { DllPath: dllPath, DefaultWidth: 380, DefaultHeight: 260 }
+
+    g := WebViewGui("-Caption +AlwaysOnTop +ToolWindow -MaximizeBox +E0x08000000", "Maps++ Clients",, wvSettings)
     g.OnEvent("Close", (*) => _ClientRoster_UserHide())
-    g.OnEvent("Escape", (*) => _ClientRoster_UserHide())
+    g.WebMessageReceived(_ClientRoster_OnWebMessage)
+    g.DOMContentLoaded((*) => SetTimer(_ClientRoster_PushSnapshot, -50))
+    g.Navigate("ui/client_roster/index.html")
+
     _ClientRoster_Gui := g
-    _ClientRoster_List := lv
 }
 
-_ClientRoster_OnRowActivate(lv, row) {
-    global _ClientRoster_RowHwnds
-    if (row < 1 || row > _ClientRoster_RowHwnds.Length) {
-        return
+_ClientRoster_PushSnapshot() {
+    _ClientRoster_OnSnapshot(GetClientSnapshots())
+}
+
+_ClientRoster_OnWebMessage(wv, args) {
+    global _ClientRoster_Gui
+    msgStr := ""
+    try msgStr := args.TryGetWebMessageAsString()
+    if (msgStr = "") {
+        try msgStr := args.WebMessageAsJson
     }
-    hwnd := _ClientRoster_RowHwnds[row]
-    if WinExist("ahk_id " hwnd) {
-        WinActivate("ahk_id " hwnd)
+    if (msgStr = "")
+        return
+
+    msg := _JSON_Parse(msgStr)
+    if !IsObject(msg) || !msg.Has("type")
+        return
+
+    switch msg["type"] {
+        case "init-request":
+            _ClientRoster_PushSnapshot()
+        case "activate-client":
+            if msg.Has("hwnd") && WinExist("ahk_id " msg["hwnd"]) {
+                WinActivate("ahk_id " msg["hwnd"])
+            }
+        case "close":
+            _ClientRoster_UserHide()
     }
 }
 
 ; ── Rows ─────────────────────────────────────────────────────────
 
 _ClientRoster_OnSnapshot(snapshots) {
-    global _ClientRoster_Visible, _ClientRoster_AutoShow, _ClientRoster_List, _ClientRoster_RowHwnds
+    global _ClientRoster_Visible, _ClientRoster_AutoShow, _ClientRoster_Gui
     global _ClientRoster_SuppressAuto, _ClientRoster_ManualOpen
 
     if (snapshots.Length = 0) {
@@ -212,25 +231,27 @@ _ClientRoster_OnSnapshot(snapshots) {
         && snapshots.Length >= 2) {
         _ClientRoster_Show()
     }
-    if (!_ClientRoster_Visible || !IsObject(_ClientRoster_List)) {
+    if (!_ClientRoster_Visible || !IsObject(_ClientRoster_Gui)) {
         return
     }
 
-    rows := []
-    _ClientRoster_List.Opt("-Redraw")
-    _ClientRoster_List.Delete()
+    clientsJson := "["
+    first := true
     for snap in snapshots {
-        rows.Push(snap.hwnd)
-        _ClientRoster_List.Add(,
-            (snap.charName != "" ? snap.charName : "PID " snap.pid),
-            _ClientRoster_ZoneText(snap),
-            _ClientRoster_StatusText(snap))
+        if !first
+            clientsJson .= ","
+        first := false
+        cName := (snap.charName != "" ? snap.charName : "PID " snap.pid)
+        clientsJson .= '{"hwnd":' snap.hwnd
+            . ',"pid":' snap.pid
+            . ',"charName":' _JSON_Str(cName)
+            . ',"zoneText":' _JSON_Str(_ClientRoster_ZoneText(snap))
+            . ',"statusText":' _JSON_Str(_ClientRoster_StatusText(snap))
+        . '}'
     }
-    _ClientRoster_RowHwnds := rows
-    loop 3 {
-        _ClientRoster_List.ModifyCol(A_Index, "AutoHdr")
-    }
-    _ClientRoster_List.Opt("+Redraw")
+    clientsJson .= "]"
+
+    try _ClientRoster_Gui.PostWebMessageAsJson('{"type":"snapshot-update","clients":' clientsJson '}')
 }
 
 _ClientRoster_ZoneText(snap) {

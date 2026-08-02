@@ -1,0 +1,254 @@
+/* ═══════════════════════════════════════════════════════════════
+   osMW Maps++ — Shared CSS Design System & Title Bar Component
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+    /* Color Palette */
+    --bg:            #0f0f1a;
+    --bg-dark:       #090912;
+    --surface:       #1a1a2e;
+    --surface-hover: #222240;
+    --surface-alt:   #141428;
+    --border:        #2a2a4a;
+    --border-focus:  #c9a227;
+
+    --accent:        #c9a227;       /* Gold — minimap theme */
+    --accent-glow:   rgba(201, 162, 39, 0.25);
+    --accent-hover:  #d4af37;
+    --accent-text:   #1a1a2e;
+
+    --text:          #e0e0e8;
+    --text-muted:    #8888a8;
+    --text-dim:      #5e5e78;
+
+    --danger:        #e85454;
+    --success:       #4ade80;
+    --warning:       #f59e0b;
+    --info:          #3b82f6;
+
+    /* Sizing & Typography */
+    --radius:        6px;
+    --radius-lg:     10px;
+    --font-sm:       12px;
+    --font-base:     13px;
+    --font-lg:       14px;
+    --footer-height: 48px;
+    --transition:    150ms ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: var(--font-base);
+    color: var(--text);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* ── Custom Frameless Title Bar ─────────────────────────────── */
+.title-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 36px;
+    padding: 0 6px 0 12px;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    user-select: none;
+    -webkit-app-region: drag;
+    app-region: drag;
+}
+
+.title-bar-drag {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.title-bar-icon {
+    font-size: 14px;
+}
+
+.title-bar-title {
+    color: var(--accent);
+    letter-spacing: 0.3px;
+}
+
+.title-bar-controls {
+    display: flex;
+    align-items: center;
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+}
+
+.title-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 26px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: all var(--transition);
+}
+.title-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+.title-btn-close:hover {
+    background: var(--danger);
+    color: #ffffff;
+}
+
+/* ── Common UI Controls ─────────────────────────────────────── */
+.input, .select {
+    height: 32px;
+    padding: 0 10px;
+    font-size: var(--font-base);
+    font-family: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    outline: none;
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+.input:focus, .select:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    padding: 0 14px;
+    font-size: var(--font-base);
+    font-family: inherit;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all var(--transition);
+    white-space: nowrap;
+}
+.btn:hover {
+    background: var(--surface-hover);
+    border-color: var(--text-dim);
+}
+.btn:active { transform: scale(0.97); }
+
+.btn-primary {
+    color: var(--accent-text);
+    background: var(--accent);
+    border-color: var(--accent);
+    font-weight: 600;
+}
+.btn-primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+.btn-danger {
+    color: #ffffff;
+    background: var(--danger);
+    border-color: var(--danger);
+}
+.btn-danger:hover {
+    background: #d32f2f;
+}
+
+.btn-sm {
+    height: 26px;
+    padding: 0 10px;
+    font-size: var(--font-sm);
+}
+
+/* ── Badges & Status Pills ──────────────────────────────────── */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.badge-success { background: rgba(74, 222, 128, 0.15); color: var(--success); border: 1px solid rgba(74, 222, 128, 0.3); }
+.badge-warning { background: rgba(245, 158, 11, 0.15); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.3); }
+.badge-danger  { background: rgba(232, 84, 84, 0.15); color: var(--danger);  border: 1px solid rgba(232, 84, 84, 0.3); }
+.badge-info    { background: rgba(59, 130, 246, 0.15); color: var(--info);    border: 1px solid rgba(59, 130, 246, 0.3); }
+.badge-muted   { background: rgba(136, 136, 168, 0.15); color: var(--text-muted); border: 1px solid rgba(136, 136, 168, 0.3); }
+
+/* ── Tables ─────────────────────────────────────────────────── */
+.table-container {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+.table-container::-webkit-scrollbar { width: 6px; }
+.table-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-base);
+}
+.table th {
+    position: sticky;
+    top: 0;
+    background: var(--surface-alt);
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    z-index: 1;
+}
+.table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    white-space: nowrap;
+}
+.table tbody tr {
+    cursor: pointer;
+    transition: background var(--transition);
+}
+.table tbody tr:hover {
+    background: var(--surface-hover);
+}
+.table tbody tr.selected {
+    background: rgba(201, 162, 39, 0.15);
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+.footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--footer-height);
+    padding: 0 14px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}

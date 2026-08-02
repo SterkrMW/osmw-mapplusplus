@@ -1,0 +1,17 @@
+/* Client Roster Specific Styles */
+
+.empty-state {
+    padding: 30px 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+}
+
+.footer-hint {
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+.char-name {
+    font-weight: 600;
+}

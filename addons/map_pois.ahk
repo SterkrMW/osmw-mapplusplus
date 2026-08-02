@@ -303,29 +303,61 @@ _Pois_PromptForEntry(zone, x, y) {
     global _Pois_KINDS, _Pois_DefaultKind
 
     result := 0
-    dlg := Gui("+AlwaysOnTop -MinimizeBox", "Add POI")
-    dlg.Add("Text", "w300", zone " at " GameCoordText(x, y))
-    dlg.Add("Text", "xm y+10 w60", "Label:")
-    labelEdit := dlg.Add("Edit", "x+8 yp-3 w232")
-    dlg.Add("Text", "xm y+10 w60", "Type:")
-    kindDdl := dlg.Add("DropDownList", "x+8 yp-3 w120", _Pois_KINDS)
-    kindDdl.Value := _Pois_KindIndex(_Pois_DefaultKind)
+    dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
+    dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
+    wvSettings := { DllPath: dllPath, DefaultWidth: 340, DefaultHeight: 240 }
 
-    Accept(*) {
-        label := Trim(labelEdit.Value)
-        if (label = "") {
-            TrayTip("Map POIs", "Give the POI a label.", "Iconx")
-            return
-        }
-        result := { label: label, kind: _Pois_KINDS[kindDdl.Value] }
-        dlg.Destroy()
+    dlg := WebViewGui("-Caption +AlwaysOnTop -Resize", "Add POI",, wvSettings)
+
+    kindsJson := "["
+    for i, k in _Pois_KINDS {
+        if (i > 1) kindsJson .= ","
+        kindsJson .= _JSON_Str(k)
     }
-    dlg.Add("Button", "xm y+14 w90 Default", "Add").OnEvent("Click", Accept)
-    dlg.Add("Button", "x+8 w90", "Cancel").OnEvent("Click", (*) => dlg.Destroy())
-    dlg.OnEvent("Close", (*) => dlg.Destroy())
-    dlg.OnEvent("Escape", (*) => dlg.Destroy())
-    dlg.Show("AutoSize")
-    try labelEdit.Focus()
+    kindsJson .= "]"
+
+    coordStr := GameCoordText(x, y)
+
+    dlg.WebMessageReceived(OnWebMsg)
+    dlg.DOMContentLoaded((*) => _SafePostMsg(dlg, '{"type":"init-add-poi"'
+        . ',"zoneName":' _JSON_Str(zone)
+        . ',"coordText":' _JSON_Str(coordStr)
+        . ',"kinds":' kindsJson
+        . ',"defaultKind":' _JSON_Str(_Pois_DefaultKind) '}'))
+
+    dlg.Navigate("ui/map_pois/add_poi.html")
+    dlg.Show("w340 h240")
+
+    OnWebMsg(wv, args) {
+        msgStr := ""
+        try msgStr := args.TryGetWebMessageAsString()
+        if (msgStr = "") {
+            try msgStr := args.WebMessageAsJson
+        }
+        if (msgStr = "")
+            return
+
+        msg := _JSON_Parse(msgStr)
+        if !IsObject(msg) || !msg.Has("type")
+            return
+
+        switch msg["type"] {
+            case "init-request":
+                _SafePostMsg(dlg, '{"type":"init-add-poi"'
+                    . ',"zoneName":' _JSON_Str(zone)
+                    . ',"coordText":' _JSON_Str(coordStr)
+                    . ',"kinds":' kindsJson
+                    . ',"defaultKind":' _JSON_Str(_Pois_DefaultKind) '}')
+            case "accept":
+                if msg.Has("label") && msg.Has("kind") {
+                    result := { label: msg["label"], kind: msg["kind"] }
+                }
+                dlg.Destroy()
+            case "cancel":
+                dlg.Destroy()
+        }
+    }
+
     WinWaitClose("ahk_id " dlg.Hwnd)
     return result
 }
@@ -333,7 +365,7 @@ _Pois_PromptForEntry(zone, x, y) {
 ; ── Manage window ────────────────────────────────────────────────
 
 _Pois_ShowManageWindow() {
-    global _Pois_ManageGui
+    global _Pois_ManageGui, _Pois_KINDS, _Pois_DefaultKind
 
     mapId := _Pois_CurrentMapId()
     if (mapId = "") {
@@ -345,40 +377,141 @@ _Pois_ShowManageWindow() {
         _Pois_ManageGui := 0
     }
 
-    g := Gui("+AlwaysOnTop -MinimizeBox", "Map POIs — " ZoneDisplayName(mapId))
+    dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
+    dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
+    wvSettings := { DllPath: dllPath, DefaultWidth: 500, DefaultHeight: 460 }
+
+    g := WebViewGui("-Caption +AlwaysOnTop -Resize", "Map POIs — " ZoneDisplayName(mapId),, wvSettings)
     _Pois_ManageGui := g
-    lv := g.Add("ListView", "w420 r10 -Multi Grid", ["Label", "Type", "X", "Y"])
-    _Pois_FillManageList(lv, mapId)
 
-    deleteBtn := g.Add("Button", "xm y+10 w110", "Delete selected")
-    deleteBtn.OnEvent("Click", (*) => _Pois_DeleteSelected(lv, mapId))
-    g.Add("Button", "x+8 w110", "Export map").OnEvent("Click", (*) => _Pois_ExportCurrentMap())
-    g.Add("Button", "x+8 w90", "Close").OnEvent("Click", (*) => g.Destroy())
     g.OnEvent("Close", (*) => (_Pois_ManageGui := 0))
-    g.OnEvent("Escape", (*) => g.Destroy())
-    g.Show("AutoSize")
+    g.WebMessageReceived(_Pois_OnManageWebMsg)
+    g.DOMContentLoaded((*) => SetTimer(_Pois_SendManageState, -50))
+    g.Navigate("ui/map_pois/index.html")
+
+    g.Show("w500 h460")
 }
 
-_Pois_FillManageList(lv, mapId) {
-    lv.Delete()
-    for poi in _Pois_Load(mapId) {
-        ; In-game coordinates, so they match what the player sees on screen.
-        lv.Add(, poi.label, poi.kind, GameCoordX(poi.x), GameCoordY(poi.y))
+_Pois_SendManageState() {
+    global _Pois_ManageGui, _Pois_KINDS, _Pois_DefaultKind
+    if !IsObject(_Pois_ManageGui)
+        return
+
+    mapId := _Pois_CurrentMapId()
+    zoneName := ZoneDisplayName(mapId)
+    pois := _Pois_Load(mapId)
+
+    poisJson := "["
+    first := true
+    for i, poi in pois {
+        if !first
+            poisJson .= ","
+        first := false
+        gx := (IsObject(poi) && poi.HasOwnProp("x") && IsNumber(poi.x)) ? GameCoordX(poi.x) : 0
+        gy := (IsObject(poi) && poi.HasOwnProp("y") && IsNumber(poi.y)) ? GameCoordY(poi.y) : 0
+        labelStr := (IsObject(poi) && poi.HasOwnProp("label")) ? poi.label : ""
+        kindStr := (IsObject(poi) && poi.HasOwnProp("kind")) ? poi.kind : "npc"
+        poisJson .= '{"index":' i
+            . ',"label":' _JSON_Str(labelStr)
+            . ',"kind":' _JSON_Str(kindStr)
+            . ',"gameX":' gx
+            . ',"gameY":' gy '}'
     }
-    loop 4 {
-        lv.ModifyCol(A_Index, "AutoHdr")
+    poisJson .= "]"
+
+    kindsJson := "["
+    for i, k in _Pois_KINDS {
+        if (i > 1)
+            kindsJson .= ","
+        kindsJson .= _JSON_Str(k)
+    }
+    kindsJson .= "]"
+
+    _SafePostMsg(_Pois_ManageGui, '{"type":"pois-state"'
+        . ',"zoneName":' _JSON_Str(zoneName)
+        . ',"pois":' poisJson
+        . ',"kinds":' kindsJson '}')
+}
+
+_Pois_OnManageWebMsg(wv, args) {
+    global _Pois_ManageGui, _Pois_KINDS, _Pois_DefaultKind
+    msgStr := ""
+    try msgStr := args.TryGetWebMessageAsString()
+    if (msgStr = "") {
+        try msgStr := args.WebMessageAsJson
+    }
+    if (msgStr = "")
+        return
+
+    msg := _JSON_Parse(msgStr)
+    if !IsObject(msg) || !msg.Has("type")
+        return
+
+    mapId := _Pois_CurrentMapId()
+
+    switch msg["type"] {
+        case "init-request":
+            _Pois_SendManageState()
+        case "delete-poi":
+            if msg.Has("index") && msg["index"] >= 1 {
+                _Pois_DeleteAt(mapId, msg["index"])
+                _Pois_SendManageState()
+                _Pois_Redraw()
+            }
+        case "export-map":
+            _Pois_ExportCurrentMap()
+        case "request-add-poi":
+            _Pois_HandleManageAddPoi(mapId)
+        case "submit-add-poi":
+            if msg.Has("label") && msg.Has("kind") {
+                _Pois_HandleManageSubmitPoi(mapId, msg["label"], msg["kind"])
+            }
+        case "close":
+            if IsObject(_Pois_ManageGui) {
+                try _Pois_ManageGui.Destroy()
+            }
+            _Pois_ManageGui := 0
     }
 }
 
-_Pois_DeleteSelected(lv, mapId) {
-    row := lv.GetNext()
-    if (row < 1) {
-        TrayTip("Map POIs", "Select a POI to delete.", "Iconx")
+_Pois_HandleManageAddPoi(mapId) {
+    global _Pois_ManageGui, _Pois_DefaultKind
+    if !IsObject(_Pois_ManageGui)
+        return
+
+    rawPos := ReadRawPlayerPosition()
+    gx := (IsObject(rawPos) && rawPos.HasOwnProp("ok") && rawPos.ok && IsNumber(rawPos.x)) ? GameCoordX(rawPos.x) : 0
+    gy := (IsObject(rawPos) && rawPos.HasOwnProp("ok") && rawPos.ok && IsNumber(rawPos.y)) ? GameCoordY(rawPos.y) : 0
+    zoneName := ZoneDisplayName(mapId)
+
+    _SafePostMsg(_Pois_ManageGui, '{"type":"prompt-add-poi"'
+        . ',"zoneName":' _JSON_Str(zoneName)
+        . ',"gameX":' gx
+        . ',"gameY":' gy
+        . ',"defaultKind":' _JSON_Str(_Pois_DefaultKind) '}')
+}
+
+_SafePostMsg(gui, json) {
+    if !IsObject(gui)
+        return
+    try {
+        gui.PostWebMessageAsJson(json)
+    } catch {
+        try gui.PostWebMessageAsString(json)
+    }
+}
+
+_Pois_HandleManageSubmitPoi(mapId, label, kind) {
+    global _Pois_DefaultKind
+    rawPos := ReadRawPlayerPosition()
+    if !rawPos.ok {
+        TrayTip("Map POIs", "Could not read position — is the game client running?", "Iconx")
         return
     }
-    ; Row order matches _Pois_Load order, so the row index is the store index.
-    _Pois_DeleteAt(mapId, row)
-    _Pois_FillManageList(lv, mapId)
+    _Pois_Add(mapId, { x: rawPos.x, y: rawPos.y, label: label, kind: kind })
+    _Pois_DefaultKind := kind
+    _Pois_SaveConfig()
+    _Pois_SendManageState()
     _Pois_Redraw()
 }
 

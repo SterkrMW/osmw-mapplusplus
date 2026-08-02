@@ -142,18 +142,55 @@ _WindowLayout_PromptMainCharacter() {
     }
 
     chosen := ""
-    dlg := Gui("+AlwaysOnTop -MinimizeBox", "Window Layout — Main Character")
-    dlg.Add("Text", "w220", "Select the main character:")
-    ddl := dlg.Add("DropDownList", "w220", names)
-    for i, n in names
-        if n = _WindowLayout_MainCharacter {
-            ddl.Value := i
-            break
+    dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
+    dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
+    wvSettings := { DllPath: dllPath, DefaultWidth: 320, DefaultHeight: 200 }
+
+    dlg := WebViewGui("-Caption +AlwaysOnTop -Resize", "Window Layout — Main Character",, wvSettings)
+
+    namesJson := "["
+    for i, n in names {
+        if (i > 1) namesJson .= ","
+        namesJson .= _JSON_Str(n)
+    }
+    namesJson .= "]"
+
+    dlg.WebMessageReceived(OnWebMsg)
+    dlg.DOMContentLoaded((*) => dlg.PostWebMessageAsJson('{"type":"init-prompt"'
+        . ',"names":' namesJson
+        . ',"selectedName":' _JSON_Str(_WindowLayout_MainCharacter) '}'))
+
+    dlg.Navigate("ui/window_layout/prompt.html")
+    dlg.Show("w320 h200")
+
+    OnWebMsg(wv, args) {
+        msgStr := ""
+        try msgStr := args.TryGetWebMessageAsString()
+        if (msgStr = "") {
+            try msgStr := args.WebMessageAsJson
         }
-    dlg.Add("Button", "Default w80 xm y+10", "OK").OnEvent("Click", (*) => (chosen := ddl.Text, dlg.Destroy()))
-    dlg.Add("Button", "w80 x+8", "Cancel").OnEvent("Click", (*) => dlg.Destroy())
-    dlg.OnEvent("Close", (*) => dlg.Destroy())
-    dlg.Show("AutoSize")
+        if (msgStr = "")
+            return
+
+        msg := _JSON_Parse(msgStr)
+        if !IsObject(msg) || !msg.Has("type")
+            return
+
+        switch msg["type"] {
+            case "init-request":
+                dlg.PostWebMessageAsJson('{"type":"init-prompt"'
+                    . ',"names":' namesJson
+                    . ',"selectedName":' _JSON_Str(_WindowLayout_MainCharacter) '}')
+            case "accept":
+                if msg.Has("chosen") && msg["chosen"] != "" {
+                    chosen := msg["chosen"]
+                }
+                dlg.Destroy()
+            case "cancel":
+                dlg.Destroy()
+        }
+    }
+
     WinWaitClose("ahk_id " dlg.Hwnd)
 
     if chosen != "" {
