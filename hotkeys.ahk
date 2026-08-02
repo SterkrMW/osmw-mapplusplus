@@ -6,6 +6,9 @@
 
 global gHotkeyActions := Map()       ; id → action spec
 global gAppliedHotkeys := []         ; { chord, hotIf } for teardown on re-apply
+; Must match the static hotkeys in main.ahk's "Fixed hotkeys (not rebindable)"
+; block exactly — this list has no compile-time link to those bindings, so a
+; new fixed hotkey added there needs a matching entry added here.
 global gHotkeyReserved := ["^!r", "^!q", "^!d", "^!s", "^!v", "^!1", "^!2", "^!3", "^!4"]
 
 RegisterHotkeyAction(spec) {
@@ -15,8 +18,8 @@ RegisterHotkeyAction(spec) {
         return
     }
     id := spec["id"]
-    if !spec.Has("default") || spec["default"] = ""
-        spec["default"] := spec.Has("chord") ? spec["chord"] : ""
+    if !spec.Has("default")
+        spec["default"] := ""
     spec["chord"] := spec["default"]
     gHotkeyActions[id] := spec
 }
@@ -148,40 +151,34 @@ SaveHotkeyOverrides() {
     }
 }
 
-_ApplyActionHotIf(action) {
+; Resolves an action's HotIf context into a single {mode, hotIfFn} object.
+; mode is "winActive" (bound to GAME_WIN_FILTER), "callback" (a HotIf()
+; predicate), or "global" (unconditional). Reused at both bind and teardown
+; time (_ApplyHotkeyContext) so the two can't drift out of sync.
+_ResolveHotkeyContext(action) {
     if action.Has("hotIfWinActive") && action["hotIfWinActive"]
-        HotIfWinActive(GAME_WIN_FILTER)
-    else if action.Has("hotIfFn") && action["hotIfFn"] is Func
-        HotIf(action["hotIfFn"])
-    else
-        HotIf
-}
-
-_HotkeyContextMode(action) {
-    if action.Has("hotIfWinActive") && action["hotIfWinActive"]
-        return "winActive"
+        return { mode: "winActive", hotIfFn: 0 }
     if action.Has("hotIfFn") && action["hotIfFn"] is Func
-        return "callback"
-    return "global"
+        return { mode: "callback", hotIfFn: action["hotIfFn"] }
+    return { mode: "global", hotIfFn: 0 }
 }
 
-_ApplyHotkeyContext(entry) {
-    if !(entry is Map)
+_ApplyHotkeyContext(context) {
+    if !IsObject(context)
         return
-    mode := entry.Has("mode") ? entry["mode"] : "global"
-    if (mode = "winActive")
+    if (context.mode = "winActive")
         HotIfWinActive(GAME_WIN_FILTER)
-    else if (mode = "callback") && entry.Has("hotIfFn") && entry["hotIfFn"] is Func
-        HotIf(entry["hotIfFn"])
+    else if (context.mode = "callback") && context.hotIfFn is Func
+        HotIf(context.hotIfFn)
     else
         HotIf
 }
 
 _ApplyHotkeyOff(entry) {
-    if !(entry is Map)
+    if !IsObject(entry)
         return
     _ApplyHotkeyContext(entry)
-    try Hotkey(entry["chord"], "Off")
+    try Hotkey(entry.chord, "Off")
     catch {
         ; Already off or never registered.
     }
@@ -206,20 +203,16 @@ ApplyAllHotkeys() {
         if (chord = "") || !IsHotkeyChordValid(chord)
             continue
 
-        _ApplyActionHotIf(action)
+        context := _ResolveHotkeyContext(action)
+        _ApplyHotkeyContext(context)
 
         usePrefix := action.Has("passThrough") && action["passThrough"]
         bindChord := (usePrefix ? "$" : "") ToHotkeyApiName(chord)
         handler := action["handler"]
-        mode := _HotkeyContextMode(action)
-        hotIfFn := action.Has("hotIfFn") ? action["hotIfFn"] : 0
         try {
             Hotkey(bindChord, _HotkeyWrapHandler(handler))
-            gAppliedHotkeys.Push(Map(
-                "chord", bindChord,
-                "mode", mode,
-                "hotIfFn", hotIfFn
-            ))
+            context.chord := bindChord
+            gAppliedHotkeys.Push(context)
         } catch as err {
             TrayTip("Hotkeys", "Failed to bind " id ": " err.Message, "Iconx")
         }

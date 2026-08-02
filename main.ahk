@@ -56,6 +56,8 @@ FireAddonHook("OnInit")
 ApplyAllHotkeys()
 
 ; ── Fixed hotkeys (not rebindable) ───────────────────────────────
+; Keep gHotkeyReserved in hotkeys.ahk in sync with this list — it's what stops
+; users from rebinding a custom action onto one of these chords.
 
 ^!r:: Reload()
 ^!q:: ExitApp()
