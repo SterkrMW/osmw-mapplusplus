@@ -20,6 +20,9 @@ function onAhkMessage(event) {
     if (msg.type === 'tray-menu-state') {
         menuData = msg.items || [];
         renderMenu(menuData);
+        // AHK keeps this window parked off-screen and only moves it into view
+        // once the items are on the page, so it never flashes an empty menu.
+        sendToAhk('rendered');
     }
 }
 

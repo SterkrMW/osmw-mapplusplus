@@ -1,0 +1,223 @@
+/* Radial client switcher — a ring of character avatars around the cursor.
+   The window is colour-keyed transparent, so every visible element has to be
+   an opaque, hard-edged shape sitting on nothing. Soft washes and large blurs
+   would fringe against the key colour. */
+
+/* Must come after ../common/style.css — that sets an opaque body background. */
+html,
+body {
+    background: transparent;
+    display: block;
+    height: 100%;
+    overflow: hidden;
+}
+
+.radial {
+    position: fixed;
+    inset: 0;
+}
+
+.ring {
+    position: absolute;
+    inset: 0;
+}
+
+/* ── Spokes ──────────────────────────────────────────────────── */
+
+.spoke {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    /* --x / --y are the polar coordinates worked out in main.js */
+    transform: translate(-50%, -50%) translate(var(--x), var(--y));
+}
+
+.spoke-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    transform: scale(1);
+    transition: transform var(--transition);
+    /* `backwards` only, so the finished animation releases the transform back
+       to the rule above and the hover transition can take over. */
+    animation: spoke-bloom 200ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    animation-delay: calc(var(--i) * 26ms);
+}
+
+@keyframes spoke-bloom {
+    from {
+        opacity: 0;
+        transform: scale(0.45);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* `.is-hover` is set by AHK, not by the mouse — see the header in main.js. */
+.spoke-btn.is-hover {
+    transform: scale(1.08);
+    outline: none;
+}
+
+/* No plate behind the portrait — the avatar PNGs are already round tokens with
+   transparent edges, so the art itself is the shape. Everything that would
+   normally be a border or backdrop is done with drop-shadow instead, which
+   follows the alpha rather than boxing it in. */
+.avatar-frame {
+    display: grid;
+    place-items: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+    transition: filter var(--transition);
+}
+
+.avatar-frame img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+/* The one case that does need a backdrop: no class read, so there is no
+   portrait to show and the initials would otherwise float on nothing. */
+.avatar-frame.is-initials {
+    background: var(--surface);
+    border: 2px solid var(--border);
+}
+
+.avatar-initials {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.spoke-btn.is-hover .avatar-frame {
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 5px var(--accent));
+}
+
+.spoke-btn.is-hover .avatar-frame.is-initials {
+    border-color: var(--border-focus);
+}
+
+/* The client that currently has focus keeps a standing amber glow. */
+.spoke-btn.active .avatar-frame {
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 4px var(--accent));
+}
+
+.spoke-btn.active .avatar-frame.is-initials {
+    border-color: var(--accent);
+}
+
+.spoke-name {
+    max-width: 96px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--text);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    transition: border-color var(--transition), color var(--transition);
+}
+
+.spoke-btn.is-hover .spoke-name {
+    border-color: var(--border-focus);
+    color: var(--accent);
+}
+
+/* ── Centre hub ──────────────────────────────────────────────── */
+
+.hub {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 92px;
+    height: 92px;
+    margin: -46px 0 0 -46px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 3px 11px rgba(0, 0, 0, 0.55);
+    color: var(--text-muted);
+    font: inherit;
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition);
+    animation: spoke-bloom 200ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.hub.is-hover {
+    border-color: var(--border-focus);
+    background: var(--surface-hover);
+    outline: none;
+}
+
+/* Count and "List view" are stacked and cross-faded on hover. */
+.hub-face {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    transition: opacity var(--transition);
+}
+
+.hub-list {
+    opacity: 0;
+}
+
+.hub.is-hover .hub-count {
+    opacity: 0;
+}
+
+.hub.is-hover .hub-list {
+    opacity: 1;
+    color: var(--accent);
+}
+
+.hub-num {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+}
+
+.hub-icon {
+    font-size: 22px;
+}
+
+.hub-sub {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    color: var(--text-dim);
+}
+
+.hub.is-hover .hub-list .hub-sub {
+    color: var(--accent);
+}
+
+/* No clients running — the hub says so instead of showing a bare "0". */
+.radial.is-empty .hub-num {
+    font-size: 13px;
+}

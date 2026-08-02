@@ -51,6 +51,9 @@ if !FileExist(MARKER_PNG) {
 RebuildTrayMenu()
 OnMessage(0x0404, _OnTrayNotify)
 OnMessage(0x0006, _OnTrayWmActivate)
+; Build the menu window in the background once startup has settled, so the
+; first right-click is as quick as every one after it.
+SetTimer(_PrewarmWebTrayMenu, -6000)
 
 _OnTrayNotify(wParam, lParam, msg, hwnd) {
     ; 0x0205 = WM_RBUTTONUP (right-click on system tray icon)
@@ -60,45 +63,75 @@ _OnTrayNotify(wParam, lParam, msg, hwnd) {
     }
 }
 
+
 _OnTrayWmActivate(wParam, lParam, msg, hwnd) {
-    global gWebTrayGui
-    ; wParam = 0 (WA_INACTIVE)
-    if (wParam = 0 && IsObject(gWebTrayGui) && gWebTrayGui.Hwnd && hwnd = gWebTrayGui.Hwnd) {
+    global gWebTrayGui, gWebTrayShown
+    ; wParam = 0 (WA_INACTIVE). The window outlives any single open now, so this
+    ; must only fire for a menu that is actually on screen.
+    if (wParam = 0 && gWebTrayShown && IsObject(gWebTrayGui) && gWebTrayGui.Hwnd
+        && hwnd = gWebTrayGui.Hwnd) {
         SetTimer(_CloseWebTrayMenu, -10)
     }
 }
 
 global gWebTrayGui := 0, gWebTrayCallbacks := Map()
+; Same approach as the radial menu: standing up a WebView2 and loading the page
+; costs hundreds of milliseconds, so the window is built once and parked
+; off-screen between uses, and it is only moved into view after the page says
+; it has drawn the items. Recreating it per right-click is what made the menu
+; feel slow and flash an unstyled page first.
+global gWebTrayItems := []
+global gWebTrayPos := 0
+global gWebTrayShown := false     ; on screen right now
+global gWebTrayPending := false   ; an open is waiting for the page
+global TRAY_MENU_W := 320, TRAY_MENU_H := 580
 
-ShowWebTrayMenu() {
-    global gWebTrayGui, gWebTrayCallbacks
+_EnsureWebTrayGui() {
+    global gWebTrayGui, TRAY_MENU_W, TRAY_MENU_H
 
-    if IsObject(gWebTrayGui) {
-        try gWebTrayGui.Destroy()
-        gWebTrayGui := 0
+    if IsObject(gWebTrayGui) && gWebTrayGui.Hwnd {
+        return
     }
-
-    RebuildTrayMenu()
-    gWebTrayCallbacks := Map()
-    webItems := _ConvertHmenuToWebItems(A_TrayMenu.Handle)
-
-    mW := 320, mH := 580
 
     dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
     dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
-    wvSettings := { DllPath: dllPath, DefaultWidth: mW, DefaultHeight: mH }
+    wvSettings := { DllPath: dllPath, DefaultWidth: TRAY_MENU_W, DefaultHeight: TRAY_MENU_H }
 
     g := WebViewGui("-Caption +AlwaysOnTop +ToolWindow -MaximizeBox", "Maps++ Menu", , wvSettings)
     gWebTrayGui := g
 
     g.OnEvent("Close", (*) => _CloseWebTrayMenu())
     g.WebMessageReceived(_OnWebTrayMessage)
-    g.DOMContentLoaded((*) => SetTimer(() => _PushTrayMenuState(webItems), -50))
+    g.DOMContentLoaded((*) => SetTimer(_PushTrayMenuState, -50))
     g.Navigate("ui/tray/index.html")
+
+    g.Show("x-30000 y-30000 w" TRAY_MENU_W " h" TRAY_MENU_H " NoActivate")
+}
+
+; Warms the menu up shortly after launch so the first right-click is quick.
+_PrewarmWebTrayMenu() {
+    try _EnsureWebTrayGui()
+}
+
+ShowWebTrayMenu() {
+    global gWebTrayGui, gWebTrayCallbacks, gWebTrayItems, gWebTrayPos, gWebTrayPending
+    global TRAY_MENU_W, TRAY_MENU_H
+
+    RebuildTrayMenu()
+    gWebTrayCallbacks := Map()
+    gWebTrayItems := _ConvertHmenuToWebItems(A_TrayMenu.Handle)
+
+    _EnsureWebTrayGui()
+    if !IsObject(gWebTrayGui) {
+        return
+    }
+
+    mW := TRAY_MENU_W, mH := TRAY_MENU_H
 
     CoordMode("Mouse", "Screen")
     MouseGetPos(&mX, &mY)
-    MonitorGetWorkArea(, &sLeft, &sTop, &sRight, &sBottom)
+    ; Clamp against the display the tray icon was clicked on, not the primary.
+    MonitorGetWorkArea(GetMonitorIndexAtPoint(mX, mY), &sLeft, &sTop, &sRight, &sBottom)
 
     wX := mX - mW + 20
     wY := mY - mH - 10
@@ -111,19 +144,42 @@ ShowWebTrayMenu() {
     if (wY + mH > sBottom - 10)
         wY := sBottom - mH - 10
 
-    g.Show("x" wX " y" wY " w" mW " h" mH)
+    gWebTrayPos := { x: wX, y: wY, w: mW, h: mH }
+    gWebTrayPending := true
+
+    ; Re-render with the menu as it stands now; the page answers with "rendered"
+    ; and that is what brings the window into view.
+    _PushTrayMenuState()
+    ; Backstop for a page that fails to load and never reports.
+    SetTimer(_RevealWebTrayMenu, -600)
 }
 
-_PushTrayMenuState(webItems) {
-    global gWebTrayGui
+_RevealWebTrayMenu() {
+    global gWebTrayGui, gWebTrayPos, gWebTrayShown, gWebTrayPending
+    if !gWebTrayPending || !IsObject(gWebTrayGui) || !IsObject(gWebTrayPos) {
+        return
+    }
+    gWebTrayPending := false
+    gWebTrayShown := true
+    SetTimer(_RevealWebTrayMenu, 0)
+
+    p := gWebTrayPos
+    hwnd := gWebTrayGui.Hwnd
+    WinMove(p.x, p.y, p.w, p.h, "ahk_id " hwnd)
+    ; Parked NoActivate; activate now, since losing activation dismisses it.
+    try WinActivate("ahk_id " hwnd)
+}
+
+_PushTrayMenuState() {
+    global gWebTrayGui, gWebTrayItems
     if !IsObject(gWebTrayGui)
         return
-    itemsJson := _TrayItemsToJson(webItems)
+    itemsJson := _TrayItemsToJson(gWebTrayItems)
     try gWebTrayGui.PostWebMessageAsJson('{"type":"tray-menu-state","items":' itemsJson '}')
 }
 
 _OnWebTrayMessage(wv, args) {
-    global gWebTrayGui, gWebTrayCallbacks
+    global gWebTrayGui, gWebTrayCallbacks, gWebTrayItems
     msgStr := ""
     try msgStr := args.TryGetWebMessageAsString()
     if (msgStr = "") {
@@ -140,9 +196,12 @@ _OnWebTrayMessage(wv, args) {
         case "init-request":
             if IsObject(gWebTrayGui) {
                 RebuildTrayMenu()
-                webItems := _ConvertHmenuToWebItems(A_TrayMenu.Handle)
-                _PushTrayMenuState(webItems)
+                gWebTrayItems := _ConvertHmenuToWebItems(A_TrayMenu.Handle)
+                _PushTrayMenuState()
             }
+        case "rendered":
+            ; The page has drawn the items, so there is something worth showing.
+            _RevealWebTrayMenu()
         case "execute-item":
             if msg.Has("id") && gWebTrayCallbacks.Has(msg["id"]) {
                 cb := gWebTrayCallbacks[msg["id"]]
@@ -154,12 +213,17 @@ _OnWebTrayMessage(wv, args) {
     }
 }
 
+; Dismisses the menu by parking it off-screen again. The window and its loaded
+; page survive, which is what makes the next right-click instant.
 _CloseWebTrayMenu() {
-    global gWebTrayGui
-    if IsObject(gWebTrayGui) {
-        try gWebTrayGui.Destroy()
+    global gWebTrayGui, gWebTrayShown, gWebTrayPending, gWebTrayPos
+    SetTimer(_RevealWebTrayMenu, 0)
+    if IsObject(gWebTrayGui) && gWebTrayGui.Hwnd {
+        try WinMove(-30000, -30000, , , "ahk_id " gWebTrayGui.Hwnd)
     }
-    gWebTrayGui := 0
+    gWebTrayShown := false
+    gWebTrayPending := false
+    gWebTrayPos := 0
 }
 
 _TrayItemsToJson(items) {
@@ -249,6 +313,7 @@ _IconForLabel(lbl) {
         case "Exit": return "power_settings_new"
         case "Chat": return "chat"
         case "Client Roster": return "group"
+        case "Client Roster (list)": return "format_list_bulleted"
         case "Inventory": return "inventory_2"
         case "Map POIs": return "location_on"
         case "Party Markers": return "shield"
@@ -410,6 +475,16 @@ ShowDebugState() {
     for _, name in SIGNATURE_NAMES {
         rva := GetResolvedOffset(name)
         msg .= "  " name ": " Format("0x{:08X}", rva) " (" OffsetSourceLabel(name) ")`n"
+    }
+    ; Per-client reads. Mainly here to check the character class against what
+    ; the game shows — classId is what picks avatars\c<N>.png in the radial
+    ; menu, and -1 means "unreadable or not logged in yet".
+    UpdateClientSnapshots()
+    snapshots := GetClientSnapshots()
+    msg .= "`nClients: " snapshots.Length "`n"
+    for _, snap in snapshots {
+        msg .= "  " (snap.charName = "" ? "PID " snap.pid : snap.charName)
+            . " — class " snap.classId ", state " snap.gameState "`n"
     }
     MsgBox(msg, "AHK Minimap Debug")
 }

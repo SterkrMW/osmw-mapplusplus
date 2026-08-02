@@ -49,6 +49,7 @@ $MarkerPng     = Join-Path $RepoRoot 'marker.png'
 $MapDir        = Join-Path $RepoRoot 'maps'
 $UiDir         = Join-Path $RepoRoot 'ui'
 $LibDir        = Join-Path $RepoRoot 'Lib'
+$AvatarDir     = Join-Path $RepoRoot 'avatars'
 
 function Resolve-Ahk2Exe {
     param([string] $Override)
@@ -182,6 +183,11 @@ function Build-Variant {
             Copy-Item -LiteralPath $UiDir -Destination $outDir -Recurse -Force
         } else {
             Write-Warning "ui\ folder missing at $UiDir -- settings window will be unavailable."
+        }
+        if (Test-Path -LiteralPath $AvatarDir) {
+            Copy-Item -LiteralPath $AvatarDir -Destination $outDir -Recurse -Force
+        } else {
+            Write-Warning "avatars\ folder missing at $AvatarDir -- the radial menu will fall back to initials."
         }
         if (Test-Path -LiteralPath $LibDir) {
             Copy-Item -LiteralPath $LibDir -Destination $outDir -Recurse -Force

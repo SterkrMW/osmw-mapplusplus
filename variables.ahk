@@ -13,6 +13,9 @@ global POS_X_OFFSET := 0x30B2D0
 global POS_Y_OFFSET := 0x30B2D4
 global GAME_STATE_OFFSET := 0x34313C
 global BATTLE_STATE_OFFSET := 0x301DE4
+; Character class of the logged-in character, 0-7. Indexes avatars\c<N>.png.
+; Only meaningful once the client is past the login screens (GAME_STATE_READY).
+global CHAR_CLASS_OFFSET := 0x2AA62C
 global MAP_FILE_LEN := 20
 global MAP_NAME_LEN := 14
 ; Raw memory position → the coordinates the game shows the player.
@@ -123,8 +126,8 @@ global gNpcNextId := NPC_ID_START
 ; Hardcoded RVAs that get discovered and resolved at runtime. The values here
 ; serve two purposes: bootstrap input for signature capture (Ctrl+Alt+S), and
 ; runtime fallback when no cache or signature is available.
-global SIGNATURE_NAMES := ["MAP_FILE_OFFSET", "MAP_NAME_OFFSET", "POS_X_OFFSET", "POS_Y_OFFSET", "GAME_STATE_OFFSET", "BATTLE_STATE_OFFSET"]
-global gFallbackOffsets := Map("MAP_FILE_OFFSET", MAP_FILE_OFFSET, "MAP_NAME_OFFSET", MAP_NAME_OFFSET, "POS_X_OFFSET", POS_X_OFFSET, "POS_Y_OFFSET", POS_Y_OFFSET, "GAME_STATE_OFFSET", GAME_STATE_OFFSET, "BATTLE_STATE_OFFSET", BATTLE_STATE_OFFSET)
+global SIGNATURE_NAMES := ["MAP_FILE_OFFSET", "MAP_NAME_OFFSET", "POS_X_OFFSET", "POS_Y_OFFSET", "GAME_STATE_OFFSET", "BATTLE_STATE_OFFSET", "CHAR_CLASS_OFFSET"]
+global gFallbackOffsets := Map("MAP_FILE_OFFSET", MAP_FILE_OFFSET, "MAP_NAME_OFFSET", MAP_NAME_OFFSET, "POS_X_OFFSET", POS_X_OFFSET, "POS_Y_OFFSET", POS_Y_OFFSET, "GAME_STATE_OFFSET", GAME_STATE_OFFSET, "BATTLE_STATE_OFFSET", BATTLE_STATE_OFFSET, "CHAR_CLASS_OFFSET", CHAR_CLASS_OFFSET)
 ; Offsets that cannot be captured as byte signatures — they are data strings
 ; with no abs32 code reference for the scanner to latch onto — but that sit at
 ; a fixed delta from an offset that can. Once the source resolves, these follow.

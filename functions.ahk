@@ -1149,17 +1149,22 @@ ResolveMonitorForHotkey(which) {
     return MonitorGetPrimary()
 }
 
-; Returns the monitor index whose bounds contain the window center.
-GetWindowMonitorIndex(hwnd) {
-    WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-    cx := x + w // 2
-    cy := y + h // 2
+; Returns the monitor index whose bounds contain a screen point. Cursor-anchored
+; popups clamp against this rather than the primary display, or they get yanked
+; onto the wrong monitor.
+GetMonitorIndexAtPoint(x, y) {
     Loop MonitorGetCount() {
         MonitorGet(A_Index, &ml, &mt, &mr, &mb)
-        if (cx >= ml && cx < mr && cy >= mt && cy < mb)
+        if (x >= ml && x < mr && y >= mt && y < mb)
             return A_Index
     }
     return MonitorGetPrimary()
+}
+
+; Returns the monitor index whose bounds contain the window center.
+GetWindowMonitorIndex(hwnd) {
+    WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+    return GetMonitorIndexAtPoint(x + w // 2, y + h // 2)
 }
 
 FilterWindowsOnMonitor(windows, monIdx) {
@@ -1539,6 +1544,7 @@ UpdateClientSnapshots() {
     posRva := GetResolvedOffset("POS_X_OFFSET")
     stateRva := GetResolvedOffset("GAME_STATE_OFFSET")
     battleRva := GetResolvedOffset("BATTLE_STATE_OFFSET")
+    classRva := GetResolvedOffset("CHAR_CLASS_OFFSET")
 
     activePid := 0
     if (activeHwnd := WinActive(GAME_WIN_FILTER)) {
@@ -1596,6 +1602,16 @@ UpdateClientSnapshots() {
             inBattle := NumGet(battleBuf, 0, "Int") != 0
         }
 
+        ; -1 = unknown. Before login there is no character loaded, so whatever
+        ; sits at the class address is stale; anything outside 0-7 has no avatar.
+        classId := -1
+        if (gameState >= GAME_STATE_READY && (classBuf := ReadClientBuffer(proc, classRva, 4))) {
+            candidateClass := NumGet(classBuf, 0, "Int")
+            if (candidateClass >= 0 && candidateClass <= 7) {
+                classId := candidateClass
+            }
+        }
+
         snapshots.Push({
             hwnd: hwnd,
             pid: pid,
@@ -1606,6 +1622,7 @@ UpdateClientSnapshots() {
             y: y,
             gameState: gameState,
             inBattle: inBattle,
+            classId: classId,
             isActive: (pid = activePid)
         })
     }
