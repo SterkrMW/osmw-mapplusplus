@@ -9,10 +9,18 @@
 global _ClientRoster_Gui := 0
 global _ClientRoster_List := 0
 global _ClientRoster_Visible := false
-global _ClientRoster_AutoShow := true    ; show automatically from 2 clients up
+; Off by default: the roster is a thing you ask for, not something that should
+; appear over the game every time a second client starts or Maps++ reloads.
+; (Config key renamed from the old "AutoShow" — that defaulted to on and was
+; written into everyone's config, so the old value is deliberately ignored.)
+global _ClientRoster_AutoShow := false
 ; Set when the user closes the window by hand, so auto-show doesn't drag it
 ; back on the next poll. Cleared once every client has exited.
 global _ClientRoster_SuppressAuto := false
+; Set when the window was opened by hand rather than by auto-show. A window the
+; user asked for stays open with an empty list when no clients are running; an
+; auto-shown one closes itself.
+global _ClientRoster_ManualOpen := false
 global _ClientRoster_X := ""             ; last position ("" = let Windows place it)
 global _ClientRoster_Y := ""
 ; hwnd per displayed row, so a double-click can focus the right client.
@@ -55,9 +63,11 @@ _ClientRoster_OnSettings(ctx) {
     g := ctx.gui
     g.Add("Text", "xs y+16 w430",
         "Lists every running client with its character, zone and status.`n"
-        . "Double-click a row to focus that client.")
+        . "Double-click a row to focus that client.`n"
+        . "Open it with " GetHotkeyDisplay("clientRosterToggle") " or from the tray menu.")
 
-    autoCb := g.Add("CheckBox", "xs y+12 w340", "Show automatically when 2 or more clients are running")
+    autoCb := g.Add("CheckBox", "xs y+12 w400",
+        "Also open it automatically when 2 or more clients are running")
     autoCb.Value := _ClientRoster_AutoShow ? 1 : 0
 
     ctx.saveHandlers.Push(() => _ClientRoster_ApplySettings(autoCb.Value ? true : false))
@@ -71,7 +81,7 @@ _ClientRoster_ApplySettings(autoShow) {
 
 _ClientRoster_LoadConfig() {
     global _ClientRoster_AutoShow, _ClientRoster_X, _ClientRoster_Y, CONFIG_INI
-    _ClientRoster_AutoShow := (Trim(IniRead(CONFIG_INI, "ClientRoster", "AutoShow", "1")) = "1")
+    _ClientRoster_AutoShow := (Trim(IniRead(CONFIG_INI, "ClientRoster", "AutoShowWithClients", "0")) = "1")
     x := Trim(IniRead(CONFIG_INI, "ClientRoster", "X", ""))
     y := Trim(IniRead(CONFIG_INI, "ClientRoster", "Y", ""))
     if (IsInteger(x) && IsInteger(y)) {
@@ -82,7 +92,7 @@ _ClientRoster_LoadConfig() {
 
 _ClientRoster_SaveConfig() {
     global _ClientRoster_AutoShow, CONFIG_INI
-    IniWrite(_ClientRoster_AutoShow ? "1" : "0", CONFIG_INI, "ClientRoster", "AutoShow")
+    IniWrite(_ClientRoster_AutoShow ? "1" : "0", CONFIG_INI, "ClientRoster", "AutoShowWithClients")
 }
 
 _ClientRoster_SavePosition() {
@@ -109,8 +119,9 @@ _ClientRoster_Toggle() {
         _ClientRoster_UserHide()
         return
     }
-    _ClientRoster_Show()
-    ; Fill immediately rather than waiting for the next poll.
+    _ClientRoster_Show(true)
+    ; Poll now rather than showing a stale (or empty) list for up to a second.
+    UpdateClientSnapshots()
     _ClientRoster_OnSnapshot(GetClientSnapshots())
 }
 
@@ -122,10 +133,11 @@ _ClientRoster_UserHide() {
     _ClientRoster_Hide()
 }
 
-_ClientRoster_Show() {
+_ClientRoster_Show(manual := false) {
     global _ClientRoster_Gui, _ClientRoster_Visible, _ClientRoster_X, _ClientRoster_Y
-    global _ClientRoster_SuppressAuto
+    global _ClientRoster_SuppressAuto, _ClientRoster_ManualOpen
     _ClientRoster_SuppressAuto := false
+    _ClientRoster_ManualOpen := manual
     _ClientRoster_EnsureGui()
     opts := "NoActivate AutoSize"
     if (_ClientRoster_X != "" && _ClientRoster_Y != "") {
@@ -136,7 +148,8 @@ _ClientRoster_Show() {
 }
 
 _ClientRoster_Hide() {
-    global _ClientRoster_Gui, _ClientRoster_Visible
+    global _ClientRoster_Gui, _ClientRoster_Visible, _ClientRoster_ManualOpen
+    _ClientRoster_ManualOpen := false
     if !IsObject(_ClientRoster_Gui) {
         return
     }
@@ -180,15 +193,17 @@ _ClientRoster_OnRowActivate(lv, row) {
 
 _ClientRoster_OnSnapshot(snapshots) {
     global _ClientRoster_Visible, _ClientRoster_AutoShow, _ClientRoster_List, _ClientRoster_RowHwnds
-    global _ClientRoster_SuppressAuto
+    global _ClientRoster_SuppressAuto, _ClientRoster_ManualOpen
 
     if (snapshots.Length = 0) {
         ; Every client is gone — the next session starts from a clean slate.
         _ClientRoster_SuppressAuto := false
-        if _ClientRoster_Visible {
+        ; A window the user opened stays put (with an empty list); one that
+        ; opened itself closes itself.
+        if (_ClientRoster_Visible && !_ClientRoster_ManualOpen) {
             _ClientRoster_Hide()
+            return
         }
-        return
     }
     ; Single-boxers never see this window.
     if (_ClientRoster_AutoShow && !_ClientRoster_Visible && !_ClientRoster_SuppressAuto

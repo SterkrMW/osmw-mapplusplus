@@ -10,6 +10,9 @@
 global _PartyMarkers_COLORS := ["1E90FF", "32CD32", "FF8C00", "FF69B4", "00CED1", "FFD700", "9370DB", "FF4500"]
 ; "autohide" (default), "always" or "never" — see MARKER_LABEL_MODES.
 global _PartyMarkers_LabelMode := "autohide"
+; Whether the layer draws at all. Persisted, so a layer turned off stays off
+; across a reload rather than quietly coming back.
+global _PartyMarkers_LayerVisible := true
 ; Slots used by the last draw, so a hover change can toggle just those labels.
 global _PartyMarkers_UsedCount := 0
 ; Control pool: AHK can't destroy individual controls, so they are created once
@@ -25,41 +28,81 @@ RegisterAddon(Map(
     "settingsLabel",    "Party Markers",
     "OnInit",           _PartyMarkers_OnInit,
     "OnSettings",       _PartyMarkers_OnSettings,
+    "OnTrayMenu",       _PartyMarkers_OnTrayMenu,
     "OnSnapshot",       _PartyMarkers_OnSnapshot,
     "OnOverlayHover",   _PartyMarkers_OnOverlayHover,
     "OnOverlayHide",    _PartyMarkers_HideAll,
     "OnOverlayRebuild", _PartyMarkers_Reset
 ))
 
+RegisterHotkeyAction(Map(
+    "id", "partyMarkersToggleLayer",
+    "label", "Show/hide party marker layer",
+    "category", "Party Markers",
+    "default", "^!i",
+    "addon", "PartyMarkers",
+    "handler", (*) => _PartyMarkers_ToggleLayer()
+))
+
 _PartyMarkers_OnInit() {
     _PartyMarkers_LoadConfig()
 }
 
+_PartyMarkers_OnTrayMenu(trayMenu) {
+    trayMenu.Add("Party Markers`t" GetHotkeyDisplay("partyMarkersToggleLayer"),
+        (*) => _PartyMarkers_ToggleLayer())
+}
+
+_PartyMarkers_ToggleLayer() {
+    global _PartyMarkers_LayerVisible
+    _PartyMarkers_SetLayerVisible(!_PartyMarkers_LayerVisible)
+    ; The overlay may well be closed when this is pressed, so say what happened.
+    TrayTip("Party Markers", _PartyMarkers_LayerVisible ? "Layer on" : "Layer off", "Iconi")
+}
+
+_PartyMarkers_SetLayerVisible(visible) {
+    global _PartyMarkers_LayerVisible
+    _PartyMarkers_LayerVisible := visible
+    _PartyMarkers_SaveConfig()
+    if visible {
+        ; Redraw straight away from the latest poll instead of waiting a tick.
+        _PartyMarkers_OnSnapshot(GetClientSnapshots())
+    } else {
+        _PartyMarkers_HideAll()
+    }
+}
+
 _PartyMarkers_OnSettings(ctx) {
-    global _PartyMarkers_LabelMode, MARKER_LABEL_MODES, MARKER_LABEL_MODE_LABELS
+    global _PartyMarkers_LabelMode, _PartyMarkers_LayerVisible
+    global MARKER_LABEL_MODES, MARKER_LABEL_MODE_LABELS
 
     g := ctx.gui
     g.Add("Text", "xs y+16 w430",
         "Shows your other running clients on the minimap, each in its own colour.`n"
         . "Your own character keeps the standard marker.")
 
+    layerCb := g.Add("CheckBox", "xs y+12 w340", "Show the party marker layer")
+    layerCb.Value := _PartyMarkers_LayerVisible ? 1 : 0
+
     g.Add("Text", "xs y+14 w130", "Show names:")
     modeDdl := g.Add("DropDownList", "x+10 yp-3 w250", MARKER_LABEL_MODE_LABELS)
     modeDdl.Value := MarkerLabelModeIndex(_PartyMarkers_LabelMode)
 
-    ctx.saveHandlers.Push(() => _PartyMarkers_ApplySettings(MARKER_LABEL_MODES[modeDdl.Value]))
+    ctx.saveHandlers.Push(() => _PartyMarkers_ApplySettings(MARKER_LABEL_MODES[modeDdl.Value],
+        layerCb.Value ? true : false))
 }
 
-_PartyMarkers_ApplySettings(labelMode) {
+_PartyMarkers_ApplySettings(labelMode, layerVisible) {
     global _PartyMarkers_LabelMode, _PartyMarkers_Pool, _PartyMarkers_UsedCount
     _PartyMarkers_LabelMode := labelMode
-    _PartyMarkers_SaveConfig()
+    _PartyMarkers_SetLayerVisible(layerVisible)   ; saves the config too
     SetMarkerLabelsVisible(_PartyMarkers_Pool, _PartyMarkers_UsedCount,
-        ShouldShowMarkerLabels(labelMode))
+        layerVisible && ShouldShowMarkerLabels(labelMode))
 }
 
 _PartyMarkers_LoadConfig() {
-    global _PartyMarkers_LabelMode, CONFIG_INI
+    global _PartyMarkers_LabelMode, _PartyMarkers_LayerVisible, CONFIG_INI
+    _PartyMarkers_LayerVisible := (Trim(IniRead(CONFIG_INI, "PartyMarkers", "LayerVisible", "1")) != "0")
     mode := Trim(IniRead(CONFIG_INI, "PartyMarkers", "LabelMode", ""))
     if (mode != "") {
         _PartyMarkers_LabelMode := NormalizeMarkerLabelMode(mode)
@@ -71,15 +114,17 @@ _PartyMarkers_LoadConfig() {
 }
 
 _PartyMarkers_SaveConfig() {
-    global _PartyMarkers_LabelMode, CONFIG_INI
+    global _PartyMarkers_LabelMode, _PartyMarkers_LayerVisible, CONFIG_INI
     IniWrite(_PartyMarkers_LabelMode, CONFIG_INI, "PartyMarkers", "LabelMode")
+    IniWrite(_PartyMarkers_LayerVisible ? "1" : "0", CONFIG_INI, "PartyMarkers", "LayerVisible")
 }
 
 ; Labels are positioned on every draw, so a hover change is a plain toggle.
 _PartyMarkers_OnOverlayHover(isOver) {
     global _PartyMarkers_Pool, _PartyMarkers_UsedCount, _PartyMarkers_LabelMode
+    global _PartyMarkers_LayerVisible
     SetMarkerLabelsVisible(_PartyMarkers_Pool, _PartyMarkers_UsedCount,
-        ShouldShowMarkerLabels(_PartyMarkers_LabelMode))
+        _PartyMarkers_LayerVisible && ShouldShowMarkerLabels(_PartyMarkers_LabelMode))
 }
 
 ; ── Drawing ──────────────────────────────────────────────────────
@@ -87,8 +132,14 @@ _PartyMarkers_OnOverlayHover(isOver) {
 _PartyMarkers_OnSnapshot(snapshots) {
     global gOverlayVisible, gGui, gCurrentMapName, gCachedPID, GAME_STATE_WORLD
     global MINIMAP_MAP_INSET, _PartyMarkers_Pool, _PartyMarkers_LabelMode, _PartyMarkers_UsedCount
+    global _PartyMarkers_LayerVisible
 
     if (!gOverlayVisible || !IsObject(gGui) || !gGui.Hwnd) {
+        return
+    }
+    if !_PartyMarkers_LayerVisible {
+        _PartyMarkers_HideAll()
+        _PartyMarkers_UsedCount := 0
         return
     }
     currentMapId := MapIdFromName(gCurrentMapName)

@@ -24,6 +24,8 @@ global _Pois_COLORS := Map(
 )
 ; "autohide" (default), "always" or "never" — see MARKER_LABEL_MODES.
 global _Pois_LabelMode := "autohide"
+; Whether the layer draws at all. Persisted, so a layer turned off stays off
+; across a reload rather than quietly coming back.
 global _Pois_LayerVisible := true
 global _Pois_DefaultKind := "npc"
 ; Slots used by the last draw, so a hover change can toggle just those labels.
@@ -85,12 +87,11 @@ _Pois_OnTrayMenu(trayMenu) {
     poiMenu.Add("Manage POIs…", (*) => _Pois_ShowManageWindow())
     poiMenu.Add()
     poiMenu.Add("Export This Map's POIs", (*) => _Pois_ExportCurrentMap())
-    poiMenu.Add("Generate NPC Entry`t" GetHotkeyDisplay("poiGenerateNpc"), (*) => GenerateNpcEntry())
     trayMenu.Add("Map POIs", poiMenu)
 }
 
 _Pois_OnSettings(ctx) {
-    global _Pois_LabelMode, _Pois_DefaultKind, _Pois_KINDS
+    global _Pois_LabelMode, _Pois_DefaultKind, _Pois_KINDS, _Pois_LayerVisible
     global MARKER_LABEL_MODES, MARKER_LABEL_MODE_LABELS
 
     g := ctx.gui
@@ -98,6 +99,9 @@ _Pois_OnSettings(ctx) {
         "Marks NPCs, shops, portals and notes on the minimap. Stand where the`n"
         . "thing is and press the Add POI hotkey — the position is read from the`n"
         . "game, so it lands exactly where you stood.")
+
+    layerCb := g.Add("CheckBox", "xs y+12 w340", "Show the POI layer")
+    layerCb.Value := _Pois_LayerVisible ? 1 : 0
 
     g.Add("Text", "xs y+14 w130", "Show labels:")
     modeDdl := g.Add("DropDownList", "x+10 yp-3 w250", MARKER_LABEL_MODE_LABELS)
@@ -112,19 +116,19 @@ _Pois_OnSettings(ctx) {
         . "current map; Export writes them in the server repo's NPC entry format.")
 
     ctx.saveHandlers.Push(() => _Pois_ApplySettings(MARKER_LABEL_MODES[modeDdl.Value],
-        _Pois_KINDS[kindDdl.Value]))
+        _Pois_KINDS[kindDdl.Value], layerCb.Value ? true : false))
 }
 
-_Pois_ApplySettings(labelMode, defaultKind) {
+_Pois_ApplySettings(labelMode, defaultKind, layerVisible) {
     global _Pois_LabelMode, _Pois_DefaultKind
     _Pois_LabelMode := labelMode
     _Pois_DefaultKind := defaultKind
-    _Pois_SaveConfig()
-    _Pois_Redraw()
+    _Pois_SetLayerVisible(layerVisible)   ; saves the config and redraws
 }
 
 _Pois_LoadConfig() {
-    global _Pois_LabelMode, _Pois_DefaultKind, CONFIG_INI
+    global _Pois_LabelMode, _Pois_DefaultKind, _Pois_LayerVisible, CONFIG_INI
+    _Pois_LayerVisible := (Trim(IniRead(CONFIG_INI, "MapPois", "LayerVisible", "1")) != "0")
     mode := Trim(IniRead(CONFIG_INI, "MapPois", "LabelMode", ""))
     if (mode != "") {
         _Pois_LabelMode := NormalizeMarkerLabelMode(mode)
@@ -140,9 +144,10 @@ _Pois_LoadConfig() {
 }
 
 _Pois_SaveConfig() {
-    global _Pois_LabelMode, _Pois_DefaultKind, CONFIG_INI
+    global _Pois_LabelMode, _Pois_DefaultKind, _Pois_LayerVisible, CONFIG_INI
     IniWrite(_Pois_LabelMode, CONFIG_INI, "MapPois", "LabelMode")
     IniWrite(_Pois_DefaultKind, CONFIG_INI, "MapPois", "DefaultKind")
+    IniWrite(_Pois_LayerVisible ? "1" : "0", CONFIG_INI, "MapPois", "LayerVisible")
 }
 
 ; Labels are positioned on every draw, so a hover change is a plain toggle.
@@ -268,24 +273,31 @@ _Pois_AddHere() {
         return
     }
 
-    entry := _Pois_PromptForEntry(mapId, rawPos.x, rawPos.y)
+    ; Read the zone name once — the dialog blocks, and by the time it closes
+    ; the player may have been moved by a portal.
+    zone := ZoneDisplayName(mapId)
+
+    entry := _Pois_PromptForEntry(zone, rawPos.x, rawPos.y)
     if !IsObject(entry) {
         return
     }
+    ; Stored raw; only the display is converted to in-game coordinates.
     _Pois_Add(mapId, { x: rawPos.x, y: rawPos.y, label: entry.label, kind: entry.kind })
     _Pois_DefaultKind := entry.kind
     _Pois_SaveConfig()
     _Pois_Redraw()
-    TrayTip("Map POIs", "Added '" entry.label "' (" entry.kind ")`n" mapId " at " rawPos.x ", " rawPos.y, "Iconi")
+    TrayTip("Map POIs", "Added '" entry.label "' (" entry.kind ")`n"
+        . zone " at " GameCoordText(rawPos.x, rawPos.y), "Iconi")
 }
 
 ; Label + type dialog. Returns {label, kind}, or 0 when cancelled.
-_Pois_PromptForEntry(mapId, x, y) {
+; `zone` is the player-facing place name; x/y are raw and shown as in-game.
+_Pois_PromptForEntry(zone, x, y) {
     global _Pois_KINDS, _Pois_DefaultKind
 
     result := 0
     dlg := Gui("+AlwaysOnTop -MinimizeBox", "Add POI")
-    dlg.Add("Text", "w300", mapId " at " x ", " y)
+    dlg.Add("Text", "w300", zone " at " GameCoordText(x, y))
     dlg.Add("Text", "xm y+10 w60", "Label:")
     labelEdit := dlg.Add("Edit", "x+8 yp-3 w232")
     dlg.Add("Text", "xm y+10 w60", "Type:")
@@ -326,7 +338,7 @@ _Pois_ShowManageWindow() {
         _Pois_ManageGui := 0
     }
 
-    g := Gui("+AlwaysOnTop -MinimizeBox", "Map POIs — " mapId)
+    g := Gui("+AlwaysOnTop -MinimizeBox", "Map POIs — " ZoneDisplayName(mapId))
     _Pois_ManageGui := g
     lv := g.Add("ListView", "w420 r10 -Multi Grid", ["Label", "Type", "X", "Y"])
     _Pois_FillManageList(lv, mapId)
@@ -343,7 +355,8 @@ _Pois_ShowManageWindow() {
 _Pois_FillManageList(lv, mapId) {
     lv.Delete()
     for poi in _Pois_Load(mapId) {
-        lv.Add(, poi.label, poi.kind, poi.x, poi.y)
+        ; In-game coordinates, so they match what the player sees on screen.
+        lv.Add(, poi.label, poi.kind, GameCoordX(poi.x), GameCoordY(poi.y))
     }
     loop 4 {
         lv.ModifyCol(A_Index, "AutoHdr")
@@ -376,7 +389,7 @@ _Pois_ExportCurrentMap() {
     }
     list := _Pois_Load(mapId)
     if (list.Length = 0) {
-        TrayTip("Map POIs", "No POIs saved for " mapId " yet.", "Iconi")
+        TrayTip("Map POIs", "No POIs saved for " ZoneDisplayName(mapId) " yet.", "Iconi")
         return
     }
 
@@ -393,7 +406,8 @@ _Pois_ExportCurrentMap() {
     }
     SaveNpcNextId()
     A_Clipboard := text
-    TrayTip("Map POIs", "Exported " list.Length " POI(s) for " mapId "`n"
+    ; The map id is named here on purpose — it's what the exported entries use.
+    TrayTip("Map POIs", "Exported " list.Length " POI(s) for " ZoneDisplayName(mapId) " (" mapId ")`n"
         . NPC_OUTPUT_FILE "`n(also copied to the clipboard)", "Iconi")
 }
 
@@ -412,8 +426,16 @@ _Pois_CurrentMapId() {
 
 _Pois_ToggleLayer() {
     global _Pois_LayerVisible
-    _Pois_LayerVisible := !_Pois_LayerVisible
-    if _Pois_LayerVisible {
+    _Pois_SetLayerVisible(!_Pois_LayerVisible)
+    ; The overlay may well be closed when this is pressed, so say what happened.
+    TrayTip("Map POIs", _Pois_LayerVisible ? "Layer on" : "Layer off", "Iconi")
+}
+
+_Pois_SetLayerVisible(visible) {
+    global _Pois_LayerVisible
+    _Pois_LayerVisible := visible
+    _Pois_SaveConfig()
+    if visible {
         _Pois_Redraw()
     } else {
         _Pois_HideAll()

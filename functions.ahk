@@ -223,6 +223,63 @@ ReadRawPlayerPosition() {
     return { ok: true, x: NumGet(posBuf, 0, "Int"), y: NumGet(posBuf, 4, "Int") }
 }
 
+; Friendly zone name for the tracked client (e.g. "Stillreach"), or "" when it
+; can't be read. Data is keyed by the map file id (MAP302) because that's what
+; the game and the server repo use, but this is what a player calls the place,
+; so it's what UI should show.
+ReadCurrentZoneName() {
+    global MAP_NAME_LEN
+    cached := GetCachedProcessHandleAndBase()
+    if !cached.ok {
+        return ""
+    }
+    buf := Buffer(MAP_NAME_LEN, 0)
+    ok := DllCall(
+        "ReadProcessMemory",
+        "Ptr", cached.handle,
+        "Ptr", cached.modBase + GetResolvedOffset("MAP_NAME_OFFSET"),
+        "Ptr", buf.Ptr,
+        "UPtr", MAP_NAME_LEN,
+        "UPtr*", 0,
+        "Int"
+    )
+    if !ok {
+        return ""
+    }
+    name := Trim(StrGet(buf, MAP_NAME_LEN, "CP0"), " `t`r`n`0")
+    ; Filename spill — the zone name field isn't populated right now.
+    if RegExMatch(name, "i)^MAP\d+\.map$") {
+        return ""
+    }
+    return name
+}
+
+; Zone name when it's readable, else the map id, so UI always has something.
+ZoneDisplayName(mapId) {
+    zone := ReadCurrentZoneName()
+    return (zone != "") ? zone : mapId
+}
+
+; ── Coordinates ──────────────────────────────────────────────────
+; The game displays coordinates as raw memory X/16 and Y/8 — those are the
+; numbers a player reads off their screen and quotes to other players. Stored
+; POI data and the server repo's NPC entries stay in raw memory units, so this
+; conversion is display-only.
+
+GameCoordX(rawX) {
+    global GAME_COORD_DIV_X
+    return rawX // GAME_COORD_DIV_X
+}
+
+GameCoordY(rawY) {
+    global GAME_COORD_DIV_Y
+    return rawY // GAME_COORD_DIV_Y
+}
+
+GameCoordText(rawX, rawY) {
+    return GameCoordX(rawX) ", " GameCoordY(rawY)
+}
+
 ; ── Map resolution ───────────────────────────────────────────────
 
 ResolveMapPath(mapName) {
@@ -1653,7 +1710,11 @@ GenerateNpcEntry() {
     gNpcNextId += 1
     SaveNpcNextId()
 
-    TrayTip("NPC Generator", "NPC " idHex " added`nPos: " rawPos.x ", " rawPos.y "`nMap: " mapBase, "Iconi")
+    ; Raw position is what the entry carries; the in-game numbers are there so
+    ; it can be matched against what's on screen.
+    TrayTip("NPC Generator", "NPC " idHex " added`n"
+        . "Pos: " rawPos.x ", " rawPos.y " (in-game " GameCoordText(rawPos.x, rawPos.y) ")`n"
+        . "Map: " ZoneDisplayName(mapBase) " (" mapBase ")", "Iconi")
 }
 
 ; ── Signature-based RVA discovery ────────────────────────────────

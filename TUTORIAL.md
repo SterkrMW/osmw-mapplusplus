@@ -213,8 +213,11 @@ Echoes the in-game **F2** view-mode cycle across every open client without focus
 
 A small always-on-top window listing every running client with its character, current zone and
 status (**Playing**, **In battle**, **Loading**, **Not ready**). **Double-click a row** to bring
-that client to the front. It appears automatically once you have two or more clients running —
-turn that off in **Settings → Client Roster** — and closing it by hand keeps it closed.
+that client to the front.
+
+It only appears when you ask for it — press **Ctrl+Alt+M** or use the tray menu. If you would
+rather it opened itself whenever two or more clients are running, tick that in
+**Settings → Client Roster**; closing it by hand still keeps it closed for that session.
 
 Use it with **Ctrl+Alt+E** (*Send Enter Until Ready*): the roster is what shows you which alt is
 still sitting at a login prompt.
@@ -226,7 +229,7 @@ Marks NPCs, shops, portals, quest spots and notes on the minimap.
 | Hotkey | Action |
 |--------|--------|
 | **Ctrl+Alt+P** | Add a POI where you are standing |
-| **Ctrl+Alt+O** | Show / hide the POI layer |
+| **Ctrl+Alt+O** | Show / hide the POI layer (remembered between sessions) |
 | **Ctrl+Alt+N** | Append an NPC entry for your position to `npc_generated.txt` |
 
 Adding one works the way mapping already worked: **stand where the thing is and press the
@@ -238,13 +241,18 @@ Labels are shown while you play and **hide while the mouse is over the minimap**
 the cursor there to see the map art underneath them. The coloured dots are always there.
 **Settings → Map POIs → Show labels** switches this to *Always* or *Never*.
 
+Maps++ shows you the **zone name** ("Stillreach") and **in-game coordinates** — the same numbers
+the game puts on your screen — wherever it talks about a POI.
+
 POIs are stored per map in **`maps\pois.ini`**, next to `calibration.ini`, so a curated set can
-ship with a release and anyone can add their own on top:
+ship with a release and anyone can add their own on top. The file is keyed by map **id** and
+holds **raw** positions, because that is what the game and the server repo use — in-game
+coordinates are raw X ÷ 16 and Y ÷ 8, applied for display only:
 
 ```ini
 [MAP302]
-1=1000|2000|Grocery|shop
-2=900|1800|Rift Plains portal|portal
+1=1089|559|Grocery|shop
+2=705|386|Rift Plains portal|portal
 ```
 
 **Tray → Map POIs** has the rest: **Manage POIs…** (list, delete for the current map) and
@@ -265,7 +273,11 @@ onto the clipboard:
 
 ### Party Markers (Full / Battle)
 
-No hotkey — it draws on the minimap. Every *other* client running on the same map as you appears
+| Hotkey | Action |
+|--------|--------|
+| **Ctrl+Alt+I** | Show / hide the party marker layer (remembered between sessions) |
+
+Every *other* client running on the same map as you appears
 as a coloured dot, labelled with the character name, alongside your own standard marker. Alts
 that are loading, in battle, or in a different zone are not drawn (their position would be
 stale).
@@ -315,6 +327,7 @@ openSettings=^!,
 [MapPois]
 LabelMode=autohide
 DefaultKind=npc
+LayerVisible=1
 
 [Addons]
 WindowLayout=1
@@ -341,6 +354,7 @@ MapPois=1
 | `OffsetX` / `OffsetY` | Pixel nudge from the anchor (negative allowed). Dragging the minimap writes these for you |
 | `KeepOpenOnFocusLoss` | `1` = keep the minimap open when you Alt+Tab away |
 | `LabelMode` | When marker labels are drawn: `autohide` (shown, except while the mouse is over the minimap), `always`, or `never`. Applies to both POI labels and party marker names |
+| `LayerVisible` | `0` = that layer stays hidden. Set by **Ctrl+Alt+O** (POIs) and **Ctrl+Alt+I** (party markers), so a layer you switch off stays off next session |
 | `DefaultKind` | Type pre-selected when adding a POI: `npc`, `shop`, `portal`, `quest`, `note` |
 | `DefaultLayout` | Preset used by **Ctrl+Shift+L/K** |
 | `MainCharacter` | Character name for center-focus layouts |

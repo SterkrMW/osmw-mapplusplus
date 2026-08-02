@@ -15,6 +15,9 @@ global GAME_STATE_OFFSET := 0x34313C
 global BATTLE_STATE_OFFSET := 0x301DE4
 global MAP_FILE_LEN := 20
 global MAP_NAME_LEN := 14
+; Raw memory position → the coordinates the game shows the player.
+global GAME_COORD_DIV_X := 16
+global GAME_COORD_DIV_Y := 8
 global MAP_DIR := A_ScriptDir "\maps"
 ; Base map-image space. Every calibration in maps\calibration.ini maps world
 ; coordinates into *these* pixels, so they must not change with the user's
