@@ -5,11 +5,12 @@ global _WindowLayout_MainCharacter  := ""
 global _WindowLayout_TargetMonitor  := 0  ; 0 = primary
 
 RegisterAddon(Map(
-    "name",          "WindowLayout",
-    "settingsLabel", "Window Layout",
-    "OnTrayMenu",    _WindowLayout_OnTrayMenu,
-    "OnSettings",    _WindowLayout_OnSettings,
-    "OnInit",        _WindowLayout_OnInit
+    "name",              "WindowLayout",
+    "settingsLabel",     "Window Layout",
+    "OnTrayMenu",        _WindowLayout_OnTrayMenu,
+    "OnSettingsWeb",     _WindowLayout_OnSettingsWeb,
+    "OnSettingsWebSave", _WindowLayout_OnSettingsWebSave,
+    "OnInit",            _WindowLayout_OnInit
 ))
 
 RegisterHotkeyAction(Map(
@@ -53,39 +54,42 @@ _WindowLayout_OnTrayMenu(trayMenu) {
     trayMenu.Add("Window Layout", layoutMenu)
 }
 
-; Contributes the Window Layout tab to the Settings window. ctx = { gui, tab,
-; saveHandlers }; the core has already selected this addon's tab and added a
-; Section anchor, so controls position with xs/ys.
-_WindowLayout_OnSettings(ctx) {
+_WindowLayout_OnSettingsWeb() {
     global _WindowLayout_DefaultLayout, _WindowLayout_MainCharacter, _WindowLayout_TargetMonitor
-
-    g := ctx.gui
     presets := ["Reset", "Single", "Grid2x2", "Grid3x2", "CenterFocus", "DiceLeft", "DiceRight"]
 
-    g.Add("Text", "xs y+16 w130", "Default layout:")
-    layoutDdl := g.Add("DropDownList", "x+10 yp-3 w200", presets)
-    layoutDdl.Value := _WindowLayout_IndexOf(presets, _WindowLayout_DefaultLayout, 3)  ; default Grid2x2
-
-    ; Main character — seed the combo with any currently-detected names plus the
-    ; saved value, but allow free text so it can be set with no game windows open.
     names := _WindowLayout_GetCharacterNames()
     if (_WindowLayout_MainCharacter != "" && !_WindowLayout_ArrayHas(names, _WindowLayout_MainCharacter))
         names.InsertAt(1, _WindowLayout_MainCharacter)
-    g.Add("Text", "xs y+14 w130", "Main character:")
-    charCombo := g.Add("ComboBox", "x+10 yp-3 w200", names)
-    charCombo.Text := _WindowLayout_MainCharacter
 
-    g.Add("Text", "xs y+14 w130", "Target display:")
     monChoices := ["Primary (auto)"]
     Loop MonitorGetCount()
         monChoices.Push(_WindowLayout_DisplayLabel(A_Index))
-    displayDdl := g.Add("DropDownList", "x+10 yp-3 w220", monChoices)
-    displayDdl.Value := (_WindowLayout_TargetMonitor >= 1 && _WindowLayout_TargetMonitor <= MonitorGetCount())
-        ? _WindowLayout_TargetMonitor + 1 : 1
 
-    ctx.saveHandlers.Push(() => _WindowLayout_ApplySettings(
-        presets[layoutDdl.Value], Trim(charCombo.Text),
-        (displayDdl.Value <= 1) ? 0 : displayDdl.Value - 1))
+    layoutIdx := _WindowLayout_IndexOf(presets, _WindowLayout_DefaultLayout, 3) - 1
+    monIdx := (_WindowLayout_TargetMonitor >= 1 && _WindowLayout_TargetMonitor <= MonitorGetCount())
+        ? _WindowLayout_TargetMonitor : 0
+
+    return [
+        Map("type", "dropdown", "id", "layoutIdx", "label", "Default layout:",
+            "options", presets, "value", layoutIdx),
+        Map("type", "combo", "id", "mainChar", "label", "Main character:",
+            "options", names, "value", _WindowLayout_MainCharacter),
+        Map("type", "dropdown", "id", "targetMonitorIdx", "label", "Target display:",
+            "options", monChoices, "value", monIdx)
+    ]
+}
+
+_WindowLayout_OnSettingsWebSave(values) {
+    presets := ["Reset", "Single", "Grid2x2", "Grid3x2", "CenterFocus", "DiceLeft", "DiceRight"]
+    layoutIdx := values.Has("layoutIdx") ? Integer(values["layoutIdx"]) + 1 : 3
+    if (layoutIdx < 1 || layoutIdx > presets.Length)
+        layoutIdx := 3
+
+    mainChar := values.Has("mainChar") ? Trim(values["mainChar"]) : ""
+    targetMonIdx := values.Has("targetMonitorIdx") ? Integer(values["targetMonitorIdx"]) : 0
+
+    _WindowLayout_ApplySettings(presets[layoutIdx], mainChar, targetMonIdx)
 }
 
 ; Persists the values chosen in the Settings window's Window Layout tab.

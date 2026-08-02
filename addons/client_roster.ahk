@@ -30,7 +30,8 @@ RegisterAddon(Map(
     "name",          "ClientRoster",
     "settingsLabel", "Client Roster",
     "OnInit",        _ClientRoster_OnInit,
-    "OnSettings",    _ClientRoster_OnSettings,
+    "OnSettingsWeb",     _ClientRoster_OnSettingsWeb,
+    "OnSettingsWebSave", _ClientRoster_OnSettingsWebSave,
     "OnTrayMenu",    _ClientRoster_OnTrayMenu,
     "OnSnapshot",    _ClientRoster_OnSnapshot
 ))
@@ -57,20 +58,21 @@ _ClientRoster_OnTrayMenu(trayMenu) {
     trayMenu.Add("Client Roster`t" GetHotkeyDisplay("clientRosterToggle"), (*) => _ClientRoster_Toggle())
 }
 
-_ClientRoster_OnSettings(ctx) {
+_ClientRoster_OnSettingsWeb() {
     global _ClientRoster_AutoShow
+    return [
+        Map("type", "info", "text",
+            "Lists every running client with its character, zone and status.`n"
+            . "Double-click a row to focus that client.`n"
+            . "Open it with " GetHotkeyDisplay("clientRosterToggle") " or from the tray menu."),
+        Map("type", "checkbox", "id", "autoShow", "label",
+            "Also open it automatically when 2 or more clients are running",
+            "value", _ClientRoster_AutoShow ? true : false)
+    ]
+}
 
-    g := ctx.gui
-    g.Add("Text", "xs y+16 w430",
-        "Lists every running client with its character, zone and status.`n"
-        . "Double-click a row to focus that client.`n"
-        . "Open it with " GetHotkeyDisplay("clientRosterToggle") " or from the tray menu.")
-
-    autoCb := g.Add("CheckBox", "xs y+12 w400",
-        "Also open it automatically when 2 or more clients are running")
-    autoCb.Value := _ClientRoster_AutoShow ? 1 : 0
-
-    ctx.saveHandlers.Push(() => _ClientRoster_ApplySettings(autoCb.Value ? true : false))
+_ClientRoster_OnSettingsWebSave(values) {
+    _ClientRoster_ApplySettings(values.Has("autoShow") && values["autoShow"] ? true : false)
 }
 
 _ClientRoster_ApplySettings(autoShow) {

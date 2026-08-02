@@ -47,6 +47,8 @@ $MainScript    = Join-Path $RepoRoot 'main.ahk'
 $AddonsInclude = Join-Path $RepoRoot '_addons.ahk'
 $MarkerPng     = Join-Path $RepoRoot 'marker.png'
 $MapDir        = Join-Path $RepoRoot 'maps'
+$UiDir         = Join-Path $RepoRoot 'ui'
+$LibDir        = Join-Path $RepoRoot 'Lib'
 
 function Resolve-Ahk2Exe {
     param([string] $Override)
@@ -175,6 +177,14 @@ function Build-Variant {
             Copy-Item -LiteralPath $MapDir -Destination $outDir -Recurse -Force
         } else {
             Write-Warning "maps\ folder missing at $MapDir -- shipped exe will warn at startup."
+        }
+        if (Test-Path -LiteralPath $UiDir) {
+            Copy-Item -LiteralPath $UiDir -Destination $outDir -Recurse -Force
+        } else {
+            Write-Warning "ui\ folder missing at $UiDir -- settings window will be unavailable."
+        }
+        if (Test-Path -LiteralPath $LibDir) {
+            Copy-Item -LiteralPath $LibDir -Destination $outDir -Recurse -Force
         }
 
         # Drop a small README naming the variant + its addons.

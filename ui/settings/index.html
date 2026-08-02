@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>osMW Maps++ — Settings</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Title bar (custom frameless header) -->
+    <header class="title-bar" id="title-bar">
+        <div class="title-bar-drag">
+            <span class="title-bar-icon">🗺️</span>
+            <span class="title-bar-title">osMW Maps++ — Settings</span>
+        </div>
+        <div class="title-bar-controls">
+            <button class="title-btn title-btn-close" id="btnTitleClose" title="Close">✕</button>
+        </div>
+    </header>
+
+    <!-- Tab bar -->
+    <nav class="tab-bar" id="tab-bar">
+        <!-- Tabs are populated dynamically by JS from the AHK state payload -->
+    </nav>
+
+    <!-- Tab panels container -->
+    <div class="panels" id="panels">
+
+        <!-- ── Launcher ── -->
+        <section class="panel" data-tab="Launcher">
+            <div class="panel-desc">Configure the game executable and launch behaviour.</div>
+
+            <label class="field">
+                <span class="field-label">Game path</span>
+                <div class="browse-row">
+                    <input type="text" id="gamePath" class="input" readonly placeholder="Not set">
+                    <button class="btn btn-sm" id="btnBrowse">Browse…</button>
+                </div>
+            </label>
+
+            <label class="field">
+                <span class="field-label">Game args</span>
+                <input type="text" id="gameArgs" class="input" placeholder="Optional command-line arguments">
+            </label>
+
+            <label class="field field-check">
+                <input type="checkbox" id="autoStart" class="toggle">
+                <span>Start Maps++ automatically when Windows starts</span>
+            </label>
+
+            <label class="field field-check">
+                <input type="checkbox" id="launchOnStartup" class="toggle">
+                <span>Launch a game client when Maps++ starts</span>
+            </label>
+
+            <div class="field-row">
+                <label class="field field-half">
+                    <span class="field-label">Multi-client count</span>
+                    <input type="number" id="multiClientCount" class="input input-narrow" min="1" step="1">
+                </label>
+                <label class="field field-half">
+                    <span class="field-label">Launch delay (ms)</span>
+                    <input type="number" id="multiClientDelay" class="input input-narrow" min="0" step="50">
+                </label>
+            </div>
+
+            <label class="field">
+                <span class="field-label">Primary monitor</span>
+                <select id="primaryMonitor" class="select"></select>
+            </label>
+
+            <label class="field">
+                <span class="field-label">Secondary monitor</span>
+                <select id="secondaryMonitor" class="select"></select>
+            </label>
+        </section>
+
+        <!-- ── Minimap ── -->
+        <section class="panel" data-tab="Minimap">
+            <div class="panel-desc">Size and placement of the minimap overlay. Map calibration is unaffected by scale.</div>
+
+            <label class="field">
+                <span class="field-label">Size</span>
+                <div class="slider-row">
+                    <input type="range" id="minimapScale" class="range" min="50" max="200" step="5">
+                    <span class="slider-value" id="scaleValue">100%</span>
+                </div>
+            </label>
+
+            <label class="field">
+                <span class="field-label">Opacity</span>
+                <div class="slider-row">
+                    <input type="range" id="minimapOpacity" class="range" min="30" max="100" step="5">
+                    <span class="slider-value" id="opacityValue">100%</span>
+                </div>
+            </label>
+
+            <label class="field">
+                <span class="field-label">Position</span>
+                <select id="minimapAnchor" class="select">
+                    <option value="Center">Centered on the game window</option>
+                    <option value="TopLeft">Top-left</option>
+                    <option value="TopRight">Top-right</option>
+                    <option value="BottomLeft">Bottom-left</option>
+                    <option value="BottomRight">Bottom-right</option>
+                </select>
+            </label>
+
+            <div class="field-row">
+                <label class="field field-half">
+                    <span class="field-label">Nudge X (px)</span>
+                    <input type="number" id="offsetX" class="input input-narrow">
+                </label>
+                <label class="field field-half">
+                    <span class="field-label">Nudge Y (px)</span>
+                    <input type="number" id="offsetY" class="input input-narrow">
+                </label>
+                <button class="btn btn-sm btn-ghost" id="btnResetPos">Reset</button>
+            </div>
+
+            <div class="panel-hint">Hold Ctrl and drag the overlay to set the nudge visually.<br>Double-click the overlay to re-centre it on the game window.</div>
+
+            <label class="field field-check">
+                <input type="checkbox" id="keepOpen" class="toggle">
+                <span>Keep the minimap open when the game loses focus</span>
+            </label>
+        </section>
+
+        <!-- ── Hotkeys ── -->
+        <section class="panel" data-tab="Hotkeys">
+            <div class="panel-desc">Click a shortcut, then press the new keys. Esc cancels.</div>
+            <div id="hotkeysContainer" class="hotkeys-container">
+                <!-- Populated dynamically -->
+            </div>
+            <button class="btn btn-ghost" id="btnResetAllHotkeys">Reset all to defaults</button>
+        </section>
+
+        <!-- Addon tabs are injected here dynamically -->
+
+        <!-- ── Addons (enable/disable) ── -->
+        <section class="panel" data-tab="Addons">
+            <div class="panel-desc">Enable or disable addons. Reload (Ctrl+Alt+R) to fully apply changes.</div>
+            <div id="addonsContainer" class="addons-container">
+                <!-- Populated dynamically -->
+            </div>
+        </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-left" id="toastArea"></div>
+        <div class="footer-right">
+            <button class="btn btn-primary" id="btnSave">Save</button>
+            <button class="btn" id="btnCancel">Cancel</button>
+        </div>
+    </footer>
+
+    <script src="main.js"></script>
+</body>
+</html>

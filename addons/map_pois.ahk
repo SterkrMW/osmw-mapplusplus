@@ -42,7 +42,8 @@ RegisterAddon(Map(
     "name",             "MapPois",
     "settingsLabel",    "Map POIs",
     "OnInit",           _Pois_OnInit,
-    "OnSettings",       _Pois_OnSettings,
+    "OnSettingsWeb",     _Pois_OnSettingsWeb,
+    "OnSettingsWebSave", _Pois_OnSettingsWebSave,
     "OnTrayMenu",       _Pois_OnTrayMenu,
     "OnOverlayShow",    _Pois_OnOverlayShow,
     "OnOverlayHover",   _Pois_OnOverlayHover,
@@ -90,33 +91,39 @@ _Pois_OnTrayMenu(trayMenu) {
     trayMenu.Add("Map POIs", poiMenu)
 }
 
-_Pois_OnSettings(ctx) {
+_Pois_OnSettingsWeb() {
     global _Pois_LabelMode, _Pois_DefaultKind, _Pois_KINDS, _Pois_LayerVisible
     global MARKER_LABEL_MODES, MARKER_LABEL_MODE_LABELS
 
-    g := ctx.gui
-    g.Add("Text", "xs y+16 w430",
-        "Marks NPCs, shops, portals and notes on the minimap. Stand where the`n"
-        . "thing is and press the Add POI hotkey — the position is read from the`n"
-        . "game, so it lands exactly where you stood.")
+    return [
+        Map("type", "info", "text",
+            "Marks NPCs, shops, portals and notes on the minimap. Stand where the`n"
+            . "thing is and press the Add POI hotkey — the position is read from the`n"
+            . "game, so it lands exactly where you stood."),
+        Map("type", "checkbox", "id", "layerVisible", "label", "Show the POI layer",
+            "value", _Pois_LayerVisible ? true : false),
+        Map("type", "dropdown", "id", "labelModeIdx", "label", "Show labels:",
+            "options", MARKER_LABEL_MODE_LABELS,
+            "value", MarkerLabelModeIndex(_Pois_LabelMode) - 1),
+        Map("type", "dropdown", "id", "kindIdx", "label", "Default type:",
+            "options", _Pois_KINDS,
+            "value", _Pois_KindIndex(_Pois_DefaultKind) - 1),
+        Map("type", "info", "text",
+            "Stored in maps\pois.ini. Tray → Map POIs → Manage POIs… edits the`n"
+            . "current map; Export writes them in the server repo's NPC entry format.")
+    ]
+}
 
-    layerCb := g.Add("CheckBox", "xs y+12 w340", "Show the POI layer")
-    layerCb.Value := _Pois_LayerVisible ? 1 : 0
-
-    g.Add("Text", "xs y+14 w130", "Show labels:")
-    modeDdl := g.Add("DropDownList", "x+10 yp-3 w250", MARKER_LABEL_MODE_LABELS)
-    modeDdl.Value := MarkerLabelModeIndex(_Pois_LabelMode)
-
-    g.Add("Text", "xs y+16 w130", "Default type:")
-    kindDdl := g.Add("DropDownList", "x+10 yp-3 w160", _Pois_KINDS)
-    kindDdl.Value := _Pois_KindIndex(_Pois_DefaultKind)
-
-    g.Add("Text", "xs y+18 w430 c666666",
-        "Stored in maps\pois.ini. Tray → Map POIs → Manage POIs… edits the`n"
-        . "current map; Export writes them in the server repo's NPC entry format.")
-
-    ctx.saveHandlers.Push(() => _Pois_ApplySettings(MARKER_LABEL_MODES[modeDdl.Value],
-        _Pois_KINDS[kindDdl.Value], layerCb.Value ? true : false))
+_Pois_OnSettingsWebSave(values) {
+    global MARKER_LABEL_MODES, _Pois_KINDS
+    layerVis := values.Has("layerVisible") && values["layerVisible"] ? true : false
+    modeIdx := values.Has("labelModeIdx") ? Integer(values["labelModeIdx"]) + 1 : 1
+    if (modeIdx < 1 || modeIdx > MARKER_LABEL_MODES.Length)
+        modeIdx := 1
+    kindIdx := values.Has("kindIdx") ? Integer(values["kindIdx"]) + 1 : 1
+    if (kindIdx < 1 || kindIdx > _Pois_KINDS.Length)
+        kindIdx := 1
+    _Pois_ApplySettings(MARKER_LABEL_MODES[modeIdx], _Pois_KINDS[kindIdx], layerVis)
 }
 
 _Pois_ApplySettings(labelMode, defaultKind, layerVisible) {

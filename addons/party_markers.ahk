@@ -27,7 +27,8 @@ RegisterAddon(Map(
     "name",             "PartyMarkers",
     "settingsLabel",    "Party Markers",
     "OnInit",           _PartyMarkers_OnInit,
-    "OnSettings",       _PartyMarkers_OnSettings,
+    "OnSettingsWeb",     _PartyMarkers_OnSettingsWeb,
+    "OnSettingsWebSave", _PartyMarkers_OnSettingsWebSave,
     "OnTrayMenu",       _PartyMarkers_OnTrayMenu,
     "OnSnapshot",       _PartyMarkers_OnSnapshot,
     "OnOverlayHover",   _PartyMarkers_OnOverlayHover,
@@ -72,24 +73,29 @@ _PartyMarkers_SetLayerVisible(visible) {
     }
 }
 
-_PartyMarkers_OnSettings(ctx) {
+_PartyMarkers_OnSettingsWeb() {
     global _PartyMarkers_LabelMode, _PartyMarkers_LayerVisible
     global MARKER_LABEL_MODES, MARKER_LABEL_MODE_LABELS
 
-    g := ctx.gui
-    g.Add("Text", "xs y+16 w430",
-        "Shows your other running clients on the minimap, each in its own colour.`n"
-        . "Your own character keeps the standard marker.")
+    return [
+        Map("type", "info", "text",
+            "Shows your other running clients on the minimap, each in its own colour.`n"
+            . "Your own character keeps the standard marker."),
+        Map("type", "checkbox", "id", "layerVisible", "label", "Show the party marker layer",
+            "value", _PartyMarkers_LayerVisible ? true : false),
+        Map("type", "dropdown", "id", "labelModeIdx", "label", "Show names:",
+            "options", MARKER_LABEL_MODE_LABELS,
+            "value", MarkerLabelModeIndex(_PartyMarkers_LabelMode) - 1)
+    ]
+}
 
-    layerCb := g.Add("CheckBox", "xs y+12 w340", "Show the party marker layer")
-    layerCb.Value := _PartyMarkers_LayerVisible ? 1 : 0
-
-    g.Add("Text", "xs y+14 w130", "Show names:")
-    modeDdl := g.Add("DropDownList", "x+10 yp-3 w250", MARKER_LABEL_MODE_LABELS)
-    modeDdl.Value := MarkerLabelModeIndex(_PartyMarkers_LabelMode)
-
-    ctx.saveHandlers.Push(() => _PartyMarkers_ApplySettings(MARKER_LABEL_MODES[modeDdl.Value],
-        layerCb.Value ? true : false))
+_PartyMarkers_OnSettingsWebSave(values) {
+    global MARKER_LABEL_MODES
+    layerVis := values.Has("layerVisible") && values["layerVisible"] ? true : false
+    modeIdx := values.Has("labelModeIdx") ? Integer(values["labelModeIdx"]) + 1 : 1
+    if (modeIdx < 1 || modeIdx > MARKER_LABEL_MODES.Length)
+        modeIdx := 1
+    _PartyMarkers_ApplySettings(MARKER_LABEL_MODES[modeIdx], layerVis)
 }
 
 _PartyMarkers_ApplySettings(labelMode, layerVisible) {

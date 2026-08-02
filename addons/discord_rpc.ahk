@@ -25,7 +25,8 @@ RegisterAddon(Map(
     "name",          "DiscordRpc",
     "settingsLabel", "Discord",
     "OnInit",        _DiscordRpc_OnInit,
-    "OnSettings",    _DiscordRpc_OnSettings,
+    "OnSettingsWeb",     _DiscordRpc_OnSettingsWeb,
+    "OnSettingsWebSave", _DiscordRpc_OnSettingsWebSave,
     "OnMapChange",   _DiscordRpc_OnMapChange,
     "OnSnapshot",    _DiscordRpc_OnSnapshot
 ))
@@ -38,19 +39,20 @@ _DiscordRpc_OnInit() {
 }
 
 
-_DiscordRpc_OnSettings(ctx) {
+_DiscordRpc_OnSettingsWeb() {
     global _DiscordRpc_Enabled
+    return [
+        Map("type", "info", "text",
+            "Shows what you're doing in-game on your Discord profile.`n"
+            . "Off by default — enable below to opt in.`n"
+            . "Requires the Discord desktop client (not web/mobile)."),
+        Map("type", "checkbox", "id", "enabled", "label", "Enable Rich Presence",
+            "value", _DiscordRpc_Enabled ? true : false)
+    ]
+}
 
-    g := ctx.gui
-    g.Add("Text", "xs y+16 w430",
-        "Shows what you're doing in-game on your Discord profile.`n"
-        . "Off by default — enable below to opt in.`n"
-        . "Requires the Discord desktop client (not web/mobile).")
-
-    enabledCb := g.Add("CheckBox", "xs y+12 w340", "Enable Rich Presence")
-    enabledCb.Value := _DiscordRpc_Enabled ? 1 : 0
-
-    ctx.saveHandlers.Push(() => _DiscordRpc_ApplySettings(enabledCb.Value ? true : false))
+_DiscordRpc_OnSettingsWebSave(values) {
+    _DiscordRpc_ApplySettings(values.Has("enabled") && values["enabled"] ? true : false)
 }
 
 _DiscordRpc_ApplySettings(enabled) {
