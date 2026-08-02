@@ -22,6 +22,9 @@ if !A_IsCompiled
 LoadAddonEnabledStates()
 RegisterCoreHotkeyActions()
 LoadHotkeyOverrides()
+ApplyAllHotkeys()
+SetTimer(UpdateMapState, 200)
+SetTimer(CloseOverlayIfFocusLeftGame, 200)
 
 ; Auto-launch a game instance on startup / re-launch.
 if (gLaunchOnStartup) {
@@ -79,7 +82,7 @@ ShowWebTrayMenu() {
     dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
     wvSettings := { DllPath: dllPath, DefaultWidth: mW, DefaultHeight: mH }
 
-    g := WebViewGui("-Caption +AlwaysOnTop +ToolWindow -MaximizeBox", "Maps++ Menu",, wvSettings)
+    g := WebViewGui("-Caption +AlwaysOnTop +ToolWindow -MaximizeBox", "Maps++ Menu", , wvSettings)
     gWebTrayGui := g
 
     g.OnEvent("Close", (*) => _CloseWebTrayMenu())
@@ -186,7 +189,7 @@ _ConvertHmenuToWebItems(hMenu, idPrefix := "menu_") {
     if (count <= 0)
         return items
 
-    Loop count {
+    loop count {
         idx := A_Index - 1
         state := DllCall("GetMenuState", "Ptr", hMenu, "UInt", idx, "UInt", 0x400)
         if (state & 0x800) {
@@ -216,7 +219,8 @@ _ConvertHmenuToWebItems(hMenu, idPrefix := "menu_") {
             itemId := idPrefix idx
             cmdId := DllCall("GetMenuItemID", "Ptr", hMenu, "Int", idx, "UInt")
             gWebTrayCallbacks[itemId] := _MakeHmenuCallback(hMenu, cmdId)
-            items.Push(Map("id", itemId, "label", label, "icon", _IconForLabel(label), "shortcut", shortcut, "isDefault", isDefault))
+            items.Push(Map("id", itemId, "label", label, "icon", _IconForLabel(label), "shortcut", shortcut,
+            "isDefault", isDefault))
         }
     }
     return items
@@ -252,8 +256,10 @@ RebuildTrayMenu() {
     trayMenu := A_TrayMenu
     trayMenu.Delete()
     trayMenu.Add("Launch Game`t" GetHotkeyDisplay("launchPrimary"), (*) => LaunchGameInstance("primary"))
-    trayMenu.Add("Launch Game (Secondary)`t" GetHotkeyDisplay("launchSecondary"), (*) => LaunchGameInstance("secondary"))
-    trayMenu.Add("Launch Clients + Apply Layout`t" GetHotkeyDisplay("launchClientsLayout"), (*) => LaunchClientsAndApplyLayout())
+    trayMenu.Add("Launch Game (Secondary)`t" GetHotkeyDisplay("launchSecondary"), (*) => LaunchGameInstance("secondary"
+    ))
+    trayMenu.Add("Launch Clients + Apply Layout`t" GetHotkeyDisplay("launchClientsLayout"), (*) =>
+        LaunchClientsAndApplyLayout())
     trayMenu.Add("Send Enter Until Ready`t" GetHotkeyDisplay("sendEnterUntilReady"), (*) => SendEnterUntilReady())
     trayMenu.Add()
     FireAddonHook("OnTrayMenu", trayMenu)

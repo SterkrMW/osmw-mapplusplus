@@ -462,7 +462,7 @@ class WebViewCtrl extends Gui.Custom {
         WebViewCtrl.ActiveHwnds[this.Hwnd] := this.wvc
         this.wv.InjectAhkComponent().await()
         this.wvc.IsVisible := 1
-        if (A_IsCompiled) {
+        if (A_IsCompiled && !DirExist(A_WorkingDir "\ui")) {
             this.BrowseExe()
         } else {
             this.BrowseFolder(A_WorkingDir)
@@ -546,7 +546,7 @@ class WebViewCtrl extends Gui.Custom {
      */
     AddFileRoute(FilePath, Route?, Host := this._DefaultHost) {
         SplitPath(FilePath, &Name)
-        if (A_IsCompiled) {
+        if (A_IsCompiled && !FileExist(FilePath)) {
             this.AddRoute(Route ?? Name, (Uri) => WebViewCtrl.ExeRead(FilePath))
         } else {
             this.AddRoute(Route ?? Name, (Uri) => FileRead(FilePath, "RAW"))

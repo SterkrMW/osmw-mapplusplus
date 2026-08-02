@@ -72,12 +72,8 @@ NormalizeHotkeyChord(chord) {
     return chord
 }
 
-; Escape trailing comma for Hotkey() API (^!, → ^!`,).
 ToHotkeyApiName(chord) {
-    chord := NormalizeHotkeyChord(chord)
-    if RegExMatch(chord, ",$")
-        return SubStr(chord, 1, -1) "``,"
-    return chord
+    return NormalizeHotkeyChord(chord)
 }
 
 IsHotkeyChordValid(chord) {

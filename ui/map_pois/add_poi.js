@@ -16,17 +16,26 @@ function onAhkMessage(event) {
     if (!msg || typeof msg !== 'object') return;
 
     if (msg.type === 'init-add-poi') {
-        document.getElementById('coordText').textContent = `${msg.zoneName} at ${msg.coordText}`;
+        const coordVal = document.getElementById('coordValue');
+        if (coordVal && msg.zoneName && msg.coordText) {
+            coordVal.textContent = `${msg.zoneName} at ${msg.coordText}`;
+        }
         const sel = document.getElementById('kindSelect');
-        sel.innerHTML = '';
-        (msg.kinds || []).forEach(k => {
-            const opt = document.createElement('option');
-            opt.value = k;
-            opt.textContent = k;
-            if (k === msg.defaultKind) opt.selected = true;
-            sel.appendChild(opt);
-        });
-        setTimeout(() => document.getElementById('labelInput').focus(), 50);
+        if (sel && Array.isArray(msg.kinds) && msg.kinds.length > 0) {
+            sel.innerHTML = '';
+            msg.kinds.forEach(k => {
+                const opt = document.createElement('option');
+                opt.value = k;
+                opt.textContent = k.charAt(0).toUpperCase() + k.slice(1);
+                if (k === msg.defaultKind) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            if (msg.defaultKind) sel.value = msg.defaultKind;
+        }
+        setTimeout(() => {
+            const input = document.getElementById('labelInput');
+            if (input) input.focus();
+        }, 50);
     }
 }
 

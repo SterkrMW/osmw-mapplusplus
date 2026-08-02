@@ -305,7 +305,7 @@ _Pois_PromptForEntry(zone, x, y) {
     result := 0
     dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
     dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
-    wvSettings := { DllPath: dllPath, DefaultWidth: 340, DefaultHeight: 240 }
+    wvSettings := { DllPath: dllPath, DefaultWidth: 360, DefaultHeight: 330 }
 
     dlg := WebViewGui("-Caption +AlwaysOnTop -Resize", "Add POI",, wvSettings)
 
@@ -326,7 +326,7 @@ _Pois_PromptForEntry(zone, x, y) {
         . ',"defaultKind":' _JSON_Str(_Pois_DefaultKind) '}'))
 
     dlg.Navigate("ui/map_pois/add_poi.html")
-    dlg.Show("w340 h240")
+    dlg.Show("w360 h330")
 
     OnWebMsg(wv, args) {
         msgStr := ""

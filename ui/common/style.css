@@ -152,6 +152,14 @@ body {
     outline: none;
     transition: border-color var(--transition), box-shadow var(--transition);
 }
+.select {
+    cursor: pointer;
+}
+.select option {
+    background-color: var(--surface);
+    color: var(--text);
+    padding: 6px 10px;
+}
 .input:hover, .select:hover {
     border-color: rgba(255, 255, 255, 0.15);
 }
