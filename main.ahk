@@ -1,4 +1,8 @@
 #Requires AutoHotkey v2.0
+;@Ahk2Exe-SetName Maps++
+;@Ahk2Exe-SetDescription Maps++
+;@Ahk2Exe-SetProductName Maps++
+;@Ahk2Exe-SetCompanyName SterkrMW
 #SingleInstance Force
 #Warn
 
@@ -11,6 +15,8 @@ SetTitleMatchMode(2)
 #Include settings.ahk
 #Include hotkeys.ahk
 #Include *i _addons.ahk
+
+InitAppNotificationRegistration()
 
 ; ── Launcher startup ─────────────────────────────────────────────
 
@@ -34,10 +40,10 @@ if (gLaunchOnStartup) {
 ; ── Startup checks ───────────────────────────────────────────────
 
 if !DirExist(MAP_DIR) {
-    TrayTip("AHK Minimap", "Map folder missing:`n" MAP_DIR, "Iconi")
+    TrayTip("Map folder missing:`n" MAP_DIR, "Maps++", "Iconi")
 }
 if !FileExist(MARKER_PNG) {
-    TrayTip("AHK Minimap", "marker.png missing next to script — position marker disabled.`n" MARKER_PNG, "Iconi")
+    TrayTip("marker.png missing next to script — position marker disabled.`n" MARKER_PNG, "Maps++", "Iconi")
 }
 
 ; ── Tray menu ────────────────────────────────────────────────────

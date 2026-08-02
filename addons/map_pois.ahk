@@ -271,12 +271,12 @@ _Pois_AddHere() {
 
     rawPos := ReadRawPlayerPosition()
     if !rawPos.ok {
-        TrayTip("Map POIs", "Could not read your position — is the game running?", "Iconx")
+        TrayTip("Could not read your position — is the game running?", "Map POIs", "Iconx")
         return
     }
     mapId := ReadCurrentMapBaseName()
     if (mapId = "") {
-        TrayTip("Map POIs", "Could not read the current map from memory.", "Iconx")
+        TrayTip("Could not read the current map from memory.", "Map POIs", "Iconx")
         return
     }
 
@@ -293,8 +293,8 @@ _Pois_AddHere() {
     _Pois_DefaultKind := entry.kind
     _Pois_SaveConfig()
     _Pois_Redraw()
-    TrayTip("Map POIs", "Added '" entry.label "' (" entry.kind ")`n"
-        . zone " at " GameCoordText(rawPos.x, rawPos.y), "Iconi")
+    TrayTip("Added '" entry.label "' (" entry.kind ")`n"
+        . zone " at " GameCoordText(rawPos.x, rawPos.y), "Map POIs", "Iconi")
 }
 
 ; Label + type dialog. Returns {label, kind}, or 0 when cancelled.
@@ -369,7 +369,7 @@ _Pois_ShowManageWindow() {
 
     mapId := _Pois_CurrentMapId()
     if (mapId = "") {
-        TrayTip("Map POIs", "Enter a map first — POIs are stored per map.", "Iconx")
+        TrayTip("Enter a map first — POIs are stored per map.", "Map POIs", "Iconx")
         return
     }
     if IsObject(_Pois_ManageGui) {
@@ -505,7 +505,7 @@ _Pois_HandleManageSubmitPoi(mapId, label, kind) {
     global _Pois_DefaultKind
     rawPos := ReadRawPlayerPosition()
     if !rawPos.ok {
-        TrayTip("Map POIs", "Could not read position — is the game client running?", "Iconx")
+        TrayTip("Could not read position — is the game client running?", "Map POIs", "Iconx")
         return
     }
     _Pois_Add(mapId, { x: rawPos.x, y: rawPos.y, label: label, kind: kind })
@@ -524,12 +524,12 @@ _Pois_ExportCurrentMap() {
 
     mapId := _Pois_CurrentMapId()
     if (mapId = "") {
-        TrayTip("Map POIs", "Enter a map first.", "Iconx")
+        TrayTip("Enter a map first.", "Map POIs", "Iconx")
         return
     }
     list := _Pois_Load(mapId)
     if (list.Length = 0) {
-        TrayTip("Map POIs", "No POIs saved for " ZoneDisplayName(mapId) " yet.", "Iconi")
+        TrayTip("No POIs saved for " ZoneDisplayName(mapId) " yet.", "Map POIs", "Iconi")
         return
     }
 
@@ -541,14 +541,14 @@ _Pois_ExportCurrentMap() {
     try {
         FileAppend(text, NPC_OUTPUT_FILE, "UTF-8")
     } catch as err {
-        TrayTip("Map POIs", "Export failed: " err.Message, "Iconx")
+        TrayTip("Export failed: " err.Message, "Map POIs", "Iconx")
         return
     }
     SaveNpcNextId()
     A_Clipboard := text
     ; The map id is named here on purpose — it's what the exported entries use.
-    TrayTip("Map POIs", "Exported " list.Length " POI(s) for " ZoneDisplayName(mapId) " (" mapId ")`n"
-        . NPC_OUTPUT_FILE "`n(also copied to the clipboard)", "Iconi")
+    TrayTip("Exported " list.Length " POI(s) for " ZoneDisplayName(mapId) " (" mapId ")`n"
+        . NPC_OUTPUT_FILE "`n(also copied to the clipboard)", "Map POIs", "Iconi")
 }
 
 ; ── Drawing ──────────────────────────────────────────────────────
@@ -568,7 +568,7 @@ _Pois_ToggleLayer() {
     global _Pois_LayerVisible
     _Pois_SetLayerVisible(!_Pois_LayerVisible)
     ; The overlay may well be closed when this is pressed, so say what happened.
-    TrayTip("Map POIs", _Pois_LayerVisible ? "Layer on" : "Layer off", "Iconi")
+    TrayTip(_Pois_LayerVisible ? "Layer on" : "Layer off", "Map POIs", "Iconi")
 }
 
 _Pois_SetLayerVisible(visible) {

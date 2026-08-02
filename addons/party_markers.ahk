@@ -58,7 +58,7 @@ _PartyMarkers_ToggleLayer() {
     global _PartyMarkers_LayerVisible
     _PartyMarkers_SetLayerVisible(!_PartyMarkers_LayerVisible)
     ; The overlay may well be closed when this is pressed, so say what happened.
-    TrayTip("Party Markers", _PartyMarkers_LayerVisible ? "Layer on" : "Layer off", "Iconi")
+    TrayTip(_PartyMarkers_LayerVisible ? "Layer on" : "Layer off", "Party Markers", "Iconi")
 }
 
 _PartyMarkers_SetLayerVisible(visible) {

@@ -14,7 +14,7 @@ global gHotkeyReserved := ["^!r", "^!q", "^!d", "^!s", "^!v", "^!1", "^!2", "^!3
 RegisterHotkeyAction(spec) {
     global gHotkeyActions
     if !spec.Has("id") || spec["id"] = "" {
-        TrayTip("Hotkeys", "RegisterHotkeyAction() missing id — ignored.", "Iconx")
+        TrayTip("RegisterHotkeyAction() missing id — ignored.", "Hotkeys", "Iconx")
         return
     }
     id := spec["id"]
@@ -215,7 +215,7 @@ ApplyAllHotkeys() {
             context.chord := bindChord
             gAppliedHotkeys.Push(context)
         } catch as err {
-            TrayTip("Hotkeys", "Failed to bind " id ": " err.Message, "Iconx")
+            TrayTip("Failed to bind " id ": " err.Message, "Hotkeys", "Iconx")
         }
     }
     HotIf
@@ -405,7 +405,7 @@ _HotkeyCaptureKeyDown(hook, vk, onDone) {
     exceptId := gHotkeyCaptureRow.Has("id") ? gHotkeyCaptureRow["id"] : ""
     conflict := GetHotkeyConflictAction(chord, exceptId)
     if (conflict != "") {
-        TrayTip("Hotkeys", "Already used by " conflict ".", "Iconx")
+        TrayTip("Already used by " conflict ".", "Hotkeys", "Iconx")
         return
     }
 

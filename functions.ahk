@@ -1,5 +1,16 @@
 #Requires AutoHotkey v2.0
 
+InitAppNotificationRegistration() {
+    try {
+        A_AppUserModelID := "SterkrMW.MapsPlusPlus"
+        regKey := "HKCU\Software\Classes\AppUserModelId\SterkrMW.MapsPlusPlus"
+        RegWrite("Maps++", "REG_SZ", regKey, "DisplayName")
+        if A_IsCompiled {
+            RegWrite(A_ScriptFullPath, "REG_SZ", regKey, "IconUri")
+        }
+    }
+}
+
 ; ── Process & memory ──────────────────────────────────────────────
 
 GetGameProcessId() {
@@ -1064,16 +1075,16 @@ PromptForGamePath() {
         "Executables (*.exe)"
     )
     if (selected = "") {
-        TrayTip("AHK Minimap", "No game path selected — launcher disabled.", "Iconx")
+        TrayTip("No game path selected — launcher disabled.", "Maps++", "Iconx")
         return
     }
     if !FileExist(selected) {
-        TrayTip("AHK Minimap", "Selected file does not exist.", "Iconx")
+        TrayTip("Selected file does not exist.", "Maps++", "Iconx")
         return
     }
     gGamePath := selected
     SaveGamePathToConfig(selected)
-    TrayTip("AHK Minimap", "Game path set:`n" selected, "Iconi")
+    TrayTip("Game path set:`n" selected, "Maps++", "Iconi")
 }
 
 ; The command Windows runs at login to start Maps++. For a compiled build that's
@@ -1104,7 +1115,7 @@ SetRunOnStartup(enabled) {
         else if IsRunOnStartupEnabled()
             RegDelete(STARTUP_RUN_KEY, STARTUP_RUN_NAME)
     } catch as err {
-        TrayTip("AHK Minimap", "Could not update Windows startup setting:`n" err.Message, "Iconx")
+        TrayTip("Could not update Windows startup setting:`n" err.Message, "Maps++", "Iconx")
     }
 }
 
@@ -1205,7 +1216,7 @@ LaunchGameInstance(monitorWhich := "primary") {
     global gGamePath, gGameArgs
 
     if (gGamePath = "" || !FileExist(gGamePath)) {
-        TrayTip("AHK Minimap", "Game path not configured or file missing.`nOpen Settings (" GetHotkeyDisplay("openSettings") ") → Launcher → Browse…", "Iconx")
+        TrayTip("Game path not configured or file missing.`nOpen Settings (" GetHotkeyDisplay("openSettings") ") → Launcher → Browse…", "Maps++", "Iconx")
         return
     }
 
@@ -1219,23 +1230,23 @@ LaunchGameInstance(monitorWhich := "primary") {
             Run('"' gGamePath '"', workDir)
         }
     } catch as err {
-        TrayTip("AHK Minimap", "Failed to launch game:`n" err.Message, "Iconx")
+        TrayTip("Failed to launch game:`n" err.Message, "Maps++", "Iconx")
         return
     }
 
     monIdx := ResolveMonitorForHotkey(monitorWhich)
     if (monitorWhich = "secondary" && monIdx = MonitorGetPrimary() && MonitorGetCount() = 1) {
-        TrayTip("AHK Minimap", "Only one display — centering on primary.", "Iconi")
+        TrayTip("Only one display — centering on primary.", "Maps++", "Iconi")
     }
 
     hwnd := WaitForNewGameWindow(before)
     if !hwnd {
-        TrayTip("AHK Minimap", "Game launched but window not detected.", "Iconx")
+        TrayTip("Game launched but window not detected.", "Maps++", "Iconx")
         return
     }
 
     CenterWindowOnMonitor(hwnd, monIdx)
-    TrayTip("AHK Minimap", "Game instance launched.", "Iconi")
+    TrayTip("Game instance launched.", "Maps++", "Iconi")
 }
 
 ; Returns the Func object for a globally-defined function name, or "" when no
@@ -1263,7 +1274,7 @@ LaunchClientsAndApplyLayout(count := 0) {
         count := gMultiClientCount
 
     if (gGamePath = "" || !FileExist(gGamePath)) {
-        TrayTip("AHK Minimap", "Game path not configured or file missing.`nOpen Settings (" GetHotkeyDisplay("openSettings") ") → Launcher → Browse…", "Iconx")
+        TrayTip("Game path not configured or file missing.`nOpen Settings (" GetHotkeyDisplay("openSettings") ") → Launcher → Browse…", "Maps++", "Iconx")
         return
     }
 
@@ -1286,7 +1297,7 @@ LaunchClientsAndApplyLayout(count := 0) {
             Run(launchCmd, workDir)
             started++
         } catch as err {
-            TrayTip("AHK Minimap", "Failed to launch game:`n" err.Message, "Iconx")
+            TrayTip("Failed to launch game:`n" err.Message, "Maps++", "Iconx")
             break
         }
         if (A_Index < count && gMultiClientDelay > 0)
@@ -1313,16 +1324,16 @@ LaunchClientsAndApplyLayout(count := 0) {
     }
 
     if (launched.Length = 0) {
-        TrayTip("AHK Minimap", "No new game windows detected.", "Iconx")
+        TrayTip("No new game windows detected.", "Maps++", "Iconx")
         return
     }
 
     applyFn := GetFuncByName("_WindowLayout_ApplyDefaultLayout")
     if applyFn {
         applyFn(monIdx)
-        TrayTip("AHK Minimap", launched.Length " client(s) launched and arranged.", "Iconi")
+        TrayTip(launched.Length " client(s) launched and arranged.", "Maps++", "Iconi")
     } else {
-        TrayTip("AHK Minimap", launched.Length " client(s) launched and centered.", "Iconi")
+        TrayTip(launched.Length " client(s) launched and centered.", "Maps++", "Iconi")
     }
 }
 
@@ -1378,7 +1389,7 @@ SendEnterUntilReady() {
     Loop {
         windows := GetTopLevelGameWindows()
         if (windows.Length = 0) {
-            TrayTip("AHK Minimap", "No game windows found.", "Iconx")
+            TrayTip("No game windows found.", "Maps++", "Iconx")
             return
         }
         pending := 0
@@ -1392,12 +1403,12 @@ SendEnterUntilReady() {
         if (pending = 0)
             break
         if (A_TickCount >= deadline) {
-            TrayTip("AHK Minimap", "Timed out — " pending " client(s) still not ready.", "Iconx")
+            TrayTip("Timed out — " pending " client(s) still not ready.", "Maps++", "Iconx")
             return
         }
         Sleep 100
     }
-    TrayTip("AHK Minimap", "All clients ready (game state " GAME_STATE_READY "+).", "Iconi")
+    TrayTip("All clients ready (game state " GAME_STATE_READY "+).", "Maps++", "Iconi")
 }
 
 ; Returns the number of windows matching the game process name.
@@ -1689,14 +1700,14 @@ GenerateNpcEntry() {
     ; Read raw player position from game memory.
     rawPos := ReadRawPlayerPosition()
     if !rawPos.ok {
-        TrayTip("NPC Generator", "Failed to read player position from memory.", "Iconx")
+        TrayTip("Failed to read player position from memory.", "NPC Generator", "Iconx")
         return
     }
 
     ; Get map identifier (e.g. "MAP007").
     mapBase := ReadCurrentMapBaseName()
     if (mapBase = "") {
-        TrayTip("NPC Generator", "Failed to read map name from memory.", "Iconx")
+        TrayTip("Failed to read map name from memory.", "NPC Generator", "Iconx")
         return
     }
 
@@ -1712,9 +1723,9 @@ GenerateNpcEntry() {
 
     ; Raw position is what the entry carries; the in-game numbers are there so
     ; it can be matched against what's on screen.
-    TrayTip("NPC Generator", "NPC " idHex " added`n"
+    TrayTip("NPC " idHex " added`n"
         . "Pos: " rawPos.x ", " rawPos.y " (in-game " GameCoordText(rawPos.x, rawPos.y) ")`n"
-        . "Map: " ZoneDisplayName(mapBase) " (" mapBase ")", "Iconi")
+        . "Map: " ZoneDisplayName(mapBase) " (" mapBase ")", "NPC Generator", "Iconi")
 }
 
 ; ── Signature-based RVA discovery ────────────────────────────────
@@ -2413,7 +2424,7 @@ RegisterAddonOffset(name, fallbackRva) {
 RegisterAddon(addonMap) {
     global gAddonHooks
     if !addonMap.Has("name") || addonMap["name"] = "" {
-        TrayTip("Addon System", "RegisterAddon() called without a 'name' key — ignored.", "Iconx")
+        TrayTip("RegisterAddon() called without a 'name' key — ignored.", "Addon System", "Iconx")
         return
     }
     gAddonHooks.Push(addonMap)
@@ -2433,7 +2444,7 @@ FireAddonHook(hookName, params*) {
         try {
             fn(params*)
         } catch as err {
-            TrayTip("Addon Error [" addonName "]", hookName ": " err.Message, "Iconx")
+            TrayTip(hookName ": " err.Message, "Addon Error [" addonName "]", "Iconx")
         }
     }
 }
