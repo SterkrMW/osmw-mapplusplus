@@ -28,6 +28,17 @@
 #Include WebView2.ahk
 
 class WebViewGui extends Gui {
+    static _PendingSettings := 0
+
+    static Call(Options?, Title?, EventObj?, WebViewSettings := {}) {
+        this._PendingSettings := WebViewSettings
+        try {
+            return super.Call(Options?, Title?, EventObj?)
+        } finally {
+            this._PendingSettings := 0
+        }
+    }
+
     /**
      * Creates a new Gui with a WebViewCtrl and necessary custom handling attached.
      * @param Options AlwaysOnTop Border Caption Disabled -DPIScale LastFound
@@ -40,6 +51,8 @@ class WebViewGui extends Gui {
      * @returns {WebViewGui}
      */
     __New(Options?, Title?, EventObj?, WebViewSettings := {}) {
+        if (WebViewGui._PendingSettings)
+            WebViewSettings := WebViewGui._PendingSettings
         super.__New(Options?, Title?, EventObj?)
         DefaultWidth := WebViewSettings.HasProp("DefaultWidth") ? WebViewSettings.DefaultWidth : 640
         DefaultHeight := WebViewSettings.HasProp("DefaultHeight") ? WebViewSettings.DefaultHeight : 480
