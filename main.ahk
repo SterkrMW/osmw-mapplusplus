@@ -40,40 +40,213 @@ if !FileExist(MARKER_PNG) {
 ; ── Tray menu ────────────────────────────────────────────────────
 
 RebuildTrayMenu()
+OnMessage(0x0404, _OnTrayNotify)
+OnMessage(0x0006, _OnTrayWmActivate)
 
-; ── Startup notification ─────────────────────────────────────────
+_OnTrayNotify(wParam, lParam, msg, hwnd) {
+    ; 0x0205 = WM_RBUTTONUP (right-click on system tray icon)
+    if (lParam = 0x0205) {
+        ShowWebTrayMenu()
+        return 0 ; Suppress native Win32 context menu
+    }
+}
 
-Sleep(100)  ; let Windows register the tray icon before showing toast
-TrayTip("osMW Maps++ is running", "Press Tab in-game to open the minimap overlay.", "Iconi")
+_OnTrayWmActivate(wParam, lParam, msg, hwnd) {
+    global gWebTrayGui
+    ; wParam = 0 (WA_INACTIVE)
+    if (wParam = 0 && IsObject(gWebTrayGui) && gWebTrayGui.Hwnd && hwnd = gWebTrayGui.Hwnd) {
+        SetTimer(_CloseWebTrayMenu, -10)
+    }
+}
 
-; ── Timers ───────────────────────────────────────────────────────
+global gWebTrayGui := 0, gWebTrayCallbacks := Map()
 
-SetTimer(UpdateMapState, 250)
-; Marker timer starts disabled — enabled only while the overlay is visible.
-SetTimer(UpdateMarkerPosition, 0)
-SetTimer(CloseOverlayIfFocusLeftGame, 100)
-SetTimer(UpdateClientSnapshots, CLIENT_SNAPSHOT_INTERVAL)
-RegisterOverlayMouseHandlers()
-OnExit((*) => (ReleaseCachedProcessHandle(), ReleaseAllClientProcesses()))
-FireAddonHook("OnInit")
-ApplyAllHotkeys()
+ShowWebTrayMenu() {
+    global gWebTrayGui, gWebTrayCallbacks
 
-; ── Fixed hotkeys (not rebindable) ───────────────────────────────
-; Keep gHotkeyReserved in hotkeys.ahk in sync with this list — it's what stops
-; users from rebinding a custom action onto one of these chords.
+    if IsObject(gWebTrayGui) {
+        try gWebTrayGui.Destroy()
+        gWebTrayGui := 0
+    }
 
-^!r:: Reload()
-^!q:: ExitApp()
-^!d:: ShowDebugState()
-^!s:: CalibrateSignaturesNow()
-^!v:: VerifyResolution()
-; GenerateNpcEntry() is bound by the MapPois addon (rebindable, default Ctrl+Alt+N).
-^!1:: CaptureCalibrationPoint(1)
-^!2:: CaptureCalibrationPoint(2)
-^!3:: ApplyCalibrationFromPoints()
-^!4:: ExportCurrentCalibrationToFile()
+    RebuildTrayMenu()
+    gWebTrayCallbacks := Map()
+    webItems := _ConvertHmenuToWebItems(A_TrayMenu.Handle)
 
-; ── Core handlers ────────────────────────────────────────────────
+    mW := 320, mH := 580
+
+    dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
+    dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
+    wvSettings := { DllPath: dllPath, DefaultWidth: mW, DefaultHeight: mH }
+
+    g := WebViewGui("-Caption +AlwaysOnTop +ToolWindow -MaximizeBox", "Maps++ Menu",, wvSettings)
+    gWebTrayGui := g
+
+    g.OnEvent("Close", (*) => _CloseWebTrayMenu())
+    g.WebMessageReceived(_OnWebTrayMessage)
+    g.DOMContentLoaded((*) => SetTimer(() => _PushTrayMenuState(webItems), -50))
+    g.Navigate("ui/tray/index.html")
+
+    CoordMode("Mouse", "Screen")
+    MouseGetPos(&mX, &mY)
+    MonitorGetWorkArea(, &sLeft, &sTop, &sRight, &sBottom)
+
+    wX := mX - mW + 20
+    wY := mY - mH - 10
+    if (wX + mW > sRight - 10)
+        wX := sRight - mW - 10
+    if (wX < sLeft + 10)
+        wX := sLeft + 10
+    if (wY < sTop + 10)
+        wY := mY + 10
+    if (wY + mH > sBottom - 10)
+        wY := sBottom - mH - 10
+
+    g.Show("x" wX " y" wY " w" mW " h" mH)
+}
+
+_PushTrayMenuState(webItems) {
+    global gWebTrayGui
+    if !IsObject(gWebTrayGui)
+        return
+    itemsJson := _TrayItemsToJson(webItems)
+    try gWebTrayGui.PostWebMessageAsJson('{"type":"tray-menu-state","items":' itemsJson '}')
+}
+
+_OnWebTrayMessage(wv, args) {
+    global gWebTrayGui, gWebTrayCallbacks
+    msgStr := ""
+    try msgStr := args.TryGetWebMessageAsString()
+    if (msgStr = "") {
+        try msgStr := args.WebMessageAsJson
+    }
+    if (msgStr = "")
+        return
+
+    msg := _JSON_Parse(msgStr)
+    if !IsObject(msg) || !msg.Has("type")
+        return
+
+    switch msg["type"] {
+        case "init-request":
+            if IsObject(gWebTrayGui) {
+                RebuildTrayMenu()
+                webItems := _ConvertHmenuToWebItems(A_TrayMenu.Handle)
+                _PushTrayMenuState(webItems)
+            }
+        case "execute-item":
+            if msg.Has("id") && gWebTrayCallbacks.Has(msg["id"]) {
+                cb := gWebTrayCallbacks[msg["id"]]
+                _CloseWebTrayMenu()
+                try cb()
+            }
+        case "dismiss":
+            _CloseWebTrayMenu()
+    }
+}
+
+_CloseWebTrayMenu() {
+    global gWebTrayGui
+    if IsObject(gWebTrayGui) {
+        try gWebTrayGui.Destroy()
+    }
+    gWebTrayGui := 0
+}
+
+_TrayItemsToJson(items) {
+    json := "["
+    first := true
+    for item in items {
+        if !first
+            json .= ","
+        first := false
+        if item.Has("isDivider") && item["isDivider"] {
+            json .= '{"isDivider":true}'
+            continue
+        }
+        json .= '{'
+            . '"id":' _JSON_Str(item.Has("id") ? item["id"] : "")
+            . ',"label":' _JSON_Str(item.Has("label") ? item["label"] : "")
+            . ',"icon":' _JSON_Str(item.Has("icon") ? item["icon"] : "")
+            . ',"shortcut":' _JSON_Str(item.Has("shortcut") ? item["shortcut"] : "")
+            . ',"isDefault":' (item.Has("isDefault") && item["isDefault"] ? "true" : "false")
+        if item.Has("children") {
+            json .= ',"children":' _TrayItemsToJson(item["children"])
+        }
+        json .= '}'
+    }
+    json .= "]"
+    return json
+}
+
+_ConvertHmenuToWebItems(hMenu, idPrefix := "menu_") {
+    global gWebTrayCallbacks
+    items := []
+    count := DllCall("GetMenuItemCount", "Ptr", hMenu, "Int")
+    if (count <= 0)
+        return items
+
+    Loop count {
+        idx := A_Index - 1
+        state := DllCall("GetMenuState", "Ptr", hMenu, "UInt", idx, "UInt", 0x400)
+        if (state & 0x800) {
+            items.Push(Map("isDivider", true))
+            continue
+        }
+
+        bufLen := DllCall("GetMenuString", "Ptr", hMenu, "UInt", idx, "Ptr", 0, "Int", 0, "UInt", 0x400)
+        if (bufLen <= 0) {
+            items.Push(Map("isDivider", true))
+            continue
+        }
+        buf := Buffer((bufLen + 1) * 2, 0)
+        DllCall("GetMenuString", "Ptr", hMenu, "UInt", idx, "Ptr", buf, "Int", bufLen + 1, "UInt", 0x400)
+        str := StrGet(buf)
+
+        parts := StrSplit(str, "`t")
+        label := parts[1]
+        shortcut := (parts.Length >= 2) ? parts[2] : ""
+        isDefault := (state & 0x1000) ? true : false
+
+        hSub := DllCall("GetSubMenu", "Ptr", hMenu, "Int", idx, "Ptr")
+        if (hSub) {
+            children := _ConvertHmenuToWebItems(hSub, idPrefix idx "_")
+            items.Push(Map("label", label, "icon", _IconForLabel(label), "children", children))
+        } else {
+            itemId := idPrefix idx
+            cmdId := DllCall("GetMenuItemID", "Ptr", hMenu, "Int", idx, "UInt")
+            gWebTrayCallbacks[itemId] := _MakeHmenuCallback(hMenu, cmdId)
+            items.Push(Map("id", itemId, "label", label, "icon", _IconForLabel(label), "shortcut", shortcut, "isDefault", isDefault))
+        }
+    }
+    return items
+}
+
+_MakeHmenuCallback(hMenu, cmdId) {
+    return (*) => DllCall("PostMessage", "Ptr", A_ScriptHwnd, "UInt", 0x0111, "Ptr", cmdId, "Ptr", hMenu)
+}
+
+_IconForLabel(lbl) {
+    switch lbl {
+        case "Launch Game", "Launch Game (Secondary)": return "rocket_launch"
+        case "Launch Clients + Apply Layout": return "devices"
+        case "Send Enter Until Ready": return "keyboard"
+        case "Settings…": return "settings"
+        case "Reload": return "refresh"
+        case "Debug", "Debug State": return "bug_report"
+        case "Calibrate Signatures": return "track_changes"
+        case "Verify Signatures": return "search"
+        case "Exit": return "power_settings_new"
+        case "Chat": return "chat"
+        case "Client Roster": return "group"
+        case "Inventory": return "inventory_2"
+        case "Map POIs": return "location_on"
+        case "Party Markers": return "shield"
+        case "View Mode": return "visibility"
+        case "Window Layout": return "grid_view"
+        default: return "pin_drop"
+    }
+}
 
 RebuildTrayMenu() {
     trayMenu := A_TrayMenu
