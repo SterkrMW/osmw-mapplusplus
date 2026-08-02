@@ -15,6 +15,7 @@ SetTitleMatchMode(2)
 ; ── Launcher startup ─────────────────────────────────────────────
 
 LoadLauncherConfig()
+LoadMinimapConfig()
 LoadNpcNextId()
 if !A_IsCompiled
     GenerateAddonIncludes()
@@ -51,7 +52,9 @@ SetTimer(UpdateMapState, 250)
 ; Marker timer starts disabled — enabled only while the overlay is visible.
 SetTimer(UpdateMarkerPosition, 0)
 SetTimer(CloseOverlayIfFocusLeftGame, 100)
-OnExit((*) => ReleaseCachedProcessHandle())
+SetTimer(UpdateClientSnapshots, CLIENT_SNAPSHOT_INTERVAL)
+RegisterOverlayMouseHandlers()
+OnExit((*) => (ReleaseCachedProcessHandle(), ReleaseAllClientProcesses()))
 FireAddonHook("OnInit")
 ApplyAllHotkeys()
 
@@ -64,7 +67,7 @@ ApplyAllHotkeys()
 ^!d:: ShowDebugState()
 ^!s:: CalibrateSignaturesNow()
 ^!v:: VerifyResolution()
-; ^!n:: GenerateNpcEntry()
+; GenerateNpcEntry() is bound by the MapPois addon (rebindable, default Ctrl+Alt+N).
 ^!1:: CaptureCalibrationPoint(1)
 ^!2:: CaptureCalibrationPoint(2)
 ^!3:: ApplyCalibrationFromPoints()
@@ -106,19 +109,28 @@ HandleTab() {
 }
 
 CloseOverlay() {
-    global gOverlayVisible, gGui
+    global gOverlayVisible, gGui, gOverlayHover
     if gOverlayVisible && IsObject(gGui) {
         gGui.Hide()
         gOverlayVisible := false
+        ; The hover timer stops with the overlay, so clear the state rather
+        ; than leaving it stuck on for the next time it opens.
+        gOverlayHover := false
         SetTimer(UpdateMarkerPosition, 0)
         FireAddonHook("OnOverlayHide")
     }
 }
 
 ; Hide minimap when focus leaves the game and this overlay (e.g. Alt+Tab to another app). Game or minimap Gui keeps it open.
+; Pin mode ("Keep the minimap open when the game loses focus") opts out of this
+; check only — the battle / loading / unsupported-map closes in UpdateMapState
+; still apply, so a pinned overlay never floats over a game that isn't there.
 CloseOverlayIfFocusLeftGame() {
-    global gOverlayVisible, gGui
+    global gOverlayVisible, gGui, gMinimapKeepOpen, gOverlayDragging
     if !gOverlayVisible || !IsObject(gGui) || !gGui.Hwnd {
+        return
+    }
+    if (gMinimapKeepOpen || gOverlayDragging) {
         return
     }
     if WinActive(GAME_WIN_FILTER) {
@@ -212,8 +224,7 @@ ShowDebugState() {
         . "Build: " (gResolvedBuildStamp ? Format("0x{:08X}", gResolvedBuildStamp) : "<unresolved>") "`n"
     for _, name in SIGNATURE_NAMES {
         rva := GetResolvedOffset(name)
-        src := gResolvedOffsets.Has(name) ? "sig" : "fallback"
-        msg .= "  " name ": " Format("0x{:08X}", rva) " (" src ")`n"
+        msg .= "  " name ": " Format("0x{:08X}", rva) " (" OffsetSourceLabel(name) ")`n"
     }
     MsgBox(msg, "AHK Minimap Debug")
 }
@@ -221,7 +232,7 @@ ShowDebugState() {
 ; ── Calibration handlers ─────────────────────────────────────────
 
 CaptureCalibrationPoint(index) {
-    global gOverlayVisible, gGui, gResolvedMapName, MINIMAP_MAP_INSET, OVERLAY_W, OVERLAY_H
+    global gOverlayVisible, gGui, gResolvedMapName, MINIMAP_MAP_INSET
     global gCalibrationPoint1, gCalibrationPoint2
 
     if !gOverlayVisible || !IsObject(gGui) || !gGui.Hwnd {
@@ -248,10 +259,15 @@ CaptureCalibrationPoint(index) {
     cly := NumGet(pt, 4, "Int")
     relX := mx - clx - MINIMAP_MAP_INSET
     relY := my - cly - MINIMAP_MAP_INSET
-    if (relX < 0 || relY < 0 || relX >= OVERLAY_W || relY >= OVERLAY_H) {
+    if (relX < 0 || relY < 0 || relX >= MinimapDisplayW() || relY >= MinimapDisplayH()) {
         MsgBox("Place your mouse over the minimap image before capturing.", "Calibration")
         return
     }
+    ; Calibration is stored in base (unscaled) map space, so a user calibrating
+    ; at 150 % writes the same numbers as one calibrating at 100 %.
+    scale := MinimapScaleFactor()
+    relX := Round(relX / scale)
+    relY := Round(relY / scale)
 
     point := {
         mapName: gResolvedMapName,
@@ -344,7 +360,7 @@ ExportCurrentCalibrationToFile() {
 
 ShowOrToggleOverlay(mapName, mapPath) {
     global gOverlayVisible, gCurrentMapName, gCurrentMapPath, gGui, gPic, gTrackedGameHwnd
-    global MINIMAP_MAP_INSET, MINIMAP_COLOR_GOLD, OVERLAY_W, OVERLAY_H
+    global MINIMAP_MAP_INSET, MINIMAP_COLOR_GOLD
     if WinActive(GAME_WIN_FILTER) {
         gTrackedGameHwnd := WinActive(GAME_WIN_FILTER)
     }
@@ -352,9 +368,12 @@ ShowOrToggleOverlay(mapName, mapPath) {
     pos := GetOverlayPositionForGameWindow()
     xPos := pos.x
     yPos := pos.y
+    ; Displayed size (base map space × user scale).
+    mapW := MinimapDisplayW()
+    mapH := MinimapDisplayH()
     ; Explicit client size — otherwise Gui auto-size can omit edges.
-    totalW := OVERLAY_W + 2 * MINIMAP_MAP_INSET
-    totalH := OVERLAY_H + 2 * MINIMAP_MAP_INSET
+    totalW := mapW + 2 * MINIMAP_MAP_INSET
+    totalH := mapH + 2 * MINIMAP_MAP_INSET
     showOpts := "x" xPos " y" yPos " w" totalW " h" totalH " NoActivate"
 
     if !IsObject(gGui) {
@@ -370,11 +389,12 @@ ShowOrToggleOverlay(mapName, mapPath) {
         )
         DllCall("uxtheme\SetWindowTheme", "Ptr", borderBlack.Hwnd, "WStr", "", "WStr", "")
         gPic := gGui.AddPicture(
-            "x" MINIMAP_MAP_INSET " y" MINIMAP_MAP_INSET " w" OVERLAY_W " h" OVERLAY_H,
+            "x" MINIMAP_MAP_INSET " y" MINIMAP_MAP_INSET " w" mapW " h" mapH,
             mapPath
         )
         EnsureMarkerControl()
         gGui.Show(showOpts)
+        ApplyOverlayOpacity()
         gOverlayVisible := true
         gCurrentMapName := mapName
         gCurrentMapPath := mapPath
@@ -396,6 +416,7 @@ ShowOrToggleOverlay(mapName, mapPath) {
         SetTimer(UpdateMarkerPosition, 0)
     } else {
         gGui.Show(showOpts)
+        ApplyOverlayOpacity()
         gOverlayVisible := true
         SetTimer(UpdateMarkerPosition, 60)
         UpdateMarkerPosition()
@@ -405,15 +426,20 @@ ShowOrToggleOverlay(mapName, mapPath) {
 
 UpdateMarkerPosition() {
     global gOverlayVisible, gMarkerDot, gLastPosStatus, gLastRawX, gLastRawY
-    global MINIMAP_MAP_INSET, OVERLAY_W, OVERLAY_H, MARKER_SIZE
+    global MINIMAP_MAP_INSET, gOverlayDragging
 
     if !IsObject(gGui) || !gGui.Hwnd {
         return
     }
 
-    ; Keep overlay centered on game window if it moves.
-    pos := GetOverlayPositionForGameWindow()
-    gGui.Move(pos.x, pos.y)
+    UpdateOverlayHoverState()
+
+    ; Keep the overlay anchored to the game window as it moves — but never
+    ; while the user is dragging it, or the drag fights this timer.
+    if !gOverlayDragging {
+        pos := GetOverlayPositionForGameWindow()
+        gGui.Move(pos.x, pos.y)
+    }
 
     EnsureMarkerControl()
     if !IsObject(gMarkerDot) {
@@ -448,13 +474,16 @@ UpdateMarkerPosition() {
     rawY := NumGet(posBuf, 4, "Int")
     gLastRawX := rawX
     gLastRawY := rawY
+    ; Calibration yields base-space pixels; scale them for the displayed size.
     markerPos := WorldToOverlayPixels(rawX, rawY, gCurrentMapName)
-    px := markerPos.x
-    py := markerPos.y
+    scale := MinimapScaleFactor()
+    size := MinimapMarkerSize()
+    px := Round(markerPos.x * scale)
+    py := Round(markerPos.y * scale)
 
-    px := Clamp(px, 0, OVERLAY_W - MARKER_SIZE)
-    py := Clamp(py, 0, OVERLAY_H - MARKER_SIZE)
-    gMarkerDot.Move(px + MINIMAP_MAP_INSET, py + MINIMAP_MAP_INSET, MARKER_SIZE, MARKER_SIZE)
+    px := Clamp(px, 0, MinimapDisplayW() - size)
+    py := Clamp(py, 0, MinimapDisplayH() - size)
+    gMarkerDot.Move(px + MINIMAP_MAP_INSET, py + MINIMAP_MAP_INSET, size, size)
     gMarkerDot.Visible := true
     gLastPosStatus := "ok x=" rawX " y=" rawY
 }

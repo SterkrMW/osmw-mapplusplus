@@ -162,13 +162,11 @@ _WindowLayout_GetCharacterNames() {
     seen  := Map()
     names := []
     for hwnd in GetTopLevelGameWindows() {
-        title := WinGetTitle("ahk_id " hwnd)
-        if RegExMatch(title, "Behemoth:\s+(.+?)\s+ID\b", &m) {
-            name := m[1]
-            if !seen.Has(name) {
-                seen[name] := true
-                names.Push(name)
-            }
+        ; Shared with the roster and Discord presence — one title format to fix.
+        name := CharacterNameFromWindow(hwnd)
+        if (name != "" && !seen.Has(name)) {
+            seen[name] := true
+            names.Push(name)
         }
     }
     return names

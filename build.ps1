@@ -6,9 +6,7 @@
 .DESCRIPTION
     For each variant manifest in variants\, writes a curated _addons.ahk and
     invokes Ahk2Exe to produce releases\<variant>\mapsplusplus.exe along with
-    runtime assets (marker.png, map\).
-
-    See: C:\Users\c_mar\.claude\plans\suggest-how-we-might-quizzical-codd.md
+    runtime assets (marker.png, maps\).
 
 .PARAMETER Variant
     Build a single variant (matches variants\<name>.txt). If omitted, builds
@@ -176,7 +174,7 @@ function Build-Variant {
         if (Test-Path -LiteralPath $MapDir) {
             Copy-Item -LiteralPath $MapDir -Destination $outDir -Recurse -Force
         } else {
-            Write-Warning "map\ folder missing at $MapDir -- shipped exe will warn at startup."
+            Write-Warning "maps\ folder missing at $MapDir -- shipped exe will warn at startup."
         }
 
         # Drop a small README naming the variant + its addons.

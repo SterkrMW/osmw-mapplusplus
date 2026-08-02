@@ -33,11 +33,12 @@ _Settings_Build() {
         }
     }
 
-    tabNames := ["Launcher", "Hotkeys"]
+    tabNames := ["Launcher", "Minimap", "Hotkeys"]
     for c in contributors
         tabNames.Push(c.label)
     tabNames.Push("Addons")
-    hotkeysTabIndex := 2
+    minimapTabIndex := 2
+    hotkeysTabIndex := 3
     addonsTabIndex := tabNames.Length
 
     g := Gui("+AlwaysOnTop -MinimizeBox", "osMW Maps++ — Settings")
@@ -93,6 +94,10 @@ _Settings_Build() {
     secondaryDdl := g.Add("DropDownList", "x+10 yp-3 w220", _Settings_MonitorChoices())
     secondaryDdl.Value := _Settings_MonitorIndexToChoice(gSecondaryMonitorOverride)
 
+    ; ---- Minimap tab ----
+    tab.UseTab(minimapTabIndex)
+    minimapCtrls := _Settings_BuildMinimapTab(g, contentX, contentY)
+
     ; ---- Hotkeys tab ----
     tab.UseTab(hotkeysTabIndex)
     hotkeyRows := _Settings_BuildHotkeysTab(g, contentX, contentY)
@@ -101,7 +106,7 @@ _Settings_Build() {
     saveHandlers := []
     ctx := { gui: g, tab: tab, saveHandlers: saveHandlers }
     for i, c in contributors {
-        tab.UseTab(2 + i)
+        tab.UseTab(hotkeysTabIndex + i)
         ; Section anchor (absolute) so addons position with xs/ys, never tab-relative coords.
         g.Add("Text", "x" contentX " y" contentY " Section w0 h0")
         try {
@@ -156,6 +161,10 @@ _Settings_Build() {
         gSecondaryMonitorOverride := _Settings_ChoiceToMonitorIndex(secondaryDdl.Value)
         SaveLauncherConfig()
         SetRunOnStartup(autoStartCb.Value ? true : false)
+
+        if !_Settings_SaveMinimap(minimapCtrls) {
+            return
+        }
 
         if IsObject(hotkeyRows) && hotkeyRows.Length {
             if !_Settings_SaveHotkeys(hotkeyRows) {
@@ -293,6 +302,107 @@ _Settings_SaveHotkeys(rows) {
         gHotkeyActions[row["id"]]["chord"] := row["pending"]
     }
     SaveHotkeyOverrides()
+    return true
+}
+
+; ── Minimap tab ──────────────────────────────────────────────────
+
+_Settings_BuildMinimapTab(g, contentX, contentY) {
+    global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
+    global gMinimapKeepOpen, MINIMAP_ANCHORS, OVERLAY_W, OVERLAY_H
+
+    g.SetFont()
+    g.Add("Text", "x" contentX " y" contentY " Section w430",
+        "Size and placement of the minimap overlay. Map calibration is unaffected by scale.")
+
+    g.Add("Text", "xs y+16 w130", "Size:")
+    scaleSlider := g.Add("Slider", "x+10 yp-3 w200 Range50-200 TickInterval25 Line5 Page25", gMinimapScale)
+    scaleText := g.Add("Text", "x+10 yp+3 w110", "")
+    _Settings_UpdateScaleText(scaleText, gMinimapScale)
+    scaleSlider.OnEvent("Change", (ctrl, *) => _Settings_UpdateScaleText(scaleText, ctrl.Value))
+
+    g.Add("Text", "xs y+16 w130", "Opacity:")
+    opacitySlider := g.Add("Slider", "x+10 yp-3 w200 Range30-100 TickInterval10 Line5 Page10", gMinimapOpacity)
+    opacityText := g.Add("Text", "x+10 yp+3 w110", gMinimapOpacity " %")
+    opacitySlider.OnEvent("Change", (ctrl, *) => opacityText.Text := ctrl.Value " %")
+
+    g.Add("Text", "xs y+16 w130", "Position:")
+    anchorDdl := g.Add("DropDownList", "x+10 yp-3 w200", _Settings_AnchorLabels())
+    anchorDdl.Value := _Settings_AnchorIndex(gMinimapAnchor)
+
+    g.Add("Text", "xs y+14 w130", "Nudge X / Y (px):")
+    offsetXEdit := g.Add("Edit", "x+10 yp-3 w70", String(gMinimapOffsetX))
+    offsetYEdit := g.Add("Edit", "x+8 yp w70", String(gMinimapOffsetY))
+    resetPosBtn := g.Add("Button", "x+8 yp-1 w54", "Reset")
+
+    g.Add("Text", "xs y+14 w430 c666666",
+        "Hold Ctrl and drag the overlay to set the nudge visually.`n"
+        . "Double-click the overlay to re-centre it on the game window.")
+
+    keepOpenCb := g.Add("CheckBox", "xs y+16 w400",
+        "Keep the minimap open when the game loses focus")
+    keepOpenCb.Value := gMinimapKeepOpen ? 1 : 0
+
+    resetPosBtn.OnEvent("Click", (*) => (offsetXEdit.Value := "0", offsetYEdit.Value := "0",
+        anchorDdl.Value := _Settings_AnchorIndex("Center")))
+
+    return {
+        scale: scaleSlider,
+        opacity: opacitySlider,
+        anchor: anchorDdl,
+        offsetX: offsetXEdit,
+        offsetY: offsetYEdit,
+        keepOpen: keepOpenCb
+    }
+}
+
+_Settings_UpdateScaleText(ctrl, scale) {
+    global OVERLAY_W, OVERLAY_H
+    ctrl.Text := scale " %  (" Round(OVERLAY_W * scale / 100) "×" Round(OVERLAY_H * scale / 100) ")"
+}
+
+_Settings_AnchorLabels() {
+    return ["Centered on the game window", "Top-left", "Top-right", "Bottom-left", "Bottom-right"]
+}
+
+; MINIMAP_ANCHORS and the labels above are parallel lists.
+_Settings_AnchorIndex(anchor) {
+    global MINIMAP_ANCHORS
+    for i, name in MINIMAP_ANCHORS {
+        if (name = anchor)
+            return i
+    }
+    return 1
+}
+
+; Validates and applies the Minimap tab. Returns false to keep the window open.
+_Settings_SaveMinimap(c) {
+    global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
+    global gMinimapKeepOpen, MINIMAP_ANCHORS
+
+    offX := Trim(c.offsetX.Value)
+    offY := Trim(c.offsetY.Value)
+    ; Negative values are legitimate here, so Number-only edits can't be used.
+    if (!IsInteger(offX) || !IsInteger(offY)) {
+        TrayTip("AHK Minimap", "Minimap nudge X/Y must be whole numbers (negative is allowed).", "Iconx")
+        return false
+    }
+
+    previousScale := gMinimapScale
+    gMinimapScale := c.scale.Value
+    gMinimapOpacity := c.opacity.Value
+    gMinimapAnchor := MINIMAP_ANCHORS[c.anchor.Value]
+    gMinimapOffsetX := Integer(offX)
+    gMinimapOffsetY := Integer(offY)
+    gMinimapKeepOpen := c.keepOpen.Value ? true : false
+    SaveMinimapConfig()
+
+    ; A resize needs the Gui rebuilt; opacity/placement apply on the next tick.
+    if (gMinimapScale != previousScale) {
+        RebuildOverlayGui()
+    } else {
+        ApplyOverlayOpacity()
+    }
     return true
 }
 

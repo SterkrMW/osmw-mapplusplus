@@ -494,12 +494,130 @@ ReadUInt32BE(buf, offset) {
         | NumGet(buf, offset + 3, "UChar")
 }
 
+; ── Minimap appearance ───────────────────────────────────────────
+
+; Displayed size of the map image. Calibration always works in the 400×300 base
+; space (OVERLAY_W/H); only drawing is scaled, so changing the scale can never
+; invalidate maps\calibration.ini.
+MinimapScaleFactor() {
+    global gMinimapScale
+    return gMinimapScale / 100.0
+}
+
+MinimapDisplayW() {
+    global OVERLAY_W
+    return Round(OVERLAY_W * MinimapScaleFactor())
+}
+
+MinimapDisplayH() {
+    global OVERLAY_H
+    return Round(OVERLAY_H * MinimapScaleFactor())
+}
+
+MinimapMarkerSize() {
+    global MARKER_SIZE
+    return Max(3, Round(MARKER_SIZE * MinimapScaleFactor()))
+}
+
+LoadMinimapConfig() {
+    global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
+    global gMinimapKeepOpen, MINIMAP_ANCHORS, CONFIG_INI
+    if !FileExist(CONFIG_INI) {
+        return
+    }
+    scale := Trim(IniRead(CONFIG_INI, "Minimap", "Scale", "100"))
+    if IsInteger(scale) {
+        gMinimapScale := Clamp(Integer(scale), 50, 200)
+    }
+    opacity := Trim(IniRead(CONFIG_INI, "Minimap", "Opacity", "100"))
+    if IsInteger(opacity) {
+        gMinimapOpacity := Clamp(Integer(opacity), 30, 100)
+    }
+    anchor := Trim(IniRead(CONFIG_INI, "Minimap", "Anchor", "Center"))
+    for _, name in MINIMAP_ANCHORS {
+        if (name = anchor) {
+            gMinimapAnchor := name
+            break
+        }
+    }
+    ; Offsets are unbounded on purpose — a multi-monitor user can legitimately
+    ; push the overlay outside the client rect.
+    offX := Trim(IniRead(CONFIG_INI, "Minimap", "OffsetX", "0"))
+    if IsInteger(offX) {
+        gMinimapOffsetX := Integer(offX)
+    }
+    offY := Trim(IniRead(CONFIG_INI, "Minimap", "OffsetY", "0"))
+    if IsInteger(offY) {
+        gMinimapOffsetY := Integer(offY)
+    }
+    gMinimapKeepOpen := (Trim(IniRead(CONFIG_INI, "Minimap", "KeepOpenOnFocusLoss", "0")) = "1")
+}
+
+SaveMinimapConfig() {
+    global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
+    global gMinimapKeepOpen, CONFIG_INI
+    IniWrite(gMinimapScale, CONFIG_INI, "Minimap", "Scale")
+    IniWrite(gMinimapOpacity, CONFIG_INI, "Minimap", "Opacity")
+    IniWrite(gMinimapAnchor, CONFIG_INI, "Minimap", "Anchor")
+    IniWrite(gMinimapOffsetX, CONFIG_INI, "Minimap", "OffsetX")
+    IniWrite(gMinimapOffsetY, CONFIG_INI, "Minimap", "OffsetY")
+    IniWrite(gMinimapKeepOpen ? "1" : "0", CONFIG_INI, "Minimap", "KeepOpenOnFocusLoss")
+}
+
+; Applies the configured opacity. Must run after every Show() — AHK recreates
+; the layered-window state when a Gui is hidden and shown again.
+ApplyOverlayOpacity() {
+    global gGui, gMinimapOpacity
+    if !IsObject(gGui) || !gGui.Hwnd {
+        return
+    }
+    if (gMinimapOpacity >= 100) {
+        try WinSetTransparent("Off", "ahk_id " gGui.Hwnd)
+        return
+    }
+    try WinSetTransparent(Round(255 * gMinimapOpacity / 100), "ahk_id " gGui.Hwnd)
+}
+
+; Drops the overlay Gui so the next ShowOrToggleOverlay() rebuilds it at the
+; current size. Used when the scale changes — Gui controls can't be resized
+; reliably in place once a picture is loaded into them.
+RebuildOverlayGui() {
+    global gGui, gPic, gMarkerDot, gOverlayVisible, gCurrentMapName, gCurrentMapPath
+    wasVisible := gOverlayVisible
+    mapName := gCurrentMapName
+    mapPath := gCurrentMapPath
+    SetTimer(UpdateMarkerPosition, 0)
+    if IsObject(gGui) {
+        try gGui.Destroy()
+    }
+    gGui := 0
+    gPic := 0
+    gMarkerDot := 0
+    gOverlayVisible := false
+    gCurrentMapName := ""
+    gCurrentMapPath := ""
+    ; Addons that added controls to the old Gui must drop their references.
+    FireAddonHook("OnOverlayRebuild")
+    if (wasVisible && mapPath != "" && FileExist(mapPath)) {
+        ShowOrToggleOverlay(mapName, mapPath)
+    }
+}
+
 ; ── Overlay positioning ──────────────────────────────────────────
 
+; Screen position of the overlay's top-left corner, honouring anchor + offsets.
 GetOverlayPositionForGameWindow() {
-    global OVERLAY_W, OVERLAY_H, MINIMAP_MAP_INSET
-    totalW := OVERLAY_W + 2 * MINIMAP_MAP_INSET
-    totalH := OVERLAY_H + 2 * MINIMAP_MAP_INSET
+    global gMinimapOffsetX, gMinimapOffsetY
+    base := GetOverlayAnchorPosition()
+    return { x: base.x + gMinimapOffsetX, y: base.y + gMinimapOffsetY }
+}
+
+; Same, with the user's offsets excluded — the zero point a drag is measured
+; against, so a dragged overlay stays put when the game window moves.
+GetOverlayAnchorPosition() {
+    global MINIMAP_MAP_INSET, gMinimapAnchor
+    totalW := MinimapDisplayW() + 2 * MINIMAP_MAP_INSET
+    totalH := MinimapDisplayH() + 2 * MINIMAP_MAP_INSET
 
     hwnd := WinActive(GAME_WIN_FILTER)
     if !hwnd {
@@ -507,26 +625,283 @@ GetOverlayPositionForGameWindow() {
     }
 
     if hwnd {
-        ; Use the client rect so centering ignores invisible DWM borders,
+        ; Use the client rect so placement ignores invisible DWM borders,
         ; the title bar, and DPI-scaled window chrome.
         rc := Buffer(16, 0)
         DllCall("user32\GetClientRect", "Ptr", hwnd, "Ptr", rc)
-        clientW := NumGet(rc, 8, "Int")
-        clientH := NumGet(rc, 12, "Int")
+        areaW := NumGet(rc, 8, "Int")
+        areaH := NumGet(rc, 12, "Int")
         pt := Buffer(8, 0)
         DllCall("user32\ClientToScreen", "Ptr", hwnd, "Ptr", pt)
-        clientX := NumGet(pt, 0, "Int")
-        clientY := NumGet(pt, 4, "Int")
-        return {
-            x: Floor(clientX + ((clientW - totalW) / 2)),
-            y: Floor(clientY + ((clientH - totalH) / 2))
-        }
+        areaX := NumGet(pt, 0, "Int")
+        areaY := NumGet(pt, 4, "Int")
+    } else {
+        ; No game window — fall back to the primary screen.
+        areaX := 0
+        areaY := 0
+        areaW := A_ScreenWidth
+        areaH := A_ScreenHeight
     }
 
-    return {
-        x: Floor((A_ScreenWidth - totalW) / 2),
-        y: Floor((A_ScreenHeight - totalH) / 2)
+    switch gMinimapAnchor {
+        case "TopLeft":
+            return { x: areaX, y: areaY }
+        case "TopRight":
+            return { x: areaX + areaW - totalW, y: areaY }
+        case "BottomLeft":
+            return { x: areaX, y: areaY + areaH - totalH }
+        case "BottomRight":
+            return { x: areaX + areaW - totalW, y: areaY + areaH - totalH }
     }
+    return {
+        x: Floor(areaX + ((areaW - totalW) / 2)),
+        y: Floor(areaY + ((areaH - totalH) / 2))
+    }
+}
+
+; ── Marker labels ────────────────────────────────────────────────
+; Shared by every layer that labels a dot on the minimap (party markers, POIs)
+; so they stay visually identical. Labels sit in an opaque box sized to the
+; text and centred over the dot — transparent text was unreadable against map
+; art, and a fixed-width box would have been a black bar across the map.
+
+; Rendered size of `text` in the control's own font.
+MeasureControlText(ctrl, text) {
+    if (text = "") {
+        return { w: 0, h: 0 }
+    }
+    hdc := DllCall("GetDC", "Ptr", ctrl.Hwnd, "Ptr")
+    if !hdc {
+        return { w: 0, h: 0 }
+    }
+    previousFont := 0
+    if (hFont := SendMessage(0x0031, 0, 0, ctrl)) {   ; WM_GETFONT
+        previousFont := DllCall("SelectObject", "Ptr", hdc, "Ptr", hFont, "Ptr")
+    }
+    size := Buffer(8, 0)
+    DllCall("GetTextExtentPoint32W", "Ptr", hdc, "WStr", text, "Int", StrLen(text), "Ptr", size)
+    w := NumGet(size, 0, "Int")
+    h := NumGet(size, 4, "Int")
+    if previousFont {
+        DllCall("SelectObject", "Ptr", hdc, "Ptr", previousFont, "Ptr")
+    }
+    DllCall("ReleaseDC", "Ptr", ctrl.Hwnd, "Ptr", hdc)
+    return { w: w, h: h }
+}
+
+; Adds a marker label control to the overlay Gui: opaque background, bold
+; high-contrast text, unthemed (themed statics ignore background colours).
+AddMarkerLabelControl(gui) {
+    global MARKER_LABEL_TEXT_COLOR
+    gui.SetFont("s8 Bold")
+    ctrl := gui.AddText("x0 y0 w10 h10 Hidden Center Background000000 c" MARKER_LABEL_TEXT_COLOR, "")
+    gui.SetFont()
+    DllCall("uxtheme\SetWindowTheme", "Ptr", ctrl.Hwnd, "WStr", "", "WStr", "")
+    return ctrl
+}
+
+; Should labels be drawn right now, for a layer configured with `mode`?
+ShouldShowMarkerLabels(mode) {
+    global gOverlayHover
+    if (mode = "always") {
+        return true
+    }
+    if (mode = "never") {
+        return false
+    }
+    ; "autohide": visible while playing, out of the way when the mouse is on
+    ; the minimap — which is when you're inspecting the map itself.
+    return !gOverlayHover
+}
+
+IsMarkerLabelMode(mode) {
+    global MARKER_LABEL_MODES
+    for m in MARKER_LABEL_MODES {
+        if (m = mode) {
+            return true
+        }
+    }
+    return false
+}
+
+; Config value → a mode this build understands. "hover" was the same setting
+; with the opposite sense (show only while hovering); it becomes "autohide".
+NormalizeMarkerLabelMode(mode, fallback := "autohide") {
+    mode := Trim(mode)
+    if (mode = "hover") {
+        return "autohide"
+    }
+    return IsMarkerLabelMode(mode) ? mode : fallback
+}
+
+MarkerLabelModeIndex(mode) {
+    global MARKER_LABEL_MODES
+    for i, m in MARKER_LABEL_MODES {
+        if (m = mode) {
+            return i
+        }
+    }
+    return 1
+}
+
+; Flips label visibility for the first `usedCount` slots of a marker pool
+; (array of {dot, label}) without repositioning anything — the positions are
+; kept current by each layer's draw pass, so a hover change is just a toggle.
+SetMarkerLabelsVisible(pool, usedCount, visible) {
+    loop Min(usedCount, pool.Length) {
+        entry := pool[A_Index]
+        try entry.label.Visible := visible && (entry.label.Text != "")
+    }
+}
+
+; Centres `text` over the dot at (dotX, dotY, dotSize) — coordinates relative
+; to the Gui, i.e. already including MINIMAP_MAP_INSET — and keeps the box
+; inside the map image, flipping below the dot when there's no room above.
+; Positioning happens even when `visible` is false so that turning labels back
+; on (mouse-over) is an instant toggle rather than a redraw.
+PositionMarkerLabel(ctrl, text, dotX, dotY, dotSize, visible := true) {
+    global MINIMAP_MAP_INSET, MARKER_LABEL_PAD_X
+    dims := MeasureControlText(ctrl, text)
+    w := dims.w + 2 * MARKER_LABEL_PAD_X
+    h := dims.h + 2
+    x := dotX + (dotSize // 2) - (w // 2)
+    y := dotY - h - 1
+    if (y < MINIMAP_MAP_INSET) {
+        y := dotY + dotSize + 1          ; no room above — sit under the dot
+    }
+    x := Clamp(x, MINIMAP_MAP_INSET, MINIMAP_MAP_INSET + MinimapDisplayW() - w)
+    y := Clamp(y, MINIMAP_MAP_INSET, MINIMAP_MAP_INSET + MinimapDisplayH() - h)
+    ctrl.Text := text
+    ctrl.Move(x, y, w, h)
+    ctrl.Visible := visible
+    if visible {
+        ctrl.Redraw()
+    }
+}
+
+; Tracks whether the cursor is over the overlay and publishes changes through
+; the OnOverlayHover hook. Called from the marker timer, which only runs while
+; the overlay is visible.
+UpdateOverlayHoverState() {
+    global gGui, gOverlayHover
+    hovering := false
+    if (IsObject(gGui) && gGui.Hwnd) {
+        ; The window under the cursor, so another window covering the minimap
+        ; correctly counts as "not hovering".
+        MouseGetPos(, , &winUnderCursor)
+        hovering := (winUnderCursor = gGui.Hwnd)
+    }
+    if (hovering = gOverlayHover) {
+        return
+    }
+    gOverlayHover := hovering
+    FireAddonHook("OnOverlayHover", hovering)
+}
+
+; ── Overlay dragging ─────────────────────────────────────────────
+; The overlay is -Caption +E0x08000000 (WS_EX_NOACTIVATE), so Windows won't
+; move it for us. Reporting HTCAPTION for its client area makes DefWindowProc
+; run its own move loop — the Picture/Text children return HTTRANSPARENT, so
+; the hit test reaches the Gui itself. WM_EXITSIZEMOVE then converts wherever
+; the user dropped it back into OffsetX/OffsetY and persists that.
+;
+; Only while Ctrl is held: mousing over the minimap is how marker labels are
+; revealed, so an unmodified click there must not start dragging the window.
+
+RegisterOverlayMouseHandlers() {
+    OnMessage(0x0084, _Overlay_OnNcHitTest)      ; WM_NCHITTEST
+    OnMessage(0x0231, _Overlay_OnEnterSizeMove)  ; WM_ENTERSIZEMOVE
+    OnMessage(0x0232, _Overlay_OnExitSizeMove)   ; WM_EXITSIZEMOVE
+    OnMessage(0x0201, _Overlay_OnLButtonDown)    ; WM_LBUTTONDOWN
+    OnMessage(0x0203, _Overlay_OnLButtonDblClk)  ; WM_LBUTTONDBLCLK
+}
+
+; Puts the overlay back where it starts out: centred on the game's client area.
+; Bound to a double-click on the overlay itself, so an overlay dragged somewhere
+; awkward (or off a display that's since been unplugged) is one gesture away
+; from being findable again.
+ResetOverlayPosition() {
+    global gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY, gGui
+    if (gMinimapAnchor = "Center" && gMinimapOffsetX = 0 && gMinimapOffsetY = 0) {
+        return  ; already centred — don't rewrite the config for nothing
+    }
+    gMinimapAnchor := "Center"
+    gMinimapOffsetX := 0
+    gMinimapOffsetY := 0
+    SaveMinimapConfig()
+    if (IsObject(gGui) && gGui.Hwnd) {
+        pos := GetOverlayPositionForGameWindow()
+        gGui.Move(pos.x, pos.y)
+    }
+}
+
+_Overlay_IsOverlayHwnd(hwnd) {
+    global gGui
+    return IsObject(gGui) && gGui.Hwnd && (hwnd = gGui.Hwnd)
+}
+
+_Overlay_OnNcHitTest(wParam, lParam, msg, hwnd) {
+    static HTCAPTION := 2
+    if !_Overlay_IsOverlayHwnd(hwnd) {
+        return  ; not ours — let default processing run
+    }
+    if !GetKeyState("Ctrl") {
+        return  ; plain hover/click — no drag
+    }
+    return HTCAPTION
+}
+
+_Overlay_OnEnterSizeMove(wParam, lParam, msg, hwnd) {
+    global gOverlayDragging
+    if !_Overlay_IsOverlayHwnd(hwnd) {
+        return
+    }
+    gOverlayDragging := true
+}
+
+; Double-click to re-centre. Whether Windows delivers WM_LBUTTONDBLCLK depends
+; on the window class having CS_DBLCLKS, so the pair of clicks is also timed
+; here — with CS_DBLCLKS the second click arrives as DBLCLK rather than DOWN,
+; so exactly one of the two paths fires.
+_Overlay_OnLButtonDown(wParam, lParam, msg, hwnd) {
+    global gOverlayLastClickTick
+    if !_Overlay_IsOverlayHwnd(hwnd) {
+        return
+    }
+    now := A_TickCount
+    if (gOverlayLastClickTick && (now - gOverlayLastClickTick) <= DllCall("GetDoubleClickTime", "UInt")) {
+        gOverlayLastClickTick := 0
+        ResetOverlayPosition()
+        return 0
+    }
+    gOverlayLastClickTick := now
+}
+
+_Overlay_OnLButtonDblClk(wParam, lParam, msg, hwnd) {
+    global gOverlayLastClickTick
+    if !_Overlay_IsOverlayHwnd(hwnd) {
+        return
+    }
+    gOverlayLastClickTick := 0
+    ResetOverlayPosition()
+    return 0
+}
+
+_Overlay_OnExitSizeMove(wParam, lParam, msg, hwnd) {
+    global gOverlayDragging, gGui, gMinimapOffsetX, gMinimapOffsetY
+    if !_Overlay_IsOverlayHwnd(hwnd) {
+        return
+    }
+    gOverlayDragging := false
+    try {
+        WinGetPos(&winX, &winY, , , "ahk_id " gGui.Hwnd)
+    } catch {
+        return
+    }
+    base := GetOverlayAnchorPosition()
+    gMinimapOffsetX := winX - base.x
+    gMinimapOffsetY := winY - base.y
+    SaveMinimapConfig()
 }
 
 ; ── Utilities ────────────────────────────────────────────────────
@@ -566,7 +941,8 @@ EnsureMarkerControl() {
         return
     }
     ; Added after gPic so the marker draws above the map image.
-    gMarkerDot := gGui.AddPicture("x0 y0 w" MARKER_SIZE " h" MARKER_SIZE " Hidden", MARKER_PNG)
+    size := MinimapMarkerSize()
+    gMarkerDot := gGui.AddPicture("x0 y0 w" size " h" size " Hidden", MARKER_PNG)
 }
 
 ; ── Launcher ─────────────────────────────────────────────────────
@@ -772,7 +1148,7 @@ LaunchGameInstance(monitorWhich := "primary") {
     global gGamePath, gGameArgs
 
     if (gGamePath = "" || !FileExist(gGamePath)) {
-        TrayTip("AHK Minimap", "Game path not configured or file missing.`nUse tray menu → Set Game Path.", "Iconx")
+        TrayTip("AHK Minimap", "Game path not configured or file missing.`nOpen Settings (" GetHotkeyDisplay("openSettings") ") → Launcher → Browse…", "Iconx")
         return
     }
 
@@ -830,7 +1206,7 @@ LaunchClientsAndApplyLayout(count := 0) {
         count := gMultiClientCount
 
     if (gGamePath = "" || !FileExist(gGamePath)) {
-        TrayTip("AHK Minimap", "Game path not configured or file missing.`nUse tray menu → Set Game Path.", "Iconx")
+        TrayTip("AHK Minimap", "Game path not configured or file missing.`nOpen Settings (" GetHotkeyDisplay("openSettings") ") → Launcher → Browse…", "Iconx")
         return
     }
 
@@ -978,6 +1354,205 @@ CountGameInstances() {
     }
 }
 
+; ── Client snapshots ─────────────────────────────────────────────
+; A single poll of every running client, shared by every addon that needs
+; per-client state. Before this each addon opened the game process itself on
+; its own tick (Discord RPC did it twice every 1.5 s, re-reading the PE .text
+; section each time), so handle churn multiplied with each new feature.
+
+; Cached {handle, modBase} per PID. Deliberately separate from the single-handle
+; cache used by the 60 ms marker path (gCachedProcessHandle) — that hot path is
+; left untouched.
+GetClientProcess(pid) {
+    global gClientHandles, PROCESS_EXE
+    if gClientHandles.Has(pid) {
+        return gClientHandles[pid]
+    }
+    handle := DllCall("OpenProcess", "UInt", 0x0010 | 0x0400, "Int", 0, "UInt", pid, "Ptr")
+    if !handle {
+        return { ok: false }
+    }
+    modBase := GetModuleBaseAddress(handle, PROCESS_EXE)
+    if !modBase {
+        DllCall("CloseHandle", "Ptr", handle)
+        return { ok: false }
+    }
+    entry := { ok: true, handle: handle, modBase: modBase }
+    gClientHandles[pid] := entry
+    return entry
+}
+
+ReleaseClientProcess(pid) {
+    global gClientHandles
+    if !gClientHandles.Has(pid) {
+        return
+    }
+    try DllCall("CloseHandle", "Ptr", gClientHandles[pid].handle)
+    gClientHandles.Delete(pid)
+}
+
+ReleaseAllClientProcesses() {
+    global gClientHandles
+    for pid, _ in gClientHandles.Clone() {
+        ReleaseClientProcess(pid)
+    }
+}
+
+; Reads `size` bytes at modBase+rva from a client, or 0 when the read fails.
+ReadClientBuffer(entry, rva, size) {
+    buf := Buffer(size, 0)
+    ok := DllCall("ReadProcessMemory",
+        "Ptr", entry.handle,
+        "Ptr", entry.modBase + rva,
+        "Ptr", buf.Ptr,
+        "UPtr", size,
+        "UPtr*", 0,
+        "Int")
+    return ok ? buf : 0
+}
+
+; "MAP301.map" / "MAP301.jpg" / "MAP301" → "MAP301". Snapshots carry the map id
+; without an extension; the overlay tracks the image filename.
+MapIdFromName(name) {
+    return RegExReplace(Trim(name), "i)\.(map|jpg|jpeg|png)$", "")
+}
+
+; The character name is whatever sits between the last ": " and " ID" in the
+; window title. The prefix varies with the server/patch — "Behemoth: Name ID 5"
+; and "MythWar … [ Local Server: Name ID 16 ]" are both seen — so match on the
+; ": … ID" shape rather than on any particular prefix.
+CharacterNameFromWindow(hwnd) {
+    try title := WinGetTitle("ahk_id " hwnd)
+    catch
+        return ""
+    if RegExMatch(title, ".*:\s+(.+?)\s+ID\b", &m) {
+        return Trim(m[1])
+    }
+    return ""
+}
+
+GetClientSnapshots() {
+    global gClientSnapshots
+    return gClientSnapshots
+}
+
+; Polls every client and fires OnSnapshot. Skipped entirely while no enabled
+; addon consumes it, so single-feature installs pay nothing.
+UpdateClientSnapshots() {
+    global gClientSnapshots, gClientHandles, gResolvedBuildStamp
+    global MAP_FILE_LEN, MAP_NAME_LEN
+
+    if !HasEnabledAddonHook("OnSnapshot") {
+        if (gClientSnapshots.Length > 0) {
+            gClientSnapshots := []
+            ReleaseAllClientProcesses()
+        }
+        return
+    }
+
+    windows := GetTopLevelGameWindows()
+    if (windows.Length = 0) {
+        ReleaseAllClientProcesses()
+        if (gClientSnapshots.Length > 0) {
+            gClientSnapshots := []
+            FireAddonHook("OnSnapshot", gClientSnapshots)
+        }
+        return
+    }
+
+    ; RVAs are per build, not per process — resolve once and reuse for every
+    ; client. EnsureResolvedOffsetsForBuild re-reads the whole .text section,
+    ; so it must not run on this tick once something is already resolved.
+    if (gResolvedBuildStamp = 0) {
+        GetCachedProcessHandleAndBase()
+    }
+    mapFileRva := GetResolvedOffset("MAP_FILE_OFFSET")
+    mapNameRva := GetResolvedOffset("MAP_NAME_OFFSET")
+    posRva := GetResolvedOffset("POS_X_OFFSET")
+    stateRva := GetResolvedOffset("GAME_STATE_OFFSET")
+    battleRva := GetResolvedOffset("BATTLE_STATE_OFFSET")
+
+    activePid := 0
+    if (activeHwnd := WinActive(GAME_WIN_FILTER)) {
+        try activePid := WinGetPID("ahk_id " activeHwnd)
+    }
+
+    snapshots := []
+    livePids := Map()
+    for hwnd in windows {
+        pid := 0
+        try pid := WinGetPID("ahk_id " hwnd)
+        ; WinGetList can return several hwnds for one client — first one wins.
+        if (!pid || livePids.Has(pid)) {
+            continue
+        }
+        proc := GetClientProcess(pid)
+        if !proc.ok {
+            continue
+        }
+
+        fileBuf := ReadClientBuffer(proc, mapFileRva, MAP_FILE_LEN)
+        if !fileBuf {
+            ; Client is going away (or protected) — drop the handle and retry
+            ; on the next tick rather than caching a dead one.
+            ReleaseClientProcess(pid)
+            continue
+        }
+        livePids[pid] := true
+
+        mapId := MapIdFromName(Trim(StrGet(fileBuf, MAP_FILE_LEN, "CP0"), " `t`r`n`0"))
+
+        mapName := ""
+        if (nameBuf := ReadClientBuffer(proc, mapNameRva, MAP_NAME_LEN)) {
+            candidate := Trim(StrGet(nameBuf, MAP_NAME_LEN, "CP0"), " `t`r`n`0")
+            ; Reject filename spill so callers never show "MAP301.map" as a zone.
+            if !RegExMatch(candidate, "i)^MAP\d+\.map$") {
+                mapName := candidate
+            }
+        }
+
+        x := 0
+        y := 0
+        if (posBuf := ReadClientBuffer(proc, posRva, 8)) {  ; X and Y are contiguous
+            x := NumGet(posBuf, 0, "Int")
+            y := NumGet(posBuf, 4, "Int")
+        }
+
+        gameState := -1
+        if (stateBuf := ReadClientBuffer(proc, stateRva, 4)) {
+            gameState := NumGet(stateBuf, 0, "Int")
+        }
+
+        inBattle := false
+        if (battleBuf := ReadClientBuffer(proc, battleRva, 4)) {
+            inBattle := NumGet(battleBuf, 0, "Int") != 0
+        }
+
+        snapshots.Push({
+            hwnd: hwnd,
+            pid: pid,
+            charName: CharacterNameFromWindow(hwnd),
+            mapId: mapId,
+            mapName: mapName,
+            x: x,
+            y: y,
+            gameState: gameState,
+            inBattle: inBattle,
+            isActive: (pid = activePid)
+        })
+    }
+
+    ; Release handles for clients that have closed.
+    for pid, _ in gClientHandles.Clone() {
+        if !livePids.Has(pid) {
+            ReleaseClientProcess(pid)
+        }
+    }
+
+    gClientSnapshots := snapshots
+    FireAddonHook("OnSnapshot", snapshots)
+}
+
 ; ── NPC Generator ────────────────────────────────────────────────
 
 ; Loads the next NPC ID counter from config.ini, falling back to NPC_ID_START.
@@ -1035,6 +1610,20 @@ ReadCurrentMapBaseName() {
     return RegExReplace(mapFile, "\.[^.]+$", "")
 }
 
+; One entry in the server repo's TypeScript object-literal shape. Shared by the
+; single-position generator below and the map-POI bulk export, so both produce
+; text that can be pasted into the repo unchanged.
+BuildNpcEntryText(id, name, mapBase, x, y) {
+    return "`t{`n"
+        . "`t`tid: " Format("0x{:08X}", id) ",`n"
+        . "`t`tname: '" StrReplace(name, "'", "\'") "',`n"
+        . "`t`tfile: 135,`n"
+        . "`t`tmap: MapID." mapBase ",`n"
+        . "`t`tpoint: { x: " x ", y: " y " },`n"
+        . "`t`tdirection: Direction.South,`n"
+        . "`t},`n"
+}
+
 ; Captures the current player position and map, then appends a new NPC entry
 ; to the output file in TypeScript-compatible object literal format.
 GenerateNpcEntry() {
@@ -1054,16 +1643,8 @@ GenerateNpcEntry() {
         return
     }
 
-    ; Build NPC entry in TypeScript-compatible format.
     idHex := Format("0x{:08X}", gNpcNextId)
-    entry := "`t{`n"
-        . "`t`tid: " idHex ",`n"
-        . "`t`tname: 'Placeholder',`n"
-        . "`t`tfile: 135,`n"
-        . "`t`tmap: MapID." mapBase ",`n"
-        . "`t`tpoint: { x: " rawPos.x ", y: " rawPos.y " },`n"
-        . "`t`tdirection: Direction.South,`n"
-        . "`t},`n"
+    entry := BuildNpcEntryText(gNpcNextId, "Placeholder", mapBase, rawPos.x, rawPos.y)
 
     ; Append to output file.
     FileAppend(entry, NPC_OUTPUT_FILE, "UTF-8")
@@ -1539,8 +2120,64 @@ EnsureResolvedOffsetsForBuild(handle, modBase) {
         }
     }
 
+    ; Derived offsets (see DERIVED_OFFSETS) come last — they need their source
+    ; resolved first. Only a "bad" verdict rejects the candidate; "unknown" (an
+    ; empty read, typical on a loading screen) still uses it for this session
+    ; but isn't cached, so the check runs again on the next attach.
+    for name, spec in DERIVED_OFFSETS {
+        if (resolved.Has(name) || !resolved.Has(spec.from)) {
+            continue
+        }
+        candidate := resolved[spec.from] + spec.delta
+        ; .Call() — spec.validate(...) would invoke it as a method and pass
+        ; spec itself as an extra leading argument.
+        verdict := spec.validate.Call(handle, modBase + candidate)
+        if (verdict = "bad") {
+            continue
+        }
+        resolved[name] := candidate
+        if (verdict = "ok") {
+            SaveOffsetForBuild(pe.timeDateStamp, name, candidate)
+        }
+    }
+
     gResolvedOffsets := resolved
     gResolvedBuildStamp := pe.timeDateStamp
+}
+
+; Sanity check for a derived MAP_NAME_OFFSET: reads the candidate string and
+; reports "ok" (looks like a zone name), "unknown" (empty or unreadable — the
+; usual answer during a loading screen), or "bad" (it's the map *filename*,
+; so the delta doesn't hold for this build).
+ValidateMapNameRva(handle, addr) {
+    buf := Buffer(MAP_NAME_LEN, 0)
+    ok := DllCall("ReadProcessMemory",
+        "Ptr", handle,
+        "Ptr", addr,
+        "Ptr", buf.Ptr,
+        "UPtr", MAP_NAME_LEN,
+        "UPtr*", 0,
+        "Int")
+    if !ok {
+        return "unknown"
+    }
+    name := Trim(StrGet(buf, MAP_NAME_LEN, "CP0"), " `t`r`n`0")
+    if (name = "") {
+        return "unknown"
+    }
+    if RegExMatch(name, "i)^MAP\d+\.map$") {
+        return "bad"
+    }
+    return "ok"
+}
+
+; How GetResolvedOffset(name) arrived at its value — for the debug/verify UI.
+OffsetSourceLabel(name) {
+    global gResolvedOffsets, DERIVED_OFFSETS
+    if !gResolvedOffsets.Has(name) {
+        return "fallback"
+    }
+    return DERIVED_OFFSETS.Has(name) ? "derived" : "sig"
 }
 
 ; Resolved RVA for `name`, or the hardcoded fallback if unresolved.
@@ -1581,6 +2218,22 @@ VerifyResolution() {
         constRva := gFallbackOffsets[name]
         cacheStr := cacheMap.Has(name) ? Format("0x{:08X}", cacheMap[name]) : "<none>"
 
+        if (!sigs.Has(name) && DERIVED_OFFSETS.Has(name)) {
+            spec := DERIVED_OFFSETS[name]
+            srcStr := cacheMap.Has(spec.from) ? Format("0x{:08X}", cacheMap[spec.from]) : "<unresolved>"
+            live := GetResolvedOffset(name)
+            derivedOk := gResolvedOffsets.Has(name)
+            if (derivedOk) {
+                okCount += 1
+            } else {
+                failCount += 1
+            }
+            out .= name " — " (derivedOk ? "DERIVED" : "NOT DERIVED (source unresolved)") "`n"
+                . "  from  : " spec.from " " srcStr " " (spec.delta < 0 ? "-" : "+") " 0x" Format("{:X}", Abs(spec.delta)) "`n"
+                . "  const : " Format("0x{:08X}", constRva) "`n"
+                . "  in use: " Format("0x{:08X}", live) "`n`n"
+            continue
+        }
         if !sigs.Has(name) {
             failCount += 1
             out .= name " — NO SIGNATURE`n"
@@ -1648,6 +2301,12 @@ CalibrateSignaturesNow() {
     summary := "Build: " Format("0x{:08X}", pe.timeDateStamp) "`n`n"
     failures := 0
     for _, name in SIGNATURE_NAMES {
+        ; Derived offsets have no signature by design — EnsureResolvedOffsetsForBuild
+        ; computes them from their source below.
+        if DERIVED_OFFSETS.Has(name) {
+            summary .= name ": derived from " DERIVED_OFFSETS[name].from " (no signature needed)`n"
+            continue
+        }
         rva := gFallbackOffsets[name]
         cap := CaptureSignatureForRva(cached.modBase, pe.codeBuf, pe.codeSize, pe.codeRva, rva)
         if !cap.ok {
@@ -1716,6 +2375,23 @@ FireAddonHook(hookName, params*) {
             TrayTip("Addon Error [" addonName "]", hookName ": " err.Message, "Iconx")
         }
     }
+}
+
+; True when at least one *enabled* addon registers this hook. Lets producers
+; (e.g. the client snapshot poll) skip work nobody is listening for.
+HasEnabledAddonHook(hookName) {
+    global gAddonHooks, gDisabledAddons
+    for _, addonMap in gAddonHooks {
+        if !addonMap.Has(hookName) {
+            continue
+        }
+        name := addonMap.Has("name") ? addonMap["name"] : ""
+        if (name != "" && gDisabledAddons.Has(name) && gDisabledAddons[name]) {
+            continue
+        }
+        return true
+    }
+    return false
 }
 
 LoadAddonEnabledStates() {

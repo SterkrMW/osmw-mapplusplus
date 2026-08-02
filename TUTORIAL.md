@@ -24,9 +24,9 @@ Maps++ reads information from the running game client (`main.exe`). It does not 
 ### 1. Install and run
 
 1. Download the release that matches how you play:
-   - **Full** — minimap, launcher, window layout, chat, inventory, and battle helpers.
-   - **Lite** — minimap, launcher, and window layout only.
-   - **Battle** — minimap, launcher, chat, and battle helpers (no inventory or window layout).
+   - **Full** — minimap, launcher, window layout, chat, inventory, battle helpers, map POIs, and the multi-client roster and party markers.
+   - **Lite** — minimap, map POIs, launcher, and window layout only.
+   - **Battle** — minimap, launcher, chat, battle helpers, roster and party markers (no inventory or window layout).
 2. Extract the folder somewhere convenient (Desktop, a games folder, etc.).
 3. Run **`mapsplusplus.exe`**.
 
@@ -36,7 +36,7 @@ The folder must include:
 - `marker.png` (your position dot on the map)
 - `maps\` (custom map images, one `.jpg` per supported zone)
 
-On first run, Maps++ may ask you to locate **`main.exe`** (the game client). You can also set this later from the tray menu: **Set Game Path…**
+On first run, Maps++ may ask you to locate **`main.exe`** (the game client). You can also set this later from **Tray → Settings… → Launcher → Browse…** (**Ctrl+Alt+,**).
 
 ### 2. Optional: place the game next to Maps++
 
@@ -61,6 +61,17 @@ If **Launch on startup** is enabled in `config.ini`, Maps++ opens a game client 
 | **Close minimap** | **Tab** again, **Right-click** on the overlay, or switch away from the game |
 
 The overlay is centered on the game window and stays on top. Clicks on the minimap do **not** steal focus from the game, so you can keep playing normally.
+
+### Sizing and placing the minimap
+
+**Settings → Minimap** controls how the overlay looks:
+
+- **Size** — 50–200 % of the standard 400×300. Map calibration is unaffected, so the marker stays accurate at any size.
+- **Opacity** — 30–100 %, for when you want to see the game through the map.
+- **Position** — centered (the default) or pinned to a corner of the game window.
+- **Nudge X / Y** — a pixel offset from that position. You can also **hold Ctrl and drag the overlay**; where you drop it is saved automatically. (Ctrl is required so that mousing over the minimap to read marker labels never moves it by accident.)
+- **Double-click the overlay** to snap it straight back to the centre of the game window — handy if you dragged it somewhere awkward, or onto a display you no longer have.
+- **Keep the minimap open when the game loses focus** — by default the overlay hides when you Alt+Tab away. Tick this to keep it up. It still closes for battles and unsupported zones.
 
 ### The position marker
 
@@ -96,6 +107,8 @@ Right-click the tray icon for the main menu:
 | **Chat** | Chat panel shortcuts (Full / Battle) |
 | **Inventory** | Open inventory shortcuts (Full only) |
 | **Send Alt+Q to Fighting** | Battle command helper (Full / Battle) |
+| **Client Roster** | Show/hide the list of running clients (Full / Battle) |
+| **Map POIs** | Add, manage and export minimap points of interest (Full / Lite) |
 | **Settings…** | Open the settings window (game path, launcher, monitors, Window Layout, addons) |
 | **Reload** | Restart Maps++ (picks up config changes) |
 | **Exit** | Quit the app |
@@ -187,16 +200,87 @@ Use this to confirm or send the same battle command across all fighting characte
 
 | Hotkey | Action |
 |--------|--------|
-| **Ctrl+1** | Cycle view mode on **all** clients (0→3, wrap) |
-| **Ctrl+2** | Toggle view mode 0/1 on **all** clients (0→1; 1/2/3→0) |
+| **Alt+2** | Cycle view mode on **all** clients (0→3, wrap) |
+| **Alt+1** | Toggle view mode 0/1 on **all** clients (0→1; 1/2/3→0) |
 
 Echoes the in-game **F2** view-mode cycle across every open client without focusing each window.
+
+### Client Roster (Full / Battle)
+
+| Hotkey | Action |
+|--------|--------|
+| **Ctrl+Alt+M** | Show / hide the client roster |
+
+A small always-on-top window listing every running client with its character, current zone and
+status (**Playing**, **In battle**, **Loading**, **Not ready**). **Double-click a row** to bring
+that client to the front. It appears automatically once you have two or more clients running —
+turn that off in **Settings → Client Roster** — and closing it by hand keeps it closed.
+
+Use it with **Ctrl+Alt+E** (*Send Enter Until Ready*): the roster is what shows you which alt is
+still sitting at a login prompt.
+
+### Map POIs (Full / Lite)
+
+Marks NPCs, shops, portals, quest spots and notes on the minimap.
+
+| Hotkey | Action |
+|--------|--------|
+| **Ctrl+Alt+P** | Add a POI where you are standing |
+| **Ctrl+Alt+O** | Show / hide the POI layer |
+| **Ctrl+Alt+N** | Append an NPC entry for your position to `npc_generated.txt` |
+
+Adding one works the way mapping already worked: **stand where the thing is and press the
+hotkey**. The position is read from game memory, so it lands exactly where you stood — no
+clicking on the map, no eyeballing. You give it a label and a type, and it appears on the
+minimap in that type's colour.
+
+Labels are shown while you play and **hide while the mouse is over the minimap**, so you can put
+the cursor there to see the map art underneath them. The coloured dots are always there.
+**Settings → Map POIs → Show labels** switches this to *Always* or *Never*.
+
+POIs are stored per map in **`maps\pois.ini`**, next to `calibration.ini`, so a curated set can
+ship with a release and anyone can add their own on top:
+
+```ini
+[MAP302]
+1=1000|2000|Grocery|shop
+2=900|1800|Rift Plains portal|portal
+```
+
+**Tray → Map POIs** has the rest: **Manage POIs…** (list, delete for the current map) and
+**Export This Map's POIs**, which writes every POI in the server repo's NPC entry format —
+the same shape **Ctrl+Alt+N** produces for a single position — into `npc_generated.txt` and
+onto the clipboard:
+
+```ts
+	{
+		id: 0x80020040,
+		name: 'Grocery',
+		file: 135,
+		map: MapID.MAP302,
+		point: { x: 1000, y: 2000 },
+		direction: Direction.South,
+	},
+```
+
+### Party Markers (Full / Battle)
+
+No hotkey — it draws on the minimap. Every *other* client running on the same map as you appears
+as a coloured dot, labelled with the character name, alongside your own standard marker. Alts
+that are loading, in battle, or in a different zone are not drawn (their position would be
+stale).
+
+Name labels are shown while you play and **hide while the mouse is over the minimap**, so the
+map underneath stays readable when you look at it directly. **Settings → Party Markers → Show
+names** switches this to *Always* or *Never*.
 
 ---
 
 ## Configuration (`config.ini`)
 
 Maps++ creates or updates `config.ini` next to the executable (or in your user AppData folder if the install directory is not writable).
+
+Everything below can be set from **Settings** (**Ctrl+Alt+,**) — editing the file by hand is only needed for unattended setups.
 
 Common settings:
 
@@ -205,19 +289,41 @@ Common settings:
 GamePath=C:\Path\To\Your\main.exe
 GameArgs=
 LaunchOnStartup=0
+MultiClientCount=5
+MultiClientDelay=0
 PrimaryMonitor=0
 SecondaryMonitor=0
+
+[Minimap]
+Scale=100
+Opacity=100
+Anchor=Center
+OffsetX=0
+OffsetY=0
+KeepOpenOnFocusLoss=0
 
 [WindowLayout]
 DefaultLayout=Grid2x2
 MainCharacter=YourCharName
 TargetMonitor=0
 
+[Hotkeys]
+toggleMinimap=Tab
+launchPrimary=^!l
+openSettings=^!,
+
+[MapPois]
+LabelMode=autohide
+DefaultKind=npc
+
 [Addons]
 WindowLayout=1
 ChatToggle=1
 BattleSend=1
 InventoryToggle=1
+ClientRoster=1
+PartyMarkers=1
+MapPois=1
 ```
 
 | Setting | Meaning |
@@ -225,12 +331,22 @@ InventoryToggle=1
 | `GamePath` | Full path to `main.exe` |
 | `GameArgs` | Extra command-line arguments passed when launching the game |
 | `LaunchOnStartup` | `1` = launch a game client when Maps++ starts |
+| `MultiClientCount` | How many clients **Ctrl+Alt+5** launches |
+| `MultiClientDelay` | Milliseconds between each of those launches |
 | `PrimaryMonitor` | Display for **Ctrl+Alt+L**. `0` = OS primary; `1`, `2`, … = specific display |
 | `SecondaryMonitor` | Display for **Ctrl+Alt+K**. `0` = first non-primary; `1`, `2`, … = specific display |
+| `Scale` | Minimap size, 50–200 % of the standard 400×300 |
+| `Opacity` | Minimap opacity, 30–100 % |
+| `Anchor` | Where the minimap sits on the game window: `Center`, `TopLeft`, `TopRight`, `BottomLeft`, `BottomRight` |
+| `OffsetX` / `OffsetY` | Pixel nudge from the anchor (negative allowed). Dragging the minimap writes these for you |
+| `KeepOpenOnFocusLoss` | `1` = keep the minimap open when you Alt+Tab away |
+| `LabelMode` | When marker labels are drawn: `autohide` (shown, except while the mouse is over the minimap), `always`, or `never`. Applies to both POI labels and party marker names |
+| `DefaultKind` | Type pre-selected when adding a POI: `npc`, `shop`, `portal`, `quest`, `note` |
 | `DefaultLayout` | Preset used by **Ctrl+Shift+L/K** |
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |
-| `[Addons]` | `0` = disabled, `1` = enabled (also toggled from tray **Addons**) |
+| `[Hotkeys]` | One entry per rebindable action, in AutoHotkey chord syntax (`^`=Ctrl, `!`=Alt, `+`=Shift). Only actions you have rebound appear here; rebind from **Settings → Hotkeys** |
+| `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
 
 After editing `config.ini`, use **Reload** from the tray menu or **Ctrl+Alt+R**.
 
@@ -243,7 +359,7 @@ A typical setup with the **Full** variant:
 1. Start **Maps++** (tray icon appears).
 2. **Ctrl+Alt+L** — launch main character on primary monitor.
 3. **Ctrl+Alt+K** — launch alts on secondary monitor (if you have two displays).
-4. **Tray → Window Layout → Set Main Character** — choose your main.
+4. **Settings → Window Layout → Main character** — choose your main.
 5. **Ctrl+Shift+L** — snap everyone into your default grid.
 6. In game on a supported map, press **Tab** on your main window for the custom minimap.
 7. Use **Shift+Ctrl+C** to hide chat on alts during farming.
@@ -267,7 +383,7 @@ A typical setup with the **Full** variant:
 
 ### “Game path not configured”
 
-Use **Tray → Set Game Path…** and select your osMW `main.exe`.
+Open **Settings → Launcher → Browse…** (**Ctrl+Alt+,**) and select your osMW `main.exe`.
 
 ### “Map folder missing” notification
 
@@ -276,7 +392,8 @@ The `maps\` folder must sit next to `mapsplusplus.exe`. Re-extract the full rele
 ### Hotkeys do nothing
 
 - Another program may be using the same shortcuts.
-- Check **Tray → Addons** — the feature may be disabled.
+- Check **Settings → Addons** — the feature may be disabled.
+- Check **Settings → Hotkeys** — the shortcut may have been rebound.
 - Reload Maps++ after config changes.
 
 ### Only one monitor / secondary launch centers on primary
@@ -291,8 +408,8 @@ By default **Ctrl+Alt+L** uses your OS primary display and **Ctrl+Alt+K** uses t
 
 ## Tips
 
-- The minimap closes if you **Alt+Tab** to another application, so it stays out of the way when you are not playing.
-- You can **disable addons** you do not use from the tray to avoid accidental hotkey triggers.
+- The minimap closes if you **Alt+Tab** to another application, so it stays out of the way when you are not playing (**Settings → Minimap** can keep it open instead).
+- You can **disable addons** you do not use from **Settings → Addons** to avoid accidental hotkey triggers.
 - **Lite** is ideal if you only want the minimap and window layout without combat or inventory shortcuts.
 - **Battle** is a smaller build focused on combat multi-boxing and chat control.
 

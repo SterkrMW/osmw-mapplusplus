@@ -211,6 +211,11 @@ ApplyAllHotkeys() {
         handler := action["handler"]
         try {
             Hotkey(bindChord, _HotkeyWrapHandler(handler))
+            ; Updating a variant's action does NOT clear the Off state applied
+            ; by the teardown above, so every binding has to be switched back on
+            ; explicitly. Without this, the first Settings save disables every
+            ; hotkey — including Tab — until the next Reload.
+            Hotkey(bindChord, "On")
             context.chord := bindChord
             gAppliedHotkeys.Push(context)
         } catch as err {

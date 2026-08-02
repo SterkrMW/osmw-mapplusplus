@@ -16,6 +16,9 @@ global BATTLE_STATE_OFFSET := 0x301DE4
 global MAP_FILE_LEN := 20
 global MAP_NAME_LEN := 14
 global MAP_DIR := A_ScriptDir "\maps"
+; Base map-image space. Every calibration in maps\calibration.ini maps world
+; coordinates into *these* pixels, so they must not change with the user's
+; display scale — scaling is applied when drawing (see MinimapDisplayW/H).
 global OVERLAY_W := 400
 global OVERLAY_H := 300
 ; 1px gold (Gui background) + 1px black ring, then map — total inset per side = 2px.
@@ -28,6 +31,35 @@ global SOURCE_MAP_W := 400
 global SOURCE_MAP_H := 300
 global MARKER_SIZE := 9
 global MARKER_PNG := A_ScriptDir "\marker.png"
+
+; === Minimap appearance ([Minimap] in config.ini) ===
+global gMinimapScale := 100        ; 50–200 % of the 400×300 base size
+global gMinimapOpacity := 100      ; 30–100 % (100 = fully opaque)
+; Corner of the game's client rect the overlay sits in, before the offsets:
+; Center | TopLeft | TopRight | BottomLeft | BottomRight.
+global gMinimapAnchor := "Center"
+global gMinimapOffsetX := 0        ; pixel nudge from the anchor; drag writes back here
+global gMinimapOffsetY := 0
+global gMinimapKeepOpen := false   ; pin: don't auto-close when the game loses focus
+global MINIMAP_ANCHORS := ["Center", "TopLeft", "TopRight", "BottomLeft", "BottomRight"]
+; Marker labels (party markers, POIs): white on an opaque black box. The dot
+; carries the colour — coloured text on map art was the unreadable part.
+global MARKER_LABEL_TEXT_COLOR := "FFFFFF"
+global MARKER_LABEL_PAD_X := 3
+; When labels are drawn. "autohide" is the default: labels are what you want at
+; a glance while playing, so they show normally and get out of the way only
+; when you put the mouse on the minimap to look at the art underneath.
+; ("hover" is the old name for the inverted behaviour and migrates to this.)
+global MARKER_LABEL_MODES := ["autohide", "always", "never"]
+global MARKER_LABEL_MODE_LABELS := ["Hide while the mouse is over the minimap", "Always", "Never"]
+; True while the cursor is over the overlay window; maintained by the marker
+; timer and published to addons through the OnOverlayHover hook.
+global gOverlayHover := false
+; True while the user is dragging the overlay — suppresses the follow-the-window
+; reposition in UpdateMarkerPosition so the drag doesn't fight the timer.
+global gOverlayDragging := false
+; Tick of the last click on the overlay, for double-click detection.
+global gOverlayLastClickTick := 0
 
 ; === Launcher config ===
 global CONFIG_INI := ResolveWritableIniPath("config.ini")
@@ -90,6 +122,14 @@ global gNpcNextId := NPC_ID_START
 ; runtime fallback when no cache or signature is available.
 global SIGNATURE_NAMES := ["MAP_FILE_OFFSET", "MAP_NAME_OFFSET", "POS_X_OFFSET", "POS_Y_OFFSET", "GAME_STATE_OFFSET", "BATTLE_STATE_OFFSET"]
 global gFallbackOffsets := Map("MAP_FILE_OFFSET", MAP_FILE_OFFSET, "MAP_NAME_OFFSET", MAP_NAME_OFFSET, "POS_X_OFFSET", POS_X_OFFSET, "POS_Y_OFFSET", POS_Y_OFFSET, "GAME_STATE_OFFSET", GAME_STATE_OFFSET, "BATTLE_STATE_OFFSET", BATTLE_STATE_OFFSET)
+; Offsets that cannot be captured as byte signatures — they are data strings
+; with no abs32 code reference for the scanner to latch onto — but that sit at
+; a fixed delta from an offset that can. Once the source resolves, these follow.
+; delta is taken from the constants above, so editing those keeps it correct.
+; validate(handle, addr) → "ok" | "unknown" | "bad" (see ValidateMapNameRva).
+global DERIVED_OFFSETS := Map(
+    "MAP_NAME_OFFSET", { from: "MAP_FILE_OFFSET", delta: MAP_NAME_OFFSET - MAP_FILE_OFFSET, validate: ValidateMapNameRva }
+)
 ; INIs live next to the script when writable; otherwise %AppData% so users who
 ; install under Program Files (or whose folder is locked by AV/Controlled Folder
 ; Access) don't hit "Access denied" on writes.
@@ -99,6 +139,16 @@ global OFFSETS_CACHE_INI := ResolveWritableIniPath("offsets_cache.ini")
 global gResolvedOffsets := Map()
 ; PE TimeDateStamp (UInt) of the build that gResolvedOffsets was resolved against.
 global gResolvedBuildStamp := 0
+
+; === Client snapshots ===
+; One shared poll of every running client (map, position, state, battle) that
+; per-client addons consume through the OnSnapshot hook, instead of each one
+; opening the game process on its own tick.
+global gClientHandles := Map()      ; pid → {ok, handle, modBase}
+global gClientSnapshots := []       ; result of the last poll
+global CLIENT_SNAPSHOT_INTERVAL := 1000
+global GAME_STATE_READY := 5        ; below this a client is still loading/at login
+global GAME_STATE_WORLD := 10       ; in the overworld (minimap-eligible)
 
 ; === Addon system ===
 global gAddonHooks := []

@@ -26,7 +26,8 @@ RegisterAddon(Map(
     "settingsLabel", "Discord",
     "OnInit",        _DiscordRpc_OnInit,
     "OnSettings",    _DiscordRpc_OnSettings,
-    "OnMapChange",   _DiscordRpc_OnMapChange
+    "OnMapChange",   _DiscordRpc_OnMapChange,
+    "OnSnapshot",    _DiscordRpc_OnSnapshot
 ))
 
 _DiscordRpc_OnInit() {
@@ -73,6 +74,13 @@ _DiscordRpc_ApplySettings(enabled) {
 _DiscordRpc_OnMapChange(mapName, prev) {
     ; Content may have changed; never wipe the session start — that resets Discord's timer.
     _DiscordRpc_UpdatePresence(false)
+}
+
+; Declares this addon as a consumer of the core's client poll, which idles
+; while nothing listens. The presence tick reads the latest poll directly
+; (GetClientSnapshots) so its cadence stays on _DiscordRpc_POLL_MS, and a
+; stopped poll clears presence instead of freezing it on stale data.
+_DiscordRpc_OnSnapshot(snapshots) {
 }
 
 _DiscordRpc_OnExit(*) {
@@ -171,128 +179,49 @@ _DiscordRpc_UpdatePresence(force := false) {
     }
 }
 
+; Picks which client's state to show, from the core's shared poll. Selection
+; order is unchanged: focused client, else the last focused one, else any
+; running client — so alt-tabbing never clears presence.
 _DiscordRpc_BuildSnapshot() {
-    global GAME_WIN_FILTER, PROCESS_EXE, gTrackedGameHwnd
+    global gTrackedGameHwnd
 
-    ; Prefer the focused client when available; otherwise keep tracking the last
-    ; focused client / any running main.exe so alt-tabbing does not clear presence.
-    hwnd := 0
-    if WinActive(GAME_WIN_FILTER) {
-        hwnd := WinActive(GAME_WIN_FILTER)
-        gTrackedGameHwnd := hwnd
-    } else if (gTrackedGameHwnd && WinExist("ahk_id " gTrackedGameHwnd)) {
-        try {
-            if (StrLower(WinGetProcessName("ahk_id " gTrackedGameHwnd)) = StrLower(PROCESS_EXE))
-                hwnd := gTrackedGameHwnd
+    snapshots := GetClientSnapshots()
+    if (snapshots.Length = 0) {
+        return { clear: true }
+    }
+
+    chosen := 0
+    for snap in snapshots {
+        if snap.isActive {
+            chosen := snap
+            gTrackedGameHwnd := snap.hwnd
+            break
         }
     }
-    if !hwnd {
-        list := WinGetList(GAME_WIN_FILTER)
-        if (list.Length >= 1)
-            hwnd := list[1]
+    if !IsObject(chosen) && gTrackedGameHwnd {
+        for snap in snapshots {
+            if (snap.hwnd = gTrackedGameHwnd) {
+                chosen := snap
+                break
+            }
+        }
     }
-    if !hwnd {
+    if !IsObject(chosen) {
+        chosen := snapshots[1]
+    }
+
+    if (chosen.mapId = "") {
         return { clear: true }
     }
-
-    pid := WinGetPID("ahk_id " hwnd)
-    mapInfo := _DiscordRpc_ReadMapInfoForPid(pid)
-    if (mapInfo.mapId = "") {
-        return { clear: true }
-    }
-    details := (mapInfo.displayName != "") ? mapInfo.displayName : mapInfo.mapId
-
-    inBattle := _DiscordRpc_ReadInBattleForPid(pid)
-    charName := _DiscordRpc_ReadCharacterName(hwnd)
-
-    state := inBattle ? "In battle" : (charName != "" ? charName : "Exploring")
+    details := (chosen.mapName != "") ? chosen.mapName : chosen.mapId
+    state := chosen.inBattle ? "In battle" : (chosen.charName != "" ? chosen.charName : "Exploring")
 
     return {
         clear: false,
-        pid: pid,
+        pid: chosen.pid,
         details: details,
         state: state
     }
-}
-
-_DiscordRpc_OpenGameProcess(pid) {
-    handle := DllCall("OpenProcess", "UInt", 0x0010 | 0x0400, "Int", 0, "UInt", pid, "Ptr")
-    if !handle
-        return { ok: false }
-    modBase := GetModuleBaseAddress(handle, PROCESS_EXE)
-    if !modBase {
-        DllCall("CloseHandle", "Ptr", handle)
-        return { ok: false }
-    }
-    EnsureResolvedOffsetsForBuild(handle, modBase)
-    return { ok: true, handle: handle, modBase: modBase }
-}
-
-_DiscordRpc_ReadMapInfoForPid(pid) {
-    proc := _DiscordRpc_OpenGameProcess(pid)
-    if !proc.ok
-        return { mapId: "", displayName: "" }
-
-    displayName := ""
-    nameBuf := Buffer(MAP_NAME_LEN, 0)
-    okName := DllCall("ReadProcessMemory",
-        "Ptr", proc.handle,
-        "Ptr", proc.modBase + GetResolvedOffset("MAP_NAME_OFFSET"),
-        "Ptr", nameBuf.Ptr,
-        "UPtr", MAP_NAME_LEN,
-        "UPtr*", 0,
-        "Int")
-    if okName {
-        displayName := Trim(StrGet(nameBuf, MAP_NAME_LEN, "CP0"), " `t`r`n`0")
-        ; Reject garbage / filename spill if the display field is empty or looks like a map file.
-        if RegExMatch(displayName, "i)^MAP\d+\.map$")
-            displayName := ""
-    }
-
-    mapId := ""
-    fileBuf := Buffer(MAP_FILE_LEN, 0)
-    okFile := DllCall("ReadProcessMemory",
-        "Ptr", proc.handle,
-        "Ptr", proc.modBase + GetResolvedOffset("MAP_FILE_OFFSET"),
-        "Ptr", fileBuf.Ptr,
-        "UPtr", MAP_FILE_LEN,
-        "UPtr*", 0,
-        "Int")
-    DllCall("CloseHandle", "Ptr", proc.handle)
-    if okFile {
-        mapFile := Trim(StrGet(fileBuf, MAP_FILE_LEN, "CP0"), " `t`r`n`0")
-        if (mapFile != "")
-            mapId := RegExReplace(mapFile, "i)\.map$", "")
-    }
-
-    return { mapId: mapId, displayName: displayName }
-}
-
-_DiscordRpc_ReadInBattleForPid(pid) {
-    proc := _DiscordRpc_OpenGameProcess(pid)
-    if !proc.ok
-        return false
-    valBuf := Buffer(4, 0)
-    ok := DllCall("ReadProcessMemory",
-        "Ptr", proc.handle,
-        "Ptr", proc.modBase + GetResolvedOffset("BATTLE_STATE_OFFSET"),
-        "Ptr", valBuf.Ptr,
-        "UPtr", 4,
-        "UPtr*", 0,
-        "Int")
-    DllCall("CloseHandle", "Ptr", proc.handle)
-    if !ok
-        return false
-    return NumGet(valBuf, 0, "Int") != 0
-}
-
-_DiscordRpc_ReadCharacterName(hwnd) {
-    try title := WinGetTitle("ahk_id " hwnd)
-    catch
-        return ""
-    if RegExMatch(title, "Behemoth:\s+(.+?)\s+ID\b", &m)
-        return m[1]
-    return ""
 }
 
 ; ── Discord IPC ──────────────────────────────────────────────────
