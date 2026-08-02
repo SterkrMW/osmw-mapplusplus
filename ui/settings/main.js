@@ -78,14 +78,36 @@ function handleSettingsState(msg) {
 
 // ── Tab switching ──────────────────────────────────────────────
 
+const TAB_ICONS = {
+    'Launcher': 'rocket_launch',
+    'Minimap': 'map',
+    'Hotkeys': 'keyboard',
+    'Client Roster': 'groups',
+    'Discord': 'forum',
+    'Map POIs': 'place',
+    'Party Markers': 'shield',
+    'Window Layout': 'grid_view',
+    'Addons': 'extension',
+};
+
 function buildTabBar() {
     const bar = document.getElementById('tab-bar');
     bar.innerHTML = '';
     for (const name of state.tabNames) {
         const btn = document.createElement('button');
         btn.className = 'tab-btn';
-        btn.textContent = name;
         btn.dataset.tab = name;
+
+        const iconName = TAB_ICONS[name] || 'tune';
+        const icon = document.createElement('span');
+        icon.className = 'material-symbols-outlined tab-icon';
+        icon.textContent = iconName;
+
+        const label = document.createElement('span');
+        label.textContent = name;
+
+        btn.appendChild(icon);
+        btn.appendChild(label);
         btn.addEventListener('click', () => activateTab(name));
         bar.appendChild(btn);
     }
@@ -313,10 +335,22 @@ function populateAddonTabs() {
         section.className = 'panel';
         section.dataset.tab = addonTab.label;
 
+        const header = document.createElement('div');
+        header.className = 'panel-header';
+        const h2 = document.createElement('h2');
+        h2.textContent = addonTab.label;
+        header.appendChild(h2);
+        section.appendChild(header);
+
+        const card = document.createElement('div');
+        card.className = 'setting-card';
+
         for (const field of addonTab.fields) {
             const el = renderAddonField(addonTab.addonName, field);
-            if (el) section.appendChild(el);
+            if (el) card.appendChild(el);
         }
+
+        section.appendChild(card);
 
         // Insert before the Addons panel
         const addonsPanel = panels.querySelector('[data-tab="Addons"]');

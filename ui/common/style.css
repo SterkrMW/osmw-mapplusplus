@@ -1,43 +1,51 @@
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-    /* Color Palette */
-    --bg:            #0f0f1a;
-    --bg-dark:       #090912;
-    --surface:       #1a1a2e;
-    --surface-hover: #222240;
-    --surface-alt:   #141428;
-    --border:        #2a2a4a;
-    --border-focus:  #c9a227;
+    /* Color Palette - Modern Charcoal Slate & Refined Warm Gold */
+    --bg:            #121318;
+    --bg-dark:       #0c0d10;
+    --surface:       #181a20;
+    --surface-hover: #22252e;
+    --surface-alt:   #15171d;
+    --border:        #262934;
+    --border-subtle: rgba(255, 255, 255, 0.07);
+    --border-focus:  #e5b83b;
 
-    --accent:        #c9a227;       /* Gold — minimap theme */
-    --accent-glow:   rgba(201, 162, 39, 0.25);
-    --accent-hover:  #d4af37;
-    --accent-text:   #1a1a2e;
+    --accent:        #e5b83b;       /* Refined Amber Gold */
+    --accent-glow:   rgba(229, 184, 59, 0.15);
+    --accent-hover:  #f0c446;
+    --accent-text:   #0e0f13;
 
-    --text:          #e0e0e8;
-    --text-muted:    #8888a8;
-    --text-dim:      #5e5e78;
+    --text:          #ececf1;
+    --text-muted:    #9499ad;
+    --text-dim:      #5c6075;
 
-    --danger:        #e85454;
-    --success:       #4ade80;
+    --danger:        #ef4444;
+    --success:       #22c55e;
     --warning:       #f59e0b;
     --info:          #3b82f6;
 
     /* Sizing & Typography */
+    --radius-sm:     4px;
     --radius:        6px;
     --radius-lg:     10px;
+    --radius-xl:     14px;
     --font-sm:       12px;
     --font-base:     13px;
     --font-lg:       14px;
-    --footer-height: 48px;
-    --transition:    150ms ease;
+    --footer-height: 52px;
+    --transition:    140ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
 
 body {
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: var(--font-base);
     color: var(--text);
     background: var(--bg);
@@ -47,6 +55,9 @@ body {
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
+    -webkit-font-smoothing: antialiased;
+}
+
 .material-symbols-outlined {
     font-family: 'Material Symbols Outlined';
     font-weight: normal;
@@ -67,12 +78,13 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 36px;
-    padding: 0 6px 0 12px;
+    height: 38px;
+    padding: 0 8px 0 14px;
     background: var(--bg-dark);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     user-select: none;
+    -webkit-user-select: none;
     -webkit-app-region: drag;
     app-region: drag;
 }
@@ -83,15 +95,18 @@ body {
     gap: 8px;
     font-size: 13px;
     font-weight: 600;
+    letter-spacing: -0.1px;
 }
 
 .title-bar-icon {
-    font-size: 14px;
+    font-size: 16px;
+    color: var(--accent);
 }
 
 .title-bar-title {
-    color: var(--accent);
-    letter-spacing: 0.3px;
+    color: var(--text);
+    font-weight: 600;
+    letter-spacing: 0.1px;
 }
 
 .title-bar-controls {
@@ -105,14 +120,14 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
+    width: 30px;
     height: 26px;
     background: transparent;
     border: none;
     color: var(--text-muted);
     font-size: 13px;
     cursor: pointer;
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     transition: all var(--transition);
 }
 .title-btn:hover {
@@ -131,21 +146,25 @@ body {
     font-size: var(--font-base);
     font-family: inherit;
     color: var(--text);
-    background: var(--surface);
+    background: var(--surface-alt);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     outline: none;
     transition: border-color var(--transition), box-shadow var(--transition);
 }
+.input:hover, .select:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+}
 .input:focus, .select:focus {
     border-color: var(--border-focus);
-    box-shadow: 0 0 0 2px var(--accent-glow);
+    box-shadow: 0 0 0 1px var(--border-focus);
 }
 
 .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
     height: 32px;
     padding: 0 14px;
     font-size: var(--font-base);
@@ -161,9 +180,12 @@ body {
 }
 .btn:hover {
     background: var(--surface-hover);
-    border-color: var(--text-dim);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: var(--text);
 }
-.btn:active { transform: scale(0.97); }
+.btn:active {
+    transform: translateY(1px);
+}
 
 .btn-primary {
     color: var(--accent-text);
@@ -174,6 +196,7 @@ body {
 .btn-primary:hover {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
+    color: var(--accent-text);
 }
 
 .btn-danger {
@@ -182,13 +205,15 @@ body {
     border-color: var(--danger);
 }
 .btn-danger:hover {
-    background: #d32f2f;
+    background: #dc2626;
+    border-color: #dc2626;
 }
 
 .btn-sm {
     height: 26px;
     padding: 0 10px;
     font-size: var(--font-sm);
+    border-radius: var(--radius-sm);
 }
 
 /* ── Badges & Status Pills ──────────────────────────────────── */
@@ -198,15 +223,15 @@ body {
     padding: 2px 8px;
     font-size: 11px;
     font-weight: 600;
-    border-radius: 12px;
+    border-radius: var(--radius-sm);
     text-transform: uppercase;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.4px;
 }
-.badge-success { background: rgba(74, 222, 128, 0.15); color: var(--success); border: 1px solid rgba(74, 222, 128, 0.3); }
-.badge-warning { background: rgba(245, 158, 11, 0.15); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.3); }
-.badge-danger  { background: rgba(232, 84, 84, 0.15); color: var(--danger);  border: 1px solid rgba(232, 84, 84, 0.3); }
-.badge-info    { background: rgba(59, 130, 246, 0.15); color: var(--info);    border: 1px solid rgba(59, 130, 246, 0.3); }
-.badge-muted   { background: rgba(136, 136, 168, 0.15); color: var(--text-muted); border: 1px solid rgba(136, 136, 168, 0.3); }
+.badge-success { background: rgba(34, 197, 94, 0.12); color: var(--success); border: 1px solid rgba(34, 197, 94, 0.25); }
+.badge-warning { background: rgba(245, 158, 11, 0.12); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.25); }
+.badge-danger  { background: rgba(239, 68, 68, 0.12); color: var(--danger);  border: 1px solid rgba(239, 68, 68, 0.25); }
+.badge-info    { background: rgba(59, 130, 246, 0.12); color: var(--info);    border: 1px solid rgba(59, 130, 246, 0.25); }
+.badge-muted   { background: rgba(148, 153, 173, 0.12); color: var(--text-muted); border: 1px solid rgba(148, 153, 173, 0.2); }
 
 /* ── Tables ─────────────────────────────────────────────────── */
 .table-container {
@@ -237,7 +262,7 @@ body {
 }
 .table td {
     padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-subtle);
     color: var(--text);
     white-space: nowrap;
 }
@@ -249,7 +274,7 @@ body {
     background: var(--surface-hover);
 }
 .table tbody tr.selected {
-    background: rgba(201, 162, 39, 0.15);
+    background: rgba(229, 184, 59, 0.1);
 }
 
 /* ── Footer ─────────────────────────────────────────────────── */
@@ -258,8 +283,8 @@ body {
     align-items: center;
     justify-content: space-between;
     height: var(--footer-height);
-    padding: 0 14px;
-    background: var(--bg);
+    padding: 0 16px;
+    background: var(--bg-dark);
     border-top: 1px solid var(--border);
     flex-shrink: 0;
 }

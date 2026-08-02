@@ -33,7 +33,7 @@ function renderMenu(items) {
     buildItemsList(items, container);
 }
 
-function buildItemsList(items, parentEl) {
+function buildItemsList(items, parentEl, isSubmenu = false) {
     for (const item of items) {
         if (item.isDivider) {
             const div = document.createElement('div');
@@ -48,7 +48,7 @@ function buildItemsList(items, parentEl) {
         const left = document.createElement('div');
         left.className = 'item-left';
 
-        if (item.icon) {
+        if (item.icon && !isSubmenu) {
             const icon = document.createElement('span');
             icon.className = 'material-symbols-outlined item-icon';
             icon.textContent = item.icon;
@@ -81,7 +81,7 @@ function buildItemsList(items, parentEl) {
             el.classList.add('has-submenu');
             const subContainer = document.createElement('div');
             subContainer.className = 'submenu-list';
-            buildItemsList(item.children, subContainer);
+            buildItemsList(item.children, subContainer, true);
             parentEl.appendChild(subContainer);
 
             el.addEventListener('click', (e) => {

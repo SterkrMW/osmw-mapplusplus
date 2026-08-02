@@ -1,4 +1,4 @@
-/* Custom Web Tray Context Menu Styles */
+/* Modern Glassmorphic Tray Context Menu Styles */
 
 * {
     box-sizing: border-box;
@@ -9,19 +9,23 @@ body {
     padding: 0;
     margin: 0;
     overflow: hidden;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
 }
 
 .menu-container {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: rgba(18, 19, 24, 0.94);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--radius-lg);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-    padding: 6px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 0, 0, 0.4);
+    padding: 5px;
     width: 100%;
     height: 100%;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
     overflow-y: auto;
 }
 
@@ -44,15 +48,16 @@ body {
     justify-content: space-between;
     padding: 6px 10px;
     font-size: var(--font-base);
+    font-weight: 450;
     color: var(--text);
     border-radius: var(--radius);
     cursor: pointer;
-    transition: all var(--transition);
+    transition: background var(--transition), color var(--transition);
     user-select: none;
     flex-shrink: 0;
 }
 .menu-item:hover, .menu-item.active {
-    background: var(--surface-hover);
+    background: rgba(255, 255, 255, 0.07);
     color: var(--text);
 }
 .menu-item.default {
@@ -63,13 +68,13 @@ body {
 .item-left {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 9px;
     min-width: 0;
 }
 .item-icon {
-    font-size: 18px;
-    width: 20px;
-    height: 20px;
+    font-size: 16px;
+    width: 18px;
+    height: 18px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -82,18 +87,24 @@ body {
 }
 .item-label {
     white-space: nowrap;
+    letter-spacing: -0.1px;
 }
 
 .item-shortcut {
     font-size: 11px;
     color: var(--text-muted);
     font-family: 'Consolas', 'Cascadia Code', monospace;
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
     margin-left: 16px;
     flex-shrink: 0;
 }
 
 .item-arrow {
-    font-size: 18px;
+    font-size: 16px;
     color: var(--text-muted);
     margin-left: 12px;
     flex-shrink: 0;
@@ -107,8 +118,8 @@ body {
 
 .menu-divider {
     height: 1px;
-    background: var(--border);
-    margin: 3px 6px;
+    background: var(--border-subtle);
+    margin: 4px 6px;
     flex-shrink: 0;
 }
 
@@ -116,17 +127,20 @@ body {
 .submenu-list {
     display: none;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
     padding-left: 6px;
-    margin: 2px 0 2px 14px;
-    border-left: 2px solid var(--border);
+    margin: 2px 0 2px 12px;
+    border-left: 1px solid var(--border);
+}
+.submenu-list .item-icon {
+    display: none;
 }
 .submenu-list.open {
     display: flex;
-    animation: fadeIn 150ms ease;
+    animation: submenuIn 140ms ease;
 }
 
-@keyframes fadeIn {
+@keyframes submenuIn {
     from { opacity: 0; transform: translateY(-2px); }
     to   { opacity: 1; transform: translateY(0); }
 }

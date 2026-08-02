@@ -48,7 +48,7 @@ _Settings_BuildWebView() {
     ; DllPath varies by architecture.
     dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
     dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
-    wvSettings := { DllPath: dllPath, DefaultWidth: 660, DefaultHeight: 660 }
+    wvSettings := { DllPath: dllPath, DefaultWidth: 760, DefaultHeight: 560 }
 
     g := WebViewGui("-Caption +AlwaysOnTop -Resize", "osMW Maps++ — Settings",, wvSettings)
     gSettingsGui := g
@@ -61,7 +61,7 @@ _Settings_BuildWebView() {
     ; Navigate to the settings page. WebViewToo routes via ahk.localhost.
     g.Navigate("ui/settings/index.html")
 
-    g.Show("w660 h660")
+    g.Show("w760 h560")
 }
 
 ; ── Message router ───────────────────────────────────────────
