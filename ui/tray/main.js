@@ -31,9 +31,25 @@ if (window.chrome && window.chrome.webview) {
 }
 
 function renderMenu(items) {
-    const container = document.getElementById('menuContainer');
-    container.innerHTML = '';
-    buildItemsList(items, container);
+    const menuItems = document.getElementById('menuItems');
+    const menuFooter = document.getElementById('menuFooter');
+    menuItems.innerHTML = '';
+    menuFooter.innerHTML = '';
+
+    const mainItems = [...items];
+    const exitIndex = mainItems.findIndex((item) => item.isExit);
+    if (exitIndex >= 0) {
+        const exitItem = mainItems.splice(exitIndex, 1)[0];
+        if (exitIndex > 0 && mainItems[exitIndex - 1]?.isDivider) {
+            mainItems.splice(exitIndex - 1, 1);
+        }
+        buildItemsList([exitItem], menuFooter);
+        menuFooter.hidden = false;
+    } else {
+        menuFooter.hidden = true;
+    }
+
+    buildItemsList(mainItems, menuItems);
 }
 
 function buildItemsList(items, parentEl, isSubmenu = false) {
@@ -46,7 +62,9 @@ function buildItemsList(items, parentEl, isSubmenu = false) {
         }
 
         const el = document.createElement('div');
-        el.className = `menu-item ${item.isDefault ? 'default' : ''}`;
+        el.className = `menu-item ${item.isDefault ? 'default' : ''} ${item.isExit ? 'exit' : ''}`;
+        el.setAttribute('role', 'menuitem');
+        el.tabIndex = 0;
 
         const left = document.createElement('div');
         left.className = 'item-left';
@@ -82,20 +100,32 @@ function buildItemsList(items, parentEl, isSubmenu = false) {
 
         if (hasChildren) {
             el.classList.add('has-submenu');
+            el.setAttribute('aria-haspopup', 'menu');
+            el.setAttribute('aria-expanded', 'false');
             const subContainer = document.createElement('div');
             subContainer.className = 'submenu-list';
+            subContainer.setAttribute('role', 'menu');
             buildItemsList(item.children, subContainer, true);
             parentEl.appendChild(subContainer);
 
-            el.addEventListener('click', (e) => {
+            const toggleSubmenu = (e) => {
                 e.stopPropagation();
                 el.classList.toggle('expanded');
                 subContainer.classList.toggle('open');
+                el.setAttribute('aria-expanded', String(subContainer.classList.contains('open')));
+            };
+            el.addEventListener('click', toggleSubmenu);
+            el.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') toggleSubmenu(e);
             });
         } else if (item.id) {
-            el.addEventListener('click', (e) => {
+            const executeItem = (e) => {
                 e.stopPropagation();
                 sendToAhk('execute-item', { id: item.id });
+            };
+            el.addEventListener('click', executeItem);
+            el.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') executeItem(e);
             });
         }
     }

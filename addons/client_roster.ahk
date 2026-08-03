@@ -78,10 +78,11 @@ _ClientRoster_OnExit(*) {
     _ClientRoster_SavePosition()
 }
 
-_ClientRoster_OnTrayMenu(trayMenu) {
-    trayMenu.Add("Client Roster`t" GetHotkeyDisplay("clientRosterToggle"), (*) => _ClientRoster_Toggle())
+_ClientRoster_OnTrayMenu(trayGroups) {
+    clientsMenu := trayGroups["clients"]
+    clientsMenu.Add("Client Roster`t" GetHotkeyDisplay("clientRosterToggle"), (*) => _ClientRoster_Toggle())
     ; The list stays one click away whichever view the hotkey is set to.
-    trayMenu.Add("Client Roster (list)", (*) => _ClientRoster_ToggleList())
+    clientsMenu.Add("Client Roster (list)", (*) => _ClientRoster_ToggleList())
 }
 
 _ClientRoster_OnSettingsWeb() {

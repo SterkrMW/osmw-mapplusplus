@@ -81,14 +81,14 @@ _Pois_OnInit() {
     _Pois_LoadConfig()
 }
 
-_Pois_OnTrayMenu(trayMenu) {
+_Pois_OnTrayMenu(trayGroups) {
     poiMenu := Menu()
     poiMenu.Add("Add POI Here`t" GetHotkeyDisplay("poiAddHere"), (*) => _Pois_AddHere())
     poiMenu.Add("Show/Hide Layer`t" GetHotkeyDisplay("poiToggleLayer"), (*) => _Pois_ToggleLayer())
     poiMenu.Add("Manage POIs…", (*) => _Pois_ShowManageWindow())
     poiMenu.Add()
     poiMenu.Add("Export This Map's POIs", (*) => _Pois_ExportCurrentMap())
-    trayMenu.Add("Map POIs", poiMenu)
+    trayGroups["map"].Add("Map POIs", poiMenu)
 }
 
 _Pois_OnSettingsWeb() {

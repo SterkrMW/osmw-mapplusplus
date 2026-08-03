@@ -97,7 +97,7 @@ _WindowLayout_PromptMainCharacterIfUnset() {
         _WindowLayout_PromptMainCharacter()
 }
 
-_WindowLayout_OnTrayMenu(trayMenu) {
+_WindowLayout_OnTrayMenu(trayGroups) {
     ; Action items only — configuration (default layout, main character, target
     ; display) lives in the Settings window's Window Layout tab.
     layoutMenu := Menu()
@@ -126,7 +126,7 @@ _WindowLayout_OnTrayMenu(trayMenu) {
     layoutMenu.Add("Layouts…`t" GetHotkeyDisplay("windowLayoutManage"), (*) => _WindowLayout_ShowManager())
     layoutMenu.Add("Undo Last Apply`t" GetHotkeyDisplay("windowLayoutUndo"), (*) => _WindowLayout_UndoLastApply())
 
-    trayMenu.Add("Window Layout", layoutMenu)
+    trayGroups["clients"].Add("Window Layout", layoutMenu)
 }
 
 _WindowLayout_OnSettingsWeb() {

@@ -24,11 +24,11 @@ RegisterHotkeyAction(Map(
     "hotIfWinActive", true
 ))
 
-_InventoryToggle_OnTrayMenu(trayMenu) {
+_InventoryToggle_OnTrayMenu(trayGroups) {
     invMenu := Menu()
     invMenu.Add("Open (Click)`t" GetHotkeyDisplay("inventoryOpenClick"), (*) => _InventoryToggle_OpenInventory())
     invMenu.Add("Open (Send Alt+I)`t" GetHotkeyDisplay("inventoryOpenSend"), (*) => _InventoryToggle_OpenInventoryAlt())
-    trayMenu.Add("Inventory", invMenu)
+    trayGroups["quickActions"].Add("Inventory", invMenu)
 }
 
 _InventoryToggle_OpenInventory() {

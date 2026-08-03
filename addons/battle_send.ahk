@@ -20,8 +20,8 @@ RegisterHotkeyAction(Map(
     "hotIfWinActive", true
 ))
 
-_BattleSend_OnTrayMenu(trayMenu) {
-    trayMenu.Add("Send Alt+Q to Fighting`t" GetHotkeyDisplay("battleSend"), (*) => _BattleSend_SendToFighting())
+_BattleSend_OnTrayMenu(trayGroups) {
+    trayGroups["quickActions"].Add("Send Alt+Q to Fighting`t" GetHotkeyDisplay("battleSend"), (*) => _BattleSend_SendToFighting())
 }
 
 _BattleSend_SendToFighting() {

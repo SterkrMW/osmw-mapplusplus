@@ -28,11 +28,11 @@ RegisterHotkeyAction(Map(
     "hotIfWinActive", true
 ))
 
-_ViewMode_OnTrayMenu(trayMenu) {
+_ViewMode_OnTrayMenu(trayGroups) {
     vmMenu := Menu()
     vmMenu.Add("Cycle (All)`t" GetHotkeyDisplay("viewModeCycle"), (*) => _ViewMode_CycleAll())
     vmMenu.Add("Toggle 0/1 (All)`t" GetHotkeyDisplay("viewModeToggle"), (*) => _ViewMode_ToggleAll())
-    trayMenu.Add("View Mode", vmMenu)
+    trayGroups["quickActions"].Add("View Mode", vmMenu)
 }
 
 _ViewMode_CycleAll() {

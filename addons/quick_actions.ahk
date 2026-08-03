@@ -159,8 +159,8 @@ _QuickActions_DoPrewarm() {
     RadialPrewarm(QUICK_ACTIONS_RING)
 }
 
-_QuickActions_OnTrayMenu(trayMenu) {
-    trayMenu.Add("Quick Actions`t" GetHotkeyDisplay("quickActionsToggle"),
+_QuickActions_OnTrayMenu(trayGroups) {
+    trayGroups["quickActions"].Add("Open Action Ring`t" GetHotkeyDisplay("quickActionsToggle"),
         (*) => _QuickActions_Toggle())
 }
 

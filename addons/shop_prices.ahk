@@ -83,12 +83,12 @@ _ShopPrices_OnInit() {
     _ShopPrices_LoadConfig()
 }
 
-_ShopPrices_OnTrayMenu(trayMenu) {
+_ShopPrices_OnTrayMenu(trayGroups) {
     shopMenu := Menu()
     shopMenu.Add("Pricing Panel…`t" GetHotkeyDisplay("shopPricesOpen"), (*) => _ShopPrices_Open())
     shopMenu.Add()
     shopMenu.Add("Verify Slot Mapping…", (*) => _ShopPrices_ShowSlotDump())
-    trayMenu.Add("Character Vendor", shopMenu)
+    trayGroups["clients"].Add("Character Vendor", shopMenu)
 }
 
 ; The client dropdown and the live write guard both read gClientSnapshots, and

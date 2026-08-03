@@ -94,7 +94,7 @@ global gWebTrayItems := []
 global gWebTrayPos := 0
 global gWebTrayShown := false     ; on screen right now
 global gWebTrayPending := false   ; an open is waiting for the page
-global TRAY_MENU_W := 320, TRAY_MENU_H := 580
+global TRAY_MENU_W := 320, TRAY_MENU_H := 380
 
 _EnsureWebTrayGui() {
     global gWebTrayGui, TRAY_MENU_W, TRAY_MENU_H
@@ -253,6 +253,7 @@ _TrayItemsToJson(items) {
             . ',"icon":' _JSON_Str(item.Has("icon") ? item["icon"] : "")
             . ',"shortcut":' _JSON_Str(item.Has("shortcut") ? item["shortcut"] : "")
             . ',"isDefault":' (item.Has("isDefault") && item["isDefault"] ? "true" : "false")
+            . ',"isExit":' (item.Has("isExit") && item["isExit"] ? "true" : "false")
         if item.Has("children") {
             json .= ',"children":' _TrayItemsToJson(item["children"])
         }
@@ -300,7 +301,7 @@ _ConvertHmenuToWebItems(hMenu, idPrefix := "menu_") {
             cmdId := DllCall("GetMenuItemID", "Ptr", hMenu, "Int", idx, "UInt")
             gWebTrayCallbacks[itemId] := _MakeHmenuCallback(hMenu, cmdId)
             items.Push(Map("id", itemId, "label", label, "icon", _IconForLabel(label), "shortcut", shortcut,
-            "isDefault", isDefault))
+            "isDefault", isDefault, "isExit", label = "Exit"))
         }
     }
     return items
@@ -348,6 +349,8 @@ _IconForLabel(lbl) {
         case "Client Roster": return "group"
         case "Client Roster (list)": return "format_list_bulleted"
         case "Quick Actions": return "tune"
+        case "Clients & Windows": return "group"
+        case "Map & Overlay": return "location_on"
         case "Inventory": return "inventory_2"
         ; TODO: `storefront` once the icon subset is next regenerated.
         case "Character Vendor": return "inventory_2"
@@ -372,17 +375,37 @@ RebuildTrayMenu() {
     trayMenu.Delete()
     trayMenu.Add("Launch (Primary)`t" GetHotkeyDisplay("launchPrimary"), (*) => LaunchConfiguredClients("primary"))
     trayMenu.Add("Launch (Secondary)`t" GetHotkeyDisplay("launchSecondary"), (*) => LaunchConfiguredClients("secondary"))
-    trayMenu.Add("Send Enter Until Ready`t" GetHotkeyDisplay("sendEnterUntilReady"), (*) => SendEnterUntilReady())
     trayMenu.Add()
-    FireAddonHook("OnTrayMenu", trayMenu)
+
+    ; Addons contribute to task-oriented groups instead of competing for a
+    ; flat top-level list. Every shipped variant has at least one entry in
+    ; each group, but the count guard also handles users disabling addons.
+    quickActionsMenu := Menu()
+    clientsMenu := Menu()
+    mapMenu := Menu()
+    trayGroups := Map(
+        "quickActions", quickActionsMenu,
+        "clients", clientsMenu,
+        "map", mapMenu
+    )
+    quickActionsMenu.Add("Send Enter Until Ready`t" GetHotkeyDisplay("sendEnterUntilReady"), (*) => SendEnterUntilReady())
+    FireAddonHook("OnTrayMenu", trayGroups)
+
+    if _TrayMenuHasItems(quickActionsMenu)
+        trayMenu.Add("Quick Actions", quickActionsMenu)
+    if _TrayMenuHasItems(clientsMenu)
+        trayMenu.Add("Clients & Windows", clientsMenu)
+    if _TrayMenuHasItems(mapMenu)
+        trayMenu.Add("Map & Overlay", mapMenu)
+
     trayMenu.Add()
+    trayMenu.Add("Settings…`t" GetHotkeyDisplay("openSettings"), (*) => ShowSettingsWindow())
     interfaceMenu := Menu()
     nativeLabel := (gInterfaceMode = "native" ? "● " : "") "Native (low memory)"
     webLabel := (gInterfaceMode = "webview" ? "● " : "") "WebView2 (enhanced)"
     interfaceMenu.Add(nativeLabel, (*) => SetInterfaceMode("native"))
     interfaceMenu.Add(webLabel, (*) => SetInterfaceMode("webview"))
     trayMenu.Add("Interface", interfaceMenu)
-    trayMenu.Add("Settings…`t" GetHotkeyDisplay("openSettings"), (*) => ShowSettingsWindow())
     trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
     debugMenu := Menu()
     debugMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
@@ -393,6 +416,10 @@ RebuildTrayMenu() {
     trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
     trayMenu.Default := "Launch (Primary)`t" GetHotkeyDisplay("launchPrimary")
     A_IconTip := "osMW Maps++"
+}
+
+_TrayMenuHasItems(menu) {
+    return DllCall("GetMenuItemCount", "Ptr", menu.Handle, "Int") > 0
 }
 
 HandleTab() {

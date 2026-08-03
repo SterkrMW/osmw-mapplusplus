@@ -49,15 +49,16 @@ _PartyMarkers_OnInit() {
     _PartyMarkers_LoadConfig()
 }
 
-_PartyMarkers_OnTrayMenu(trayMenu) {
+_PartyMarkers_OnTrayMenu(trayGroups) {
     global _PartyMarkers_LayerVisible
     itemLabel := "Party Markers — " (_PartyMarkers_LayerVisible ? "On" : "Off")
         . "`t" GetHotkeyDisplay("partyMarkersToggleLayer")
-    trayMenu.Add(itemLabel, (*) => _PartyMarkers_ToggleLayer())
+    mapMenu := trayGroups["map"]
+    mapMenu.Add(itemLabel, (*) => _PartyMarkers_ToggleLayer())
     if _PartyMarkers_LayerVisible {
         ; Native menus get the familiar checkmark as well as the explicit text;
         ; the enhanced tray still receives the On/Off label through its bridge.
-        trayMenu.Check(itemLabel)
+        mapMenu.Check(itemLabel)
     }
 }
 

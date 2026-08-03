@@ -37,12 +37,12 @@ RegisterHotkeyAction(Map(
     "hotIfWinActive", true
 ))
 
-_ChatToggle_OnTrayMenu(trayMenu) {
+_ChatToggle_OnTrayMenu(trayGroups) {
     chatMenu := Menu()
     chatMenu.Add("Toggle All`t" GetHotkeyDisplay("chatToggleAll"), (*) => _ChatToggle_ToggleAllExceptActive())
     chatMenu.Add("Toggle Active`t" GetHotkeyDisplay("chatToggleActive"), (*) => _ChatToggle_ToggleActiveChat())
     chatMenu.Add("Toggle Size`t" GetHotkeyDisplay("chatToggleSize"), (*) => _ChatToggle_ToggleSize())
-    trayMenu.Add("Chat", chatMenu)
+    trayGroups["quickActions"].Add("Chat", chatMenu)
 }
 
 _ChatToggle_ToggleAllExceptActive() {

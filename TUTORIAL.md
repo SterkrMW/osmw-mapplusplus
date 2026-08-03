@@ -108,13 +108,9 @@ Right-click the tray icon for the main menu:
 |------|---------|
 | **Launch (Primary)** | Start the configured clients on the primary target, then optionally apply its layout |
 | **Launch (Secondary)** | Start the configured clients on the secondary target, then optionally apply its layout |
-| **Window Layout** | Apply preset or custom window arrangements, capture the current one, undo the last apply (Full / Lite) |
-| **Chat** | Chat panel shortcuts (Full / Battle) |
-| **Inventory** | Open inventory shortcuts (Full only) |
-| **Send Alt+Q to Fighting** | Battle command helper (Full / Battle) |
-| **Client Roster** | Open the radial client picker, or the native list in low-memory mode (Full / Battle) |
-| **Quick Actions** | Open the radial shortcut ring, or a popup menu in low-memory mode (all variants) |
-| **Map POIs** | Add, manage and export minimap points of interest (Full / Lite) |
+| **Quick Actions** | Open the action ring and access broadcast/game controls such as Send Enter, battle send, chat, inventory and view mode |
+| **Clients & Windows** | Open the client roster, arrange game windows and access character tools available in the current build |
+| **Map & Overlay** | Add or manage map POIs and toggle map-related overlay features available in the current build |
 | **Interface** | Switch between Native (low memory) and WebView2 (enhanced); Maps++ reloads automatically |
 | **Settings…** | Open the settings window (game path, launcher, monitors, Window Layout, addons) |
 | **Reload** | Restart Maps++ (picks up config changes) |
