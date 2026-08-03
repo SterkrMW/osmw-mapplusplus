@@ -1,18 +1,19 @@
 #Requires AutoHotkey v2.0
 
-; ── Settings window (WebViewGui) ─────────────────────────────
-; A single tabbed window consolidating every user preference.
-; The GUI is now rendered via WebView2 (HTML/CSS/JS in ui\settings\).
-; AHK communicates with the frontend via JSON messages.
+; ── Settings window ──────────────────────────────────────────
+; A single tabbed window consolidating every user preference. Enhanced mode
+; renders it via WebView2; Native mode uses settings_native.ahk. Both frontends
+; feed the same state/save contract below.
 ;
-; Fallback: if the WebViewToo library or ui\ folder is missing,
-; a basic MsgBox tells the user the files are needed.
+; If the WebViewToo library or ui\ folder is missing, settings automatically
+; fall back to the native frontend.
 
 ; ── Conditional include ──────────────────────────────────────
 ; WebViewToo.ahk is only loaded when the Lib folder exists.
 ; If it's missing, _Settings_CanUseWebView() returns false and
 ; ShowSettingsWindow() shows a fallback message.
 #Include *i Lib\WebViewToo.ahk
+#Include settings_native.ahk
 
 ; ── Public entry point ───────────────────────────────────────
 
@@ -26,12 +27,16 @@ ShowSettingsWindow() {
             return
         }
     }
+    if IsNativeInterface() {
+        _Settings_BuildNative()
+        return
+    }
     if _Settings_CanUseWebView() {
         _Settings_BuildWebView()
     } else {
-        MsgBox("The settings UI requires the Lib\WebViewToo.ahk library and ui\settings\ folder.`n`n"
-            . "Please ensure these files are present next to the script.",
-            "osMW Maps++ — Settings", "Icon!")
+        TrayTip("WebView2 settings are unavailable, so the native settings window was opened instead.",
+            "Maps++", "Icon!")
+        _Settings_BuildNative()
     }
 }
 
@@ -328,11 +333,11 @@ _Settings_HandleSave(msg) {
     dly := launcher["multiClientDelay"]
     if (!IsInteger(cnt) || Integer(cnt) < 1) {
         _Settings_SendSaveResult(false, "Multi-client count must be a whole number of 1 or more.")
-        return
+        return false
     }
     if (!IsInteger(dly) || Integer(dly) < 0) {
         _Settings_SendSaveResult(false, "Launch delay must be 0 or a positive number of milliseconds.")
-        return
+        return false
     }
     gMultiClientCount := Integer(cnt)
     gMultiClientDelay := Integer(dly)
@@ -348,7 +353,7 @@ _Settings_HandleSave(msg) {
     offY := mm["offsetY"]
     if (!IsInteger(offX) || !IsInteger(offY)) {
         _Settings_SendSaveResult(false, "Minimap nudge X/Y must be whole numbers (negative is allowed).")
-        return
+        return false
     }
     previousScale := gMinimapScale
     gMinimapScale := Integer(mm["scale"])
@@ -373,12 +378,12 @@ _Settings_HandleSave(msg) {
             if !IsHotkeyChordValid(chord) {
                 actionLabel := gHotkeyActions.Has(id) ? gHotkeyActions[id]["label"] : id
                 _Settings_SendSaveResult(false, "Invalid shortcut for " actionLabel ".")
-                return
+                return false
             }
             conflict := GetHotkeyConflictAction(chord, id)
             if (conflict != "") {
                 _Settings_SendSaveResult(false, FormatHotkeyDisplay(chord) " — already used by " conflict ".")
-                return
+                return false
             }
         }
         for entry in hotkeys {
@@ -412,9 +417,15 @@ _Settings_HandleSave(msg) {
     RebuildTrayMenu()
     _Settings_Close()
     _Settings_SendSaveResult(true)
+    return true
 }
 
 _Settings_SendSaveResult(ok, error := "") {
+    global gSettingsGui
+    if (!ok && error != "" && IsObject(gSettingsGui) && Type(gSettingsGui) = "Gui") {
+        MsgBox(error, "Maps++ — Settings", "Icon!")
+        return
+    }
     json := '{"type":"save-result","ok":' (ok ? "true" : "false")
     if (error != "")
         json .= ',"error":' _JSON_Str(error)

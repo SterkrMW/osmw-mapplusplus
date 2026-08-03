@@ -302,6 +302,37 @@ _Pois_AddHere() {
 _Pois_PromptForEntry(zone, x, y) {
     global _Pois_KINDS, _Pois_DefaultKind
 
+    if IsNativeInterface() {
+        result := 0
+        dlg := Gui("+AlwaysOnTop -MinimizeBox", "Add POI")
+        dlg.SetFont("s9", "Segoe UI")
+        dlg.Add("Text", "w300", zone " at " GameCoordText(x, y))
+        dlg.Add("Text", "xm y+12 w60", "Label:")
+        labelEdit := dlg.Add("Edit", "x+8 yp-3 w232")
+        dlg.Add("Text", "xm y+12 w60", "Type:")
+        kindDdl := dlg.Add("DropDownList", "x+8 yp-3 w150", _Pois_KINDS)
+        kindDdl.Value := _Pois_KindIndex(_Pois_DefaultKind)
+
+        Accept(*) {
+            label := Trim(labelEdit.Value)
+            if (label = "") {
+                TrayTip("Give the POI a label.", "Map POIs", "Iconx")
+                return
+            }
+            result := { label: label, kind: _Pois_KINDS[kindDdl.Value] }
+            dlg.Destroy()
+        }
+
+        dlg.Add("Button", "xm y+16 w90 Default", "Add").OnEvent("Click", Accept)
+        dlg.Add("Button", "x+8 w90", "Cancel").OnEvent("Click", (*) => dlg.Destroy())
+        dlg.OnEvent("Close", (*) => dlg.Destroy())
+        dlg.OnEvent("Escape", (*) => dlg.Destroy())
+        dlg.Show("AutoSize")
+        try labelEdit.Focus()
+        WinWaitClose("ahk_id " dlg.Hwnd)
+        return result
+    }
+
     result := 0
     dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
     dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
@@ -377,6 +408,24 @@ _Pois_ShowManageWindow() {
         _Pois_ManageGui := 0
     }
 
+    if IsNativeInterface() {
+        g := Gui("+AlwaysOnTop -MinimizeBox", "Map POIs — " ZoneDisplayName(mapId))
+        g.SetFont("s9", "Segoe UI")
+        _Pois_ManageGui := g
+        lv := g.Add("ListView", "w440 r10 -Multi Grid", ["Label", "Type", "X", "Y"])
+        _Pois_FillNativeManageList(lv, mapId)
+        g.Add("Button", "xm y+10 w120", "Delete selected")
+            .OnEvent("Click", (*) => _Pois_DeleteNativeSelected(lv, mapId))
+        g.Add("Button", "x+8 w105", "Export map")
+            .OnEvent("Click", (*) => _Pois_ExportCurrentMap())
+        g.Add("Button", "x+8 w90", "Close")
+            .OnEvent("Click", (*) => g.Destroy())
+        g.OnEvent("Close", (*) => (_Pois_ManageGui := 0))
+        g.OnEvent("Escape", (*) => g.Destroy())
+        g.Show("AutoSize")
+        return
+    }
+
     dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
     dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
     wvSettings := { DllPath: dllPath, DefaultWidth: 500, DefaultHeight: 460 }
@@ -390,6 +439,25 @@ _Pois_ShowManageWindow() {
     g.Navigate("ui/map_pois/index.html")
 
     g.Show("w500 h460")
+}
+
+_Pois_FillNativeManageList(lv, mapId) {
+    lv.Delete()
+    for poi in _Pois_Load(mapId)
+        lv.Add(, poi.label, poi.kind, GameCoordX(poi.x), GameCoordY(poi.y))
+    loop 4
+        lv.ModifyCol(A_Index, "AutoHdr")
+}
+
+_Pois_DeleteNativeSelected(lv, mapId) {
+    row := lv.GetNext()
+    if (row < 1) {
+        TrayTip("Select a POI to delete.", "Map POIs", "Iconx")
+        return
+    }
+    _Pois_DeleteAt(mapId, row)
+    _Pois_FillNativeManageList(lv, mapId)
+    _Pois_Redraw()
 }
 
 _Pois_SendManageState() {

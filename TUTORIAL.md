@@ -107,8 +107,9 @@ Right-click the tray icon for the main menu:
 | **Chat** | Chat panel shortcuts (Full / Battle) |
 | **Inventory** | Open inventory shortcuts (Full only) |
 | **Send Alt+Q to Fighting** | Battle command helper (Full / Battle) |
-| **Client Roster** | Show/hide the list of running clients (Full / Battle) |
+| **Client Roster** | Open the radial client picker, or the native list in low-memory mode (Full / Battle) |
 | **Map POIs** | Add, manage and export minimap points of interest (Full / Lite) |
+| **Interface** | Switch between Native (low memory) and WebView2 (enhanced); Maps++ reloads automatically |
 | **Settings…** | Open the settings window (game path, launcher, monitors, Window Layout, addons) |
 | **Reload** | Restart Maps++ (picks up config changes) |
 | **Exit** | Quit the app |
@@ -117,6 +118,11 @@ All configuration now lives in **Settings…** (or **Ctrl+Alt+,**): game path an
 **start Maps++ automatically when Windows starts**, launch-a-client-on-startup, multi-client
 count/delay, primary/secondary monitors, the Window Layout defaults, and enabling/disabling
 addons. The tray keeps only the quick **actions**.
+
+**Tray → Interface** selects the GUI used by Maps++. **WebView2 (enhanced)** keeps the polished
+tray and radial client picker prewarmed for immediate response. **Native (low memory)** uses
+standard Windows/AHK controls, does not preload WebView2, and opens the client roster as a list.
+Your selection is remembered in `config.ini`.
 
 > **Run on Windows start-up** is a per-user setting (no admin needed). When enabled, Maps++
 > registers itself to launch at login; disabling removes that entry. You can also remove it

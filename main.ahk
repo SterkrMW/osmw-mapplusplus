@@ -49,11 +49,13 @@ if !FileExist(MARKER_PNG) {
 ; ── Tray menu ────────────────────────────────────────────────────
 
 RebuildTrayMenu()
-OnMessage(0x0404, _OnTrayNotify)
-OnMessage(0x0006, _OnTrayWmActivate)
-; Build the menu window in the background once startup has settled, so the
-; first right-click is as quick as every one after it.
-SetTimer(_PrewarmWebTrayMenu, -6000)
+if IsWebViewInterface() {
+    OnMessage(0x0404, _OnTrayNotify)
+    OnMessage(0x0006, _OnTrayWmActivate)
+    ; Enhanced mode intentionally pays the memory cost up front so the first
+    ; right-click is as quick as every one after it.
+    SetTimer(_PrewarmWebTrayMenu, -6000)
+}
 
 _OnTrayNotify(wParam, lParam, msg, hwnd) {
     ; 0x0205 = WM_RBUTTONUP (right-click on system tray icon)
@@ -319,11 +321,15 @@ _IconForLabel(lbl) {
         case "Party Markers": return "shield"
         case "View Mode": return "visibility"
         case "Window Layout": return "grid_view"
+        case "Interface": return "tune"
+        case "Native (low memory)", "● Native (low memory)": return "memory"
+        case "WebView2 (enhanced)", "● WebView2 (enhanced)": return "web_asset"
         default: return "pin_drop"
     }
 }
 
 RebuildTrayMenu() {
+    global gInterfaceMode
     trayMenu := A_TrayMenu
     trayMenu.Delete()
     trayMenu.Add("Launch Game`t" GetHotkeyDisplay("launchPrimary"), (*) => LaunchGameInstance("primary"))
@@ -335,6 +341,12 @@ RebuildTrayMenu() {
     trayMenu.Add()
     FireAddonHook("OnTrayMenu", trayMenu)
     trayMenu.Add()
+    interfaceMenu := Menu()
+    nativeLabel := (gInterfaceMode = "native" ? "● " : "") "Native (low memory)"
+    webLabel := (gInterfaceMode = "webview" ? "● " : "") "WebView2 (enhanced)"
+    interfaceMenu.Add(nativeLabel, (*) => SetInterfaceMode("native"))
+    interfaceMenu.Add(webLabel, (*) => SetInterfaceMode("webview"))
+    trayMenu.Add("Interface", interfaceMenu)
     trayMenu.Add("Settings…`t" GetHotkeyDisplay("openSettings"), (*) => ShowSettingsWindow())
     trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
     debugMenu := Menu()

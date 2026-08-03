@@ -1,0 +1,294 @@
+#Requires AutoHotkey v2.0
+
+; Native counterpart to the WebView2 settings page. It deliberately consumes
+; the same addon field descriptors and the same save message shape, keeping
+; settings behavior in one place while allowing a Chromium-free interface.
+
+_Settings_BuildNative() {
+    global gSettingsGui, gAddonHooks, gDisabledAddons
+    global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
+    global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
+    global gMinimapKeepOpen, MINIMAP_ANCHORS
+
+    contributors := []
+    for _, am in gAddonHooks {
+        if !am.Has("OnSettingsWeb")
+            continue
+        label := am.Has("settingsLabel") ? am["settingsLabel"]
+            : (am.Has("name") ? am["name"] : "Addon")
+        contributors.Push({ map: am, label: label })
+    }
+
+    tabNames := ["Launcher", "Minimap", "Hotkeys"]
+    for c in contributors
+        tabNames.Push(c.label)
+    tabNames.Push("Addons")
+
+    g := Gui("+AlwaysOnTop -MinimizeBox", "osMW Maps++ — Settings (Native)")
+    gSettingsGui := g
+    g.SetFont("s9", "Segoe UI")
+    g.OnEvent("Close", (*) => _Settings_Close())
+    g.OnEvent("Escape", (*) => _Settings_Close())
+
+    tab := g.Add("Tab3", "x10 y10 w650 h500", tabNames)
+    contentX := 28
+    contentY := 58
+
+    ; Launcher ----------------------------------------------------
+    tab.UseTab(1)
+    g.Add("Text", "x" contentX " y" contentY " w130", "Game path:")
+    gamePathEdit := g.Add("Edit", "x158 yp-3 w390 ReadOnly", gGamePath)
+    browseBtn := g.Add("Button", "x556 yp-1 w78", "Browse…")
+    browseBtn.OnEvent("Click", BrowseGame)
+
+    g.Add("Text", "x" contentX " y+20 w130", "Game arguments:")
+    gameArgsEdit := g.Add("Edit", "x158 yp-3 w476", gGameArgs)
+
+    autoStartCb := g.Add("CheckBox", "x" contentX " y+20 w520",
+        "Start Maps++ automatically when Windows starts")
+    autoStartCb.Value := IsRunOnStartupEnabled() ? 1 : 0
+    launchOnStartupCb := g.Add("CheckBox", "x" contentX " y+10 w520",
+        "Launch a game client when Maps++ starts")
+    launchOnStartupCb.Value := gLaunchOnStartup ? 1 : 0
+
+    g.Add("Text", "x" contentX " y+22 w130", "Multi-client count:")
+    countEdit := g.Add("Edit", "x158 yp-3 w90 Number", String(gMultiClientCount))
+    g.Add("Text", "x" contentX " y+20 w130", "Launch delay (ms):")
+    delayEdit := g.Add("Edit", "x158 yp-3 w90 Number", String(gMultiClientDelay))
+
+    monitorChoices := _Settings_MonitorChoices()
+    g.Add("Text", "x" contentX " y+20 w130", "Primary monitor:")
+    primaryDdl := g.Add("DropDownList", "x158 yp-3 w300", monitorChoices)
+    primaryDdl.Value := _Settings_MonitorIndexToChoice(gPrimaryMonitorOverride)
+    g.Add("Text", "x" contentX " y+20 w130", "Secondary monitor:")
+    secondaryDdl := g.Add("DropDownList", "x158 yp-3 w300", monitorChoices)
+    secondaryDdl.Value := _Settings_MonitorIndexToChoice(gSecondaryMonitorOverride)
+
+    g.Add("Text", "x" contentX " y+28 w590 c666666",
+        "Interface mode is changed from Tray → Interface and takes effect after an automatic reload.")
+
+    ; Minimap -----------------------------------------------------
+    tab.UseTab(2)
+    g.Add("Text", "x" contentX " y" contentY " w150", "Scale (%):")
+    scaleEdit := g.Add("Edit", "x178 yp-3 w80 Number", String(gMinimapScale))
+    g.Add("UpDown", "Range50-200", gMinimapScale)
+    g.Add("Text", "x" contentX " y+22 w150", "Opacity (%):")
+    opacityEdit := g.Add("Edit", "x178 yp-3 w80 Number", String(gMinimapOpacity))
+    g.Add("UpDown", "Range30-100", gMinimapOpacity)
+    g.Add("Text", "x" contentX " y+22 w150", "Anchor:")
+    anchorDdl := g.Add("DropDownList", "x178 yp-3 w220", MINIMAP_ANCHORS)
+    anchorDdl.Choose(gMinimapAnchor)
+    g.Add("Text", "x" contentX " y+22 w150", "Horizontal nudge:")
+    offsetXEdit := g.Add("Edit", "x178 yp-3 w100", String(gMinimapOffsetX))
+    g.Add("Text", "x" contentX " y+22 w150", "Vertical nudge:")
+    offsetYEdit := g.Add("Edit", "x178 yp-3 w100", String(gMinimapOffsetY))
+    keepOpenCb := g.Add("CheckBox", "x" contentX " y+24 w520",
+        "Keep the minimap open when the game loses focus")
+    keepOpenCb.Value := gMinimapKeepOpen ? 1 : 0
+
+    ; Hotkeys -----------------------------------------------------
+    tab.UseTab(3)
+    g.Add("Text", "x" contentX " y" contentY " w590",
+        "Select an action, choose Change, then press the new shortcut. Escape cancels capture.")
+    hotkeyLv := g.Add("ListView", "x" contentX " y82 w590 h340 -Multi Grid", ["Action", "Shortcut"])
+    nativeHotkeyRows := []
+    for action in GetHotkeyActionsForSettings() {
+        hotkeyLv.Add(, action["label"], FormatHotkeyDisplay(action["chord"]))
+        nativeHotkeyRows.Push(Map(
+            "id", action["id"],
+            "pending", action["chord"],
+            "default", action["default"],
+            "allowMouse", action.Has("allowMouse") && action["allowMouse"]
+        ))
+    }
+    hotkeyLv.ModifyCol(1, 420)
+    hotkeyLv.ModifyCol(2, 145)
+    captureBtn := g.Add("Button", "x" contentX " y434 w130", "Change selected")
+    resetBtn := g.Add("Button", "x+8 w130", "Reset selected")
+    resetAllBtn := g.Add("Button", "x+8 w130", "Reset all")
+    captureBtn.OnEvent("Click", BeginHotkeyCapture)
+    resetBtn.OnEvent("Click", ResetSelectedHotkey)
+    resetAllBtn.OnEvent("Click", ResetAllHotkeys)
+
+    ; Addon-contributed tabs -------------------------------------
+    addonFieldGroups := Map()
+    for i, c in contributors {
+        tab.UseTab(3 + i)
+        addonName := c.map.Has("name") ? c.map["name"] : c.label
+        fields := []
+        try fields := c.map["OnSettingsWeb"]()
+        controls := []
+        y := contentY
+        for field in fields {
+            fieldType := field.Has("type") ? field["type"] : "text"
+            if (fieldType = "info") {
+                infoText := field.Has("text") ? field["text"] : ""
+                lineCount := StrSplit(infoText, "`n").Length
+                infoH := Max(42, lineCount * 18)
+                g.Add("Text", "x" contentX " y" y " w590 h" infoH " Wrap", infoText)
+                y += infoH + 10
+                continue
+            }
+
+            label := field.Has("label") ? field["label"] : ""
+            value := field.Has("value") ? field["value"] : ""
+            ctrl := 0
+            if (fieldType = "checkbox") {
+                ctrl := g.Add("CheckBox", "x" contentX " y" y " w590", label)
+                ctrl.Value := value ? 1 : 0
+                y += 32
+            } else {
+                g.Add("Text", "x" contentX " y" y " w180", label)
+                if (fieldType = "dropdown") {
+                    options := field.Has("options") ? field["options"] : []
+                    ctrl := g.Add("DropDownList", "x218 y" (y - 3) " w300", options)
+                    ctrl.Value := Integer(value) + 1
+                } else if (fieldType = "combo") {
+                    options := field.Has("options") ? field["options"] : []
+                    ctrl := g.Add("ComboBox", "x218 y" (y - 3) " w300", options)
+                    try ctrl.Choose(String(value))
+                    if (ctrl.Value = 0)
+                        ctrl.Text := String(value)
+                } else {
+                    editOpts := (fieldType = "number") ? " Number" : ""
+                    ctrl := g.Add("Edit", "x218 y" (y - 3) " w300" editOpts, String(value))
+                }
+                y += 36
+            }
+            controls.Push(Map("field", field, "control", ctrl))
+        }
+        addonFieldGroups[addonName] := controls
+    }
+
+    ; Addon enable/disable tab -----------------------------------
+    tab.UseTab(tabNames.Length)
+    g.Add("Text", "x" contentX " y" contentY " w590",
+        "Enable or disable addons. Reload Maps++ to fully apply changes.")
+    addonChecks := []
+    y := contentY + 34
+    for _, am in gAddonHooks {
+        name := am.Has("name") ? am["name"] : ""
+        if (name = "")
+            continue
+        cb := g.Add("CheckBox", "x" contentX " y" y " w430", name)
+        cb.Value := (gDisabledAddons.Has(name) && gDisabledAddons[name]) ? 0 : 1
+        addonChecks.Push(Map("name", name, "control", cb))
+        y += 28
+    }
+
+    ; Shared buttons ---------------------------------------------
+    tab.UseTab()
+    saveBtn := g.Add("Button", "x454 y524 w96 Default", "Save")
+    cancelBtn := g.Add("Button", "x558 y524 w96", "Cancel")
+    saveBtn.OnEvent("Click", SaveNativeSettings)
+    cancelBtn.OnEvent("Click", (*) => _Settings_Close())
+    g.Show("w664 h566")
+
+    BrowseGame(*) {
+        global PROCESS_EXE
+        selected := FileSelect(1, A_ScriptDir, "Locate " PROCESS_EXE " (game executable)",
+            "Executables (*.exe)")
+        if (selected != "")
+            gamePathEdit.Value := selected
+    }
+
+    BeginHotkeyCapture(*) {
+        rowNum := hotkeyLv.GetNext()
+        if (rowNum < 1 || rowNum > nativeHotkeyRows.Length) {
+            TrayTip("Select an action first.", "Hotkeys", "Icon!")
+            return
+        }
+        row := nativeHotkeyRows[rowNum]
+        row["button"] := captureBtn
+        StartHotkeyCapture(row,
+            (chord) => FinishHotkeyCapture(rowNum, chord),
+            (*) => (captureBtn.Text := "Change selected"))
+    }
+
+    FinishHotkeyCapture(rowNum, chord) {
+        nativeHotkeyRows[rowNum]["pending"] := chord
+        hotkeyLv.Modify(rowNum, "Col2", FormatHotkeyDisplay(chord))
+        captureBtn.Text := "Change selected"
+    }
+
+    ResetSelectedHotkey(*) {
+        CancelHotkeyCapture()
+        rowNum := hotkeyLv.GetNext()
+        if (rowNum < 1 || rowNum > nativeHotkeyRows.Length)
+            return
+        nativeHotkeyRows[rowNum]["pending"] := nativeHotkeyRows[rowNum]["default"]
+        hotkeyLv.Modify(rowNum, "Col2", FormatHotkeyDisplay(nativeHotkeyRows[rowNum]["default"]))
+    }
+
+    ResetAllHotkeys(*) {
+        CancelHotkeyCapture()
+        for rowNum, row in nativeHotkeyRows {
+            row["pending"] := row["default"]
+            hotkeyLv.Modify(rowNum, "Col2", FormatHotkeyDisplay(row["default"]))
+        }
+    }
+
+    SaveNativeSettings(*) {
+        CancelHotkeyCapture()
+
+        hotkeys := []
+        for row in nativeHotkeyRows
+            hotkeys.Push(Map("id", row["id"], "chord", row["pending"]))
+
+        addonToggles := Map()
+        for entry in addonChecks
+            addonToggles[entry["name"]] := entry["control"].Value ? true : false
+
+        addonSettings := Map()
+        for addonName, entries in addonFieldGroups {
+            values := Map()
+            for entry in entries {
+                field := entry["field"]
+                if !field.Has("id") || field["id"] = ""
+                    continue
+                fieldType := field.Has("type") ? field["type"] : "text"
+                ctrl := entry["control"]
+                if (fieldType = "checkbox") {
+                    value := ctrl.Value ? true : false
+                } else if (fieldType = "dropdown") {
+                    value := ctrl.Value - 1
+                } else if (fieldType = "combo") {
+                    value := ctrl.Text
+                } else {
+                    raw := Trim(ctrl.Value)
+                    value := (fieldType = "number" && IsInteger(raw)) ? Integer(raw) : raw
+                }
+                values[field["id"]] := value
+            }
+            addonSettings[addonName] := values
+        }
+
+        msg := Map(
+            "launcher", Map(
+                "gamePath", gamePathEdit.Value,
+                "gameArgs", gameArgsEdit.Value,
+                "autoStart", autoStartCb.Value ? true : false,
+                "launchOnStartup", launchOnStartupCb.Value ? true : false,
+                "multiClientCount", Trim(countEdit.Value),
+                "multiClientDelay", Trim(delayEdit.Value),
+                "primaryMonitor", primaryDdl.Value - 1,
+                "secondaryMonitor", secondaryDdl.Value - 1
+            ),
+            "minimap", Map(
+                "scale", Trim(scaleEdit.Value),
+                "opacity", Trim(opacityEdit.Value),
+                "anchor", anchorDdl.Text,
+                "offsetX", Trim(offsetXEdit.Value),
+                "offsetY", Trim(offsetYEdit.Value),
+                "keepOpen", keepOpenCb.Value ? true : false
+            ),
+            "hotkeys", hotkeys,
+            "addons", addonToggles,
+            "addonSettings", addonSettings
+        )
+
+        if _Settings_HandleSave(msg)
+            TrayTip("Settings saved.", "Maps++", "Iconi")
+    }
+}

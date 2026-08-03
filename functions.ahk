@@ -1020,6 +1020,7 @@ EnsureMarkerControl() {
 LoadLauncherConfig() {
     global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay, CONFIG_INI, PROCESS_EXE
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    global gInterfaceMode
 
     ; 1. Check for main.exe next to the script (same directory install).
     localExe := A_ScriptDir "\" PROCESS_EXE
@@ -1055,12 +1056,36 @@ LoadLauncherConfig() {
         secMon := Trim(IniRead(CONFIG_INI, "Launcher", "SecondaryMonitor", "0"))
         if (IsInteger(secMon) && Integer(secMon) >= 0)
             gSecondaryMonitorOverride := Integer(secMon)
+
+        uiMode := StrLower(Trim(IniRead(CONFIG_INI, "UI", "Mode", "webview")))
+        gInterfaceMode := (uiMode = "native") ? "native" : "webview"
     }
 
     ; 3. Still no path — ask the user to locate it.
     if (gGamePath = "") {
         PromptForGamePath()
     }
+}
+
+IsWebViewInterface() {
+    global gInterfaceMode
+    return gInterfaceMode = "webview"
+}
+
+IsNativeInterface() {
+    return !IsWebViewInterface()
+}
+
+; Changing frontend affects startup message handlers and prewarmed windows, so
+; apply it with a reload rather than trying to replace live controllers.
+SetInterfaceMode(mode, *) {
+    global gInterfaceMode, CONFIG_INI
+    mode := (StrLower(mode) = "native") ? "native" : "webview"
+    if (mode = gInterfaceMode)
+        return
+    IniWrite(mode, CONFIG_INI, "UI", "Mode")
+    gInterfaceMode := mode
+    Reload()
 }
 
 ; Opens a file-picker dialog for the user to locate the game executable.

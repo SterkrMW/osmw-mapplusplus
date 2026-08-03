@@ -141,6 +141,34 @@ _WindowLayout_PromptMainCharacter() {
         return
     }
 
+    if IsNativeInterface() {
+        chosen := ""
+        dlg := Gui("+AlwaysOnTop -MinimizeBox", "Window Layout — Main Character")
+        dlg.SetFont("s9", "Segoe UI")
+        dlg.Add("Text", "w240", "Select the main character:")
+        ddl := dlg.Add("DropDownList", "w240", names)
+        for i, name in names {
+            if (name = _WindowLayout_MainCharacter) {
+                ddl.Value := i
+                break
+            }
+        }
+        if (ddl.Value = 0)
+            ddl.Value := 1
+        dlg.Add("Button", "Default w90 xm y+12", "OK")
+            .OnEvent("Click", (*) => (chosen := ddl.Text, dlg.Destroy()))
+        dlg.Add("Button", "w90 x+8", "Cancel").OnEvent("Click", (*) => dlg.Destroy())
+        dlg.OnEvent("Close", (*) => dlg.Destroy())
+        dlg.OnEvent("Escape", (*) => dlg.Destroy())
+        dlg.Show("AutoSize")
+        WinWaitClose("ahk_id " dlg.Hwnd)
+        if (chosen != "") {
+            _WindowLayout_MainCharacter := chosen
+            _WindowLayout_SaveConfig()
+        }
+        return
+    }
+
     chosen := ""
     dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
     dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"

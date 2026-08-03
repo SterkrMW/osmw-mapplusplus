@@ -168,7 +168,7 @@ _ClientRoster_SavePosition() {
 ; The hotkey and the main tray entry open whichever view is configured.
 _ClientRoster_Toggle() {
     global _ClientRoster_DefaultView
-    if (_ClientRoster_DefaultView = "list") {
+    if IsNativeInterface() || (_ClientRoster_DefaultView = "list") {
         _ClientRoster_ToggleList()
         return
     }
@@ -221,9 +221,23 @@ _ClientRoster_Hide() {
 }
 
 _ClientRoster_EnsureGui() {
-    global _ClientRoster_Gui
+    global _ClientRoster_Gui, _ClientRoster_List
 
     if IsObject(_ClientRoster_Gui) && _ClientRoster_Gui.Hwnd {
+        return
+    }
+
+    if IsNativeInterface() {
+        g := Gui("+AlwaysOnTop +ToolWindow -MaximizeBox +E0x08000000", "Maps++ Clients")
+        g.MarginX := 6
+        g.MarginY := 6
+        g.SetFont("s9", "Segoe UI")
+        lv := g.Add("ListView", "w330 r6 -Multi NoSortHdr Grid", ["Character", "Zone", "Status"])
+        lv.OnEvent("DoubleClick", _ClientRoster_OnNativeRowActivate)
+        g.OnEvent("Close", (*) => _ClientRoster_UserHide())
+        g.OnEvent("Escape", (*) => _ClientRoster_UserHide())
+        _ClientRoster_Gui := g
+        _ClientRoster_List := lv
         return
     }
 
@@ -238,6 +252,15 @@ _ClientRoster_EnsureGui() {
     g.Navigate("ui/client_roster/index.html")
 
     _ClientRoster_Gui := g
+}
+
+_ClientRoster_OnNativeRowActivate(lv, row) {
+    global _ClientRoster_RowHwnds
+    if (row < 1 || row > _ClientRoster_RowHwnds.Length)
+        return
+    hwnd := _ClientRoster_RowHwnds[row]
+    if WinExist("ahk_id " hwnd)
+        WinActivate("ahk_id " hwnd)
 }
 
 _ClientRoster_PushSnapshot() {
@@ -377,6 +400,9 @@ _ClientRadial_EnsureGui() {
 ; Warms the window up shortly after launch so even the first press is quick.
 _ClientRadial_Prewarm() {
     global gDisabledAddons
+    if IsNativeInterface() {
+        return
+    }
     if (gDisabledAddons.Has("ClientRoster") && gDisabledAddons["ClientRoster"]) {
         return
     }
@@ -651,6 +677,7 @@ _ClientRadial_PushSnapshot() {
 
 _ClientRoster_OnSnapshot(snapshots) {
     global _ClientRoster_Visible, _ClientRoster_AutoShow, _ClientRoster_Gui
+    global _ClientRoster_List, _ClientRoster_RowHwnds
     global _ClientRoster_SuppressAuto, _ClientRoster_ManualOpen, _ClientRadial_Shown
 
     ; Keep an open ring in step with the poll — a client that quits should not
@@ -674,6 +701,26 @@ _ClientRoster_OnSnapshot(snapshots) {
         _ClientRoster_Show()
     }
     if (!_ClientRoster_Visible || !IsObject(_ClientRoster_Gui)) {
+        return
+    }
+
+    if IsNativeInterface() {
+        if !IsObject(_ClientRoster_List)
+            return
+        rows := []
+        _ClientRoster_List.Opt("-Redraw")
+        _ClientRoster_List.Delete()
+        for snap in snapshots {
+            rows.Push(snap.hwnd)
+            _ClientRoster_List.Add(,
+                (snap.charName != "" ? snap.charName : "PID " snap.pid),
+                _ClientRoster_ZoneText(snap),
+                _ClientRoster_StatusText(snap))
+        }
+        _ClientRoster_RowHwnds := rows
+        loop 3
+            _ClientRoster_List.ModifyCol(A_Index, "AutoHdr")
+        _ClientRoster_List.Opt("+Redraw")
         return
     }
 

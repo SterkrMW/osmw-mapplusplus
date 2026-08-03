@@ -79,6 +79,9 @@ global STARTUP_RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 global STARTUP_RUN_NAME := "osMW Maps++"
 global gMultiClientCount := 5    ; How many clients the multi-client launch task starts.
 global gMultiClientDelay := 0    ; Delay (ms) between each client launch in that task.
+; Interface mode ([UI] in config.ini). WebView2 preserves the polished tray,
+; settings and radial client picker; native keeps the process Chromium-free.
+global gInterfaceMode := "webview"
 ; Settings window handle, for the single-instance guard.
 global gSettingsGui := 0
 ; Monitor overrides for the "primary"/"secondary" launch targets. 0 = auto:
