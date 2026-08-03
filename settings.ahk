@@ -108,6 +108,7 @@ _Settings_SendState() {
     global gSettingsGui, gAddonHooks, gDisabledAddons
     global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, OVERLAY_W, OVERLAY_H
 
@@ -120,6 +121,11 @@ _Settings_SendState() {
         monArr .= _JSON_Str(lbl)
     }
     monArr .= "]"
+
+    launchLayouts := _Settings_LaunchLayoutOptions()
+    launchLayoutsJson := _Settings_LaunchLayoutOptionsToJson(launchLayouts)
+    primaryLaunchLayout := _Settings_ValidateLaunchLayout(gPrimaryLaunchLayout, launchLayouts)
+    secondaryLaunchLayout := _Settings_ValidateLaunchLayout(gSecondaryLaunchLayout, launchLayouts)
 
     ; Hotkey actions
     hotkeysJson := _Settings_HotkeysToJson()
@@ -152,6 +158,10 @@ _Settings_SendState() {
             . ',"monitorChoices":' monArr
             . ',"primaryMonitorChoice":' _Settings_MonitorIndexToChoice(gPrimaryMonitorOverride) - 1
             . ',"secondaryMonitorChoice":' _Settings_MonitorIndexToChoice(gSecondaryMonitorOverride) - 1
+            . ',"layoutAvailable":' (launchLayouts.available ? "true" : "false")
+            . ',"launchLayoutOptions":' launchLayoutsJson
+            . ',"primaryLaunchLayout":' _JSON_Str(primaryLaunchLayout)
+            . ',"secondaryLaunchLayout":' _JSON_Str(secondaryLaunchLayout)
         . '}'
         . ',"minimap":{'
             . '"scale":' gMinimapScale
@@ -337,6 +347,7 @@ _Settings_AddonsListToJson() {
 _Settings_HandleSave(msg) {
     global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, MINIMAP_ANCHORS
     global gAddonHooks, gHotkeyActions
@@ -349,7 +360,7 @@ _Settings_HandleSave(msg) {
     cnt := launcher["multiClientCount"]
     dly := launcher["multiClientDelay"]
     if (!IsInteger(cnt) || Integer(cnt) < 1) {
-        _Settings_SendSaveResult(false, "Multi-client count must be a whole number of 1 or more.")
+        _Settings_SendSaveResult(false, "Clients per launch must be a whole number of 1 or more.")
         return false
     }
     if (!IsInteger(dly) || Integer(dly) < 0) {
@@ -361,6 +372,15 @@ _Settings_HandleSave(msg) {
     ; Monitor choices come as 0-based indexes from JS; convert to 1-based + apply offset.
     gPrimaryMonitorOverride := _Settings_ChoiceToMonitorIndex(Integer(launcher["primaryMonitor"]) + 1)
     gSecondaryMonitorOverride := _Settings_ChoiceToMonitorIndex(Integer(launcher["secondaryMonitor"]) + 1)
+    launchLayouts := _Settings_LaunchLayoutOptions()
+    if launchLayouts.available {
+        gPrimaryLaunchLayout := _Settings_ValidateLaunchLayout(
+            launcher.Has("primaryLaunchLayout") ? launcher["primaryLaunchLayout"] : gPrimaryLaunchLayout,
+            launchLayouts)
+        gSecondaryLaunchLayout := _Settings_ValidateLaunchLayout(
+            launcher.Has("secondaryLaunchLayout") ? launcher["secondaryLaunchLayout"] : gSecondaryLaunchLayout,
+            launchLayouts)
+    }
     SaveLauncherConfig()
     SetRunOnStartup(launcher["autoStart"] ? true : false)
 
@@ -557,6 +577,50 @@ _Settings_ChoiceToMonitorIndex(choice) {
     if (choice <= 1)
         return 0
     return choice - 1
+}
+
+; Layout choices shared by the WebView2 and native Launcher tabs. The Default
+; entry is a live alias; the concrete entries below it pin a layout by name.
+_Settings_LaunchLayoutOptions() {
+    global LAUNCH_LAYOUT_DEFAULT
+    namesFn := GetFuncByName("_WindowLayout_AllLayoutNames")
+    defaultFn := GetFuncByName("_WindowLayout_GetDefaultLayoutName")
+    if (!namesFn || !defaultFn)
+        return { available: false, items: [] }
+
+    defaultName := defaultFn()
+    items := [
+        { value: "", label: "None — center clients only" },
+        { value: LAUNCH_LAYOUT_DEFAULT, label: "Default — " defaultName }
+    ]
+    for name in namesFn()
+        items.Push({ value: name, label: name })
+    return { available: true, items: items }
+}
+
+_Settings_LaunchLayoutOptionsToJson(options) {
+    json := "["
+    for i, item in options.items {
+        if (i > 1)
+            json .= ","
+        json .= '{"value":' _JSON_Str(item.value) ',"label":' _JSON_Str(item.label) '}'
+    }
+    return json "]"
+}
+
+; Keeps a valid configured value, otherwise falls back to the live Default alias.
+; When WindowLayout is absent, preserve the raw value for users who share one
+; config file between variants.
+_Settings_ValidateLaunchLayout(value, options) {
+    global LAUNCH_LAYOUT_DEFAULT
+    value := Trim(String(value))
+    if !options.available
+        return value
+    for item in options.items {
+        if (item.value = value)
+            return value
+    }
+    return LAUNCH_LAYOUT_DEFAULT
 }
 
 ; ── Minimal JSON helpers ─────────────────────────────────────

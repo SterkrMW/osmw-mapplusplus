@@ -45,8 +45,12 @@ If `main.exe` sits in the same folder as Maps++, the app finds it automatically 
 
 ### 3. Launch the game
 
-- From the tray icon: right-click → **Launch Game**
+- From the tray icon: right-click → **Launch (Primary)** or **Launch (Secondary)**
 - Or press **Ctrl+Alt+L** (primary monitor) / **Ctrl+Alt+K** (secondary monitor)
+
+Each action starts the number of clients configured under **Settings → Launcher**. The same
+page can leave the new windows centered, apply the current default layout, or assign a different
+preset/custom layout to each display.
 
 If **Launch on startup** is enabled in `config.ini`, Maps++ opens a game client for you when the app starts.
 
@@ -102,8 +106,8 @@ Right-click the tray icon for the main menu:
 
 | Item | Purpose |
 |------|---------|
-| **Launch Game** | Start a client on the primary monitor |
-| **Launch Game (Secondary)** | Start a client on the secondary monitor |
+| **Launch (Primary)** | Start the configured clients on the primary target, then optionally apply its layout |
+| **Launch (Secondary)** | Start the configured clients on the secondary target, then optionally apply its layout |
 | **Window Layout** | Apply preset or custom window arrangements, capture the current one, undo the last apply (Full / Lite) |
 | **Chat** | Chat panel shortcuts (Full / Battle) |
 | **Inventory** | Open inventory shortcuts (Full only) |
@@ -117,9 +121,16 @@ Right-click the tray icon for the main menu:
 | **Exit** | Quit the app |
 
 All configuration now lives in **Settings…** (or **Ctrl+Alt+,**): game path and arguments,
-**start Maps++ automatically when Windows starts**, launch-a-client-on-startup, multi-client
-count/delay, primary/secondary monitors, the Window Layout defaults, and enabling/disabling
+**start Maps++ automatically when Windows starts**, launch-a-client-on-startup, clients per
+launch and delay, primary/secondary displays and launch layouts, Window Layout defaults, and enabling/disabling
 addons. The tray keeps only the quick **actions**.
+
+Under **Settings → Launcher**, each launch target has a **Layout after launch** dropdown:
+
+- **None — center clients only** — launch the batch without organising it
+- **Default — _layout name_** — follow the current default from **Settings → Window Layout**
+- A named preset or custom layout — pin that target independently, so Primary and Secondary can
+  use different arrangements
 
 **Tray → Interface** selects the GUI used by Maps++. **WebView2 (enhanced)** keeps the polished
 tray and the radial rings prewarmed for immediate response. **Native (low memory)** uses
@@ -144,8 +155,8 @@ Global shortcuts work while the game or minimap overlay is focused.
 |--------|--------|
 | **Tab** | Toggle custom minimap (in game, on a supported map) |
 | **Right-click** | Close minimap (while overlay is open) |
-| **Ctrl+Alt+L** | Launch game on primary monitor |
-| **Ctrl+Alt+K** | Launch game on secondary monitor |
+| **Ctrl+Alt+L** | Launch the configured clients on the primary target |
+| **Ctrl+Alt+K** | Launch the configured clients on the secondary target |
 | **Ctrl+Alt+A** | Open the Quick Actions ring |
 | **Ctrl+Alt+,** | Open the Settings window |
 | **Ctrl+Alt+R** | Reload Maps++ |
@@ -400,6 +411,8 @@ MultiClientCount=5
 MultiClientDelay=0
 PrimaryMonitor=0
 SecondaryMonitor=0
+PrimaryLaunchLayout=__default__
+SecondaryLaunchLayout=__default__
 
 [Minimap]
 Scale=100
@@ -444,10 +457,11 @@ QuickActions=1
 | `GamePath` | Full path to `main.exe` |
 | `GameArgs` | Extra command-line arguments passed when launching the game |
 | `LaunchOnStartup` | `1` = launch a game client when Maps++ starts |
-| `MultiClientCount` | How many clients **Ctrl+Alt+5** launches |
-| `MultiClientDelay` | Milliseconds between each of those launches |
+| `MultiClientCount` | How many clients **Ctrl+Alt+L/K** launches |
+| `MultiClientDelay` | Milliseconds between each client in a launch batch |
 | `PrimaryMonitor` | Display for **Ctrl+Alt+L**. `0` = OS primary; `1`, `2`, … = specific display |
 | `SecondaryMonitor` | Display for **Ctrl+Alt+K**. `0` = first non-primary; `1`, `2`, … = specific display |
+| `PrimaryLaunchLayout` / `SecondaryLaunchLayout` | Layout applied after that launch: blank = center only, `__default__` = follow `DefaultLayout`, or a preset/custom layout name |
 | `Scale` | Minimap size, 50–200 % of the standard 400×300 |
 | `Opacity` | Minimap opacity, 30–100 % |
 | `Anchor` | Where the minimap sits on the game window: `Center`, `TopLeft`, `TopRight`, `BottomLeft`, `BottomRight` |

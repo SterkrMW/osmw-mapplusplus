@@ -69,7 +69,7 @@
                     <div class="setting-card">
                         <div class="field-row">
                             <label class="field field-half">
-                                <span class="field-label">Multi-client count</span>
+                                <span class="field-label">Clients per launch</span>
                                 <input type="number" id="multiClientCount" class="input input-narrow" min="1" step="1">
                             </label>
                             <label class="field field-half">
@@ -79,16 +79,32 @@
                         </div>
                     </div>
 
-                    <div class="setting-card">
-                        <label class="field">
-                            <span class="field-label">Primary monitor</span>
-                            <select id="primaryMonitor" class="select"></select>
-                        </label>
+                    <div class="setting-card launch-targets">
+                        <div class="launch-target">
+                            <div class="launch-target-title">Primary launch</div>
+                            <label class="field">
+                                <span class="field-label">Display</span>
+                                <select id="primaryMonitor" class="select"></select>
+                            </label>
+                            <label class="field launch-layout-field">
+                                <span class="field-label">Layout after launch</span>
+                                <select id="primaryLaunchLayout" class="select"></select>
+                            </label>
+                        </div>
 
-                        <label class="field">
-                            <span class="field-label">Secondary monitor</span>
-                            <select id="secondaryMonitor" class="select"></select>
-                        </label>
+                        <div class="launch-target">
+                            <div class="launch-target-title">Secondary launch</div>
+                            <label class="field">
+                                <span class="field-label">Display</span>
+                                <select id="secondaryMonitor" class="select"></select>
+                            </label>
+                            <label class="field launch-layout-field">
+                                <span class="field-label">Layout after launch</span>
+                                <select id="secondaryLaunchLayout" class="select"></select>
+                            </label>
+                        </div>
+
+                        <div class="panel-hint launch-layout-field">Default follows the layout selected under Window Layout. Choose a named layout to keep this display independent.</div>
                     </div>
                 </section>
 

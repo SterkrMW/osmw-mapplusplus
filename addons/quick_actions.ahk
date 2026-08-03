@@ -107,8 +107,8 @@ _QuickActions_BuildCatalog() {
             "state", "party"),
         Map("id", "sendEnterUntilReady",     "label", "Send Enter",    "icon", "keyboard",
             "needsGame", true),
-        Map("id", "launchPrimary",           "label", "Launch",        "icon", "rocket_launch"),
-        Map("id", "launchClientsLayout",     "label", "Launch + layout", "icon", "devices"),
+        Map("id", "launchPrimary",           "label", "Launch primary", "icon", "rocket_launch"),
+        Map("id", "launchSecondary",         "label", "Launch secondary", "icon", "rocket_launch"),
         Map("id", "openSettings",            "label", "Settings",      "icon", "settings")
     ]
 }
@@ -416,6 +416,10 @@ _QuickActions_ParseIds(csv) {
     seen := Map()
     for part in StrSplit(csv, ",") {
         id := Trim(part)
+        ; Migrate the removed combined action to the new configurable primary
+        ; launch action, which now owns the same multi-client/layout behavior.
+        if (id = "launchClientsLayout")
+            id := "launchPrimary"
         if (id = "" || seen.Has(id)) {
             continue
         }

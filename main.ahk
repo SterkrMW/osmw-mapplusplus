@@ -336,8 +336,7 @@ _IconForLabel(lbl) {
     if (InStr(lbl, "Party Markers — ") = 1)
         return "shield"
     switch lbl {
-        case "Launch Game", "Launch Game (Secondary)": return "rocket_launch"
-        case "Launch Clients + Apply Layout": return "devices"
+        case "Launch (Primary)", "Launch (Secondary)": return "rocket_launch"
         case "Send Enter Until Ready": return "keyboard"
         case "Settings…": return "settings"
         case "Reload": return "refresh"
@@ -367,11 +366,8 @@ RebuildTrayMenu() {
     global gInterfaceMode
     trayMenu := A_TrayMenu
     trayMenu.Delete()
-    trayMenu.Add("Launch Game`t" GetHotkeyDisplay("launchPrimary"), (*) => LaunchGameInstance("primary"))
-    trayMenu.Add("Launch Game (Secondary)`t" GetHotkeyDisplay("launchSecondary"), (*) => LaunchGameInstance("secondary"
-    ))
-    trayMenu.Add("Launch Clients + Apply Layout`t" GetHotkeyDisplay("launchClientsLayout"), (*) =>
-        LaunchClientsAndApplyLayout())
+    trayMenu.Add("Launch (Primary)`t" GetHotkeyDisplay("launchPrimary"), (*) => LaunchConfiguredClients("primary"))
+    trayMenu.Add("Launch (Secondary)`t" GetHotkeyDisplay("launchSecondary"), (*) => LaunchConfiguredClients("secondary"))
     trayMenu.Add("Send Enter Until Ready`t" GetHotkeyDisplay("sendEnterUntilReady"), (*) => SendEnterUntilReady())
     trayMenu.Add()
     FireAddonHook("OnTrayMenu", trayMenu)
@@ -391,7 +387,7 @@ RebuildTrayMenu() {
     trayMenu.Add("Debug", debugMenu)
     trayMenu.Add()
     trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
-    trayMenu.Default := "Launch Game`t" GetHotkeyDisplay("launchPrimary")
+    trayMenu.Default := "Launch (Primary)`t" GetHotkeyDisplay("launchPrimary")
     A_IconTip := "osMW Maps++"
 }
 

@@ -8,6 +8,7 @@ _Settings_BuildNative() {
     global gSettingsGui, gAddonHooks, gDisabledAddons
     global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, MINIMAP_ANCHORS
 
@@ -52,7 +53,7 @@ _Settings_BuildNative() {
         "Launch a game client when Maps++ starts")
     launchOnStartupCb.Value := gLaunchOnStartup ? 1 : 0
 
-    g.Add("Text", "x" contentX " y+22 w130", "Multi-client count:")
+    g.Add("Text", "x" contentX " y+22 w130", "Clients per launch:")
     countEdit := g.Add("Edit", "x158 yp-3 w90 Number", String(gMultiClientCount))
     g.Add("Text", "x" contentX " y+20 w130", "Launch delay (ms):")
     delayEdit := g.Add("Edit", "x158 yp-3 w90 Number", String(gMultiClientDelay))
@@ -61,9 +62,27 @@ _Settings_BuildNative() {
     g.Add("Text", "x" contentX " y+20 w130", "Primary monitor:")
     primaryDdl := g.Add("DropDownList", "x158 yp-3 w300", monitorChoices)
     primaryDdl.Value := _Settings_MonitorIndexToChoice(gPrimaryMonitorOverride)
+    launchLayoutOptions := _Settings_LaunchLayoutOptions()
+    primaryLaunchLayoutDdl := 0
+    secondaryLaunchLayoutDdl := 0
+    if launchLayoutOptions.available {
+        launchLayoutLabels := []
+        for item in launchLayoutOptions.items
+            launchLayoutLabels.Push(item.label)
+        g.Add("Text", "x" contentX " y+20 w130", "Primary layout:")
+        primaryLaunchLayoutDdl := g.Add("DropDownList", "x158 yp-3 w300", launchLayoutLabels)
+        primaryLaunchLayoutDdl.Value := _SettingsNative_LaunchLayoutChoice(
+            launchLayoutOptions, gPrimaryLaunchLayout)
+    }
     g.Add("Text", "x" contentX " y+20 w130", "Secondary monitor:")
     secondaryDdl := g.Add("DropDownList", "x158 yp-3 w300", monitorChoices)
     secondaryDdl.Value := _Settings_MonitorIndexToChoice(gSecondaryMonitorOverride)
+    if launchLayoutOptions.available {
+        g.Add("Text", "x" contentX " y+20 w130", "Secondary layout:")
+        secondaryLaunchLayoutDdl := g.Add("DropDownList", "x158 yp-3 w300", launchLayoutLabels)
+        secondaryLaunchLayoutDdl.Value := _SettingsNative_LaunchLayoutChoice(
+            launchLayoutOptions, gSecondaryLaunchLayout)
+    }
 
     g.Add("Text", "x" contentX " y+28 w590 c666666",
         "Interface mode is changed from Tray → Interface and takes effect after an automatic reload.")
@@ -292,7 +311,11 @@ _Settings_BuildNative() {
                 "multiClientCount", Trim(countEdit.Value),
                 "multiClientDelay", Trim(delayEdit.Value),
                 "primaryMonitor", primaryDdl.Value - 1,
-                "secondaryMonitor", secondaryDdl.Value - 1
+                "secondaryMonitor", secondaryDdl.Value - 1,
+                "primaryLaunchLayout", launchLayoutOptions.available
+                    ? launchLayoutOptions.items[primaryLaunchLayoutDdl.Value].value : gPrimaryLaunchLayout,
+                "secondaryLaunchLayout", launchLayoutOptions.available
+                    ? launchLayoutOptions.items[secondaryLaunchLayoutDdl.Value].value : gSecondaryLaunchLayout
             ),
             "minimap", Map(
                 "scale", Trim(scaleEdit.Value),
@@ -310,6 +333,19 @@ _Settings_BuildNative() {
         if _Settings_HandleSave(msg)
             TrayTip("Settings saved.", "Maps++", "Iconi")
     }
+}
+
+_SettingsNative_LaunchLayoutChoice(options, value) {
+    global LAUNCH_LAYOUT_DEFAULT
+    for i, item in options.items {
+        if (item.value = value)
+            return i
+    }
+    for i, item in options.items {
+        if (item.value = LAUNCH_LAYOUT_DEFAULT)
+            return i
+    }
+    return 1
 }
 
 ; ── orderedlist field ────────────────────────────────────────

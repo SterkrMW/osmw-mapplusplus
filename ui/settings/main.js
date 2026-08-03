@@ -147,10 +147,31 @@ function populateLauncher() {
     // Monitor dropdowns
     populateSelect('primaryMonitor', state.launcher.monitorChoices, state.launcher.primaryMonitorChoice);
     populateSelect('secondaryMonitor', state.launcher.monitorChoices, state.launcher.secondaryMonitorChoice);
+    document.querySelectorAll('.launch-layout-field').forEach(el => {
+        el.hidden = !state.launcher.layoutAvailable;
+    });
+    if (state.launcher.layoutAvailable) {
+        populateValueSelect('primaryLaunchLayout', state.launcher.launchLayoutOptions,
+            state.launcher.primaryLaunchLayout);
+        populateValueSelect('secondaryLaunchLayout', state.launcher.launchLayoutOptions,
+            state.launcher.secondaryLaunchLayout);
+    }
 
     // Browse button
     document.getElementById('btnBrowse').addEventListener('click', () => {
         sendToAhk('browse-game-path');
+    });
+}
+
+function populateValueSelect(id, options, selectedValue) {
+    const sel = document.getElementById(id);
+    sel.innerHTML = '';
+    (options || []).forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.value;
+        opt.textContent = item.label;
+        opt.selected = item.value === selectedValue;
+        sel.appendChild(opt);
     });
 }
 
@@ -680,6 +701,12 @@ function collectAndSave() {
         multiClientDelay:   parseInt(document.getElementById('multiClientDelay').value, 10) || 0,
         primaryMonitor:     parseInt(document.getElementById('primaryMonitor').value, 10),
         secondaryMonitor:   parseInt(document.getElementById('secondaryMonitor').value, 10),
+        primaryLaunchLayout: state.launcher.layoutAvailable
+            ? document.getElementById('primaryLaunchLayout').value
+            : state.launcher.primaryLaunchLayout,
+        secondaryLaunchLayout: state.launcher.layoutAvailable
+            ? document.getElementById('secondaryLaunchLayout').value
+            : state.launcher.secondaryLaunchLayout,
     };
 
     // Minimap

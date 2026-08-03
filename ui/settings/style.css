@@ -186,6 +186,37 @@
 }
 .browse-row .input { flex: 1; }
 
+.launch-targets {
+    gap: 16px;
+}
+
+.launch-target {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+}
+
+.launch-target .field {
+    min-width: 0;
+}
+
+.launch-target .select {
+    width: 100%;
+    min-width: 0;
+}
+
+.launch-target + .launch-target {
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+}
+
+.launch-target-title {
+    grid-column: 1 / -1;
+    font-size: var(--font-sm);
+    font-weight: 600;
+    color: var(--text);
+}
+
 /* ── Ordered pick list ──────────────────────────────────────── */
 /* Checked rows sort to the top in their chosen order, so the list reads as
    the thing it configures rather than as a form. */

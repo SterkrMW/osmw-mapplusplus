@@ -262,24 +262,17 @@ RegisterCoreHotkeyActions() {
     ))
     RegisterHotkeyAction(Map(
         "id", "launchPrimary",
-        "label", "Launch game (primary monitor)",
+        "label", "Launch clients (primary monitor)",
         "category", "Core",
         "default", "^!l",
-        "handler", (*) => LaunchGameInstance("primary")
+        "handler", (*) => LaunchConfiguredClients("primary")
     ))
     RegisterHotkeyAction(Map(
         "id", "launchSecondary",
-        "label", "Launch game (secondary monitor)",
+        "label", "Launch clients (secondary monitor)",
         "category", "Core",
         "default", "^!k",
-        "handler", (*) => LaunchGameInstance("secondary")
-    ))
-    RegisterHotkeyAction(Map(
-        "id", "launchClientsLayout",
-        "label", "Launch clients + apply layout",
-        "category", "Core",
-        "default", "^!5",
-        "handler", LaunchClientsAndApplyLayout
+        "handler", (*) => LaunchConfiguredClients("secondary")
     ))
     RegisterHotkeyAction(Map(
         "id", "sendEnterUntilReady",

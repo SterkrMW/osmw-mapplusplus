@@ -1020,6 +1020,7 @@ EnsureMarkerControl() {
 LoadLauncherConfig() {
     global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay, CONFIG_INI, PROCESS_EXE
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout, LAUNCH_LAYOUT_DEFAULT
     global gInterfaceMode
 
     ; 1. Check for main.exe next to the script (same directory install).
@@ -1056,6 +1057,8 @@ LoadLauncherConfig() {
         secMon := Trim(IniRead(CONFIG_INI, "Launcher", "SecondaryMonitor", "0"))
         if (IsInteger(secMon) && Integer(secMon) >= 0)
             gSecondaryMonitorOverride := Integer(secMon)
+        gPrimaryLaunchLayout := Trim(IniRead(CONFIG_INI, "Launcher", "PrimaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
+        gSecondaryLaunchLayout := Trim(IniRead(CONFIG_INI, "Launcher", "SecondaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
 
         uiMode := StrLower(Trim(IniRead(CONFIG_INI, "UI", "Mode", "webview")))
         gInterfaceMode := (uiMode = "native") ? "native" : "webview"
@@ -1290,14 +1293,53 @@ GetFuncByName(name) {
         return ""
 }
 
-; Launches game client instances, then arranges them on the target monitor using
-; the WindowLayout addon's current default layout. Each new window is centered on
-; the target monitor as it appears so the layout pass (which only arranges windows
-; on that monitor) picks them all up. In variants without the WindowLayout addon
-; the clients are still launched and centered on the primary display — only the
-; layout pass is skipped.
-; count: number of clients (defaults to the configured gMultiClientCount).
-LaunchClientsAndApplyLayout(count := 0) {
+; True only when an addon is both bundled in this build and currently enabled.
+; Core launch actions use this before dynamically calling WindowLayout, so the
+; Battle variant and users who disable the addon both keep a clean fallback.
+IsAddonEnabled(addonName) {
+    global gAddonHooks, gDisabledAddons
+    installed := false
+    for _, am in gAddonHooks {
+        if (am.Has("name") && am["name"] = addonName) {
+            installed := true
+            break
+        }
+    }
+    return installed && !(gDisabledAddons.Has(addonName) && gDisabledAddons[addonName])
+}
+
+; Resolves a launch target's layout preference to a concrete preset/custom name.
+; A missing pinned layout falls back to the current default instead of silently
+; skipping organisation after the user has asked for it.
+ResolveLaunchLayoutName(monitorWhich) {
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout, LAUNCH_LAYOUT_DEFAULT
+    if !IsAddonEnabled("WindowLayout")
+        return ""
+
+    preference := (monitorWhich = "secondary") ? gSecondaryLaunchLayout : gPrimaryLaunchLayout
+    if (preference = "")
+        return ""
+
+    defaultFn := GetFuncByName("_WindowLayout_GetDefaultLayoutName")
+    defaultName := defaultFn ? defaultFn() : "Grid2x2"
+    if (preference = LAUNCH_LAYOUT_DEFAULT)
+        return defaultName
+
+    namesFn := GetFuncByName("_WindowLayout_AllLayoutNames")
+    if namesFn {
+        for name in namesFn() {
+            if (name = preference)
+                return preference
+        }
+    }
+    return defaultName
+}
+
+; Launches the configured client count onto the requested display, then applies
+; that display's optional layout preference. Every new window is centered on the
+; target as it appears, ensuring the layout pass sees the complete launch batch.
+; count defaults to gMultiClientCount and is exposed for internal one-off callers.
+LaunchConfiguredClients(monitorWhich := "primary", count := 0) {
     global gGamePath, gGameArgs, gMultiClientCount, gMultiClientDelay
 
     if (count < 1)
@@ -1310,8 +1352,8 @@ LaunchClientsAndApplyLayout(count := 0) {
 
     workDir := ""
     SplitPath(gGamePath, , &workDir)
-    resolveFn := GetFuncByName("_WindowLayout_ResolveMonitor")
-    monIdx := resolveFn ? resolveFn() : MonitorGetPrimary()
+    monIdx := ResolveMonitorForHotkey(monitorWhich)
+    layoutName := ResolveLaunchLayoutName(monitorWhich)
 
     ; Snapshot existing windows, then fire the launches so the clients' startup
     ; time overlaps instead of being serialized one-wait-per-client. An optional
@@ -1358,9 +1400,9 @@ LaunchClientsAndApplyLayout(count := 0) {
         return
     }
 
-    applyFn := GetFuncByName("_WindowLayout_ApplyDefaultLayout")
+    applyFn := (layoutName != "") ? GetFuncByName("_WindowLayout_ApplyNamed") : ""
     if applyFn {
-        applyFn(monIdx)
+        applyFn(layoutName, monIdx)
         TrayTip(launched.Length " client(s) launched and arranged.", "Maps++", "Iconi")
     } else {
         TrayTip(launched.Length " client(s) launched and centered.", "Maps++", "Iconi")
@@ -1371,6 +1413,7 @@ LaunchClientsAndApplyLayout(count := 0) {
 SaveLauncherConfig() {
     global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride, CONFIG_INI
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     IniWrite(gGamePath, CONFIG_INI, "Launcher", "GamePath")
     IniWrite(gGameArgs, CONFIG_INI, "Launcher", "GameArgs")
     IniWrite(gLaunchOnStartup ? "1" : "0", CONFIG_INI, "Launcher", "LaunchOnStartup")
@@ -1378,6 +1421,8 @@ SaveLauncherConfig() {
     IniWrite(gMultiClientDelay, CONFIG_INI, "Launcher", "MultiClientDelay")
     IniWrite(gPrimaryMonitorOverride, CONFIG_INI, "Launcher", "PrimaryMonitor")
     IniWrite(gSecondaryMonitorOverride, CONFIG_INI, "Launcher", "SecondaryMonitor")
+    IniWrite(gPrimaryLaunchLayout, CONFIG_INI, "Launcher", "PrimaryLaunchLayout")
+    IniWrite(gSecondaryLaunchLayout, CONFIG_INI, "Launcher", "SecondaryLaunchLayout")
 }
 
 ; Reads the game-state integer from a specific window's process.

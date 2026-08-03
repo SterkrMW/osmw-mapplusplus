@@ -205,6 +205,14 @@ _WindowLayout_LoadConfig() {
     _WindowLayout_TargetMonitor := Integer(IniRead(CONFIG_INI, "WindowLayout", "TargetMonitor", 0))
 }
 
+; Core launcher settings use a dynamic lookup so builds without this addon still
+; compile. Read the persisted value directly because disabled addons skip OnInit.
+_WindowLayout_GetDefaultLayoutName() {
+    global CONFIG_INI
+    name := Trim(IniRead(CONFIG_INI, "WindowLayout", "DefaultLayout", "Grid2x2"))
+    return (name != "") ? name : "Grid2x2"
+}
+
 _WindowLayout_SaveConfig() {
     global _WindowLayout_DefaultLayout, _WindowLayout_MainCharacter, _WindowLayout_TargetMonitor, CONFIG_INI
     IniWrite(_WindowLayout_DefaultLayout, CONFIG_INI, "WindowLayout", "DefaultLayout")
@@ -1878,8 +1886,7 @@ _WindowLayout_DisplayLabel(idx) {
 }
 
 ; The display a layout targets. With no argument this answers for the configured
-; default layout, which is what LaunchClientsAndApplyLayout (functions.ahk) wants
-; when it centers freshly launched clients before arranging them.
+; default layout.
 _WindowLayout_ResolveMonitor(layoutName := "") {
     global _WindowLayout_DefaultLayout
     if (layoutName = "")
