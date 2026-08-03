@@ -208,6 +208,16 @@ body {
     box-shadow: 0 0 0 1px var(--border-focus);
 }
 
+.input-invalid {
+    border-color: var(--danger) !important;
+    animation: inputShake 300ms ease-out;
+}
+@keyframes inputShake {
+    0%, 100% { transform: translateX(0); }
+    25%      { transform: translateX(-3px); }
+    75%      { transform: translateX(3px); }
+}
+
 .btn {
     display: inline-flex;
     align-items: center;
@@ -284,6 +294,7 @@ body {
 /* ── Tables ─────────────────────────────────────────────────── */
 .table-container {
     flex: 1;
+    overflow-x: auto;
     overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;

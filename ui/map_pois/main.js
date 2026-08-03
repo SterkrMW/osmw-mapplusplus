@@ -121,6 +121,7 @@ document.getElementById('btnAddPoiHeader').addEventListener('click', () => {
 function openAddModal(zoneName, x, y, defaultKind) {
     document.getElementById('modalCoordText').textContent = `${zoneName} at ${x}, ${y}`;
     document.getElementById('modalLabelInput').value = '';
+    document.getElementById('modalLabelInput').classList.remove('input-invalid');
     if (defaultKind) document.getElementById('modalKindSelect').value = defaultKind;
     document.getElementById('addPoiModal').style.display = 'flex';
     document.addEventListener('keydown', onModalKeydown);
@@ -151,11 +152,21 @@ function trapModalFocus(e) {
 }
 
 document.getElementById('btnModalAdd').addEventListener('click', () => {
-    const label = document.getElementById('modalLabelInput').value.trim();
+    const input = document.getElementById('modalLabelInput');
+    const label = input.value.trim();
     const kind = document.getElementById('modalKindSelect').value;
-    if (!label) return;
+    if (!label) {
+        input.classList.remove('input-invalid');
+        void input.offsetWidth; // restart the animation if it's already showing
+        input.classList.add('input-invalid');
+        input.focus();
+        return;
+    }
     sendToAhk('submit-add-poi', { label, kind });
     closeAddModal();
+});
+document.getElementById('modalLabelInput').addEventListener('input', (e) => {
+    e.target.classList.remove('input-invalid');
 });
 
 // Title & Close

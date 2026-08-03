@@ -97,6 +97,7 @@ function buildTabBar() {
         const btn = document.createElement('button');
         btn.className = 'tab-btn';
         btn.dataset.tab = name;
+        btn.title = name;
 
         const iconName = TAB_ICONS[name] || 'tune';
         const icon = document.createElement('span');
@@ -104,6 +105,7 @@ function buildTabBar() {
         icon.textContent = iconName;
 
         const label = document.createElement('span');
+        label.className = 'tab-label';
         label.textContent = name;
 
         btn.appendChild(icon);

@@ -57,6 +57,7 @@
     text-align: left;
     transition: all var(--transition);
     width: 100%;
+    overflow: hidden;
 }
 .tab-btn:hover {
     color: var(--text);
@@ -82,9 +83,17 @@
     font-size: 18px;
     color: var(--text-muted);
     transition: color var(--transition);
+    flex-shrink: 0;
 }
 .tab-btn.active .tab-icon {
     color: var(--accent);
+}
+
+.tab-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* ── Content Area & Panels ──────────────────────────────────── */

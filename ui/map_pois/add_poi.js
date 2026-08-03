@@ -48,11 +48,21 @@ document.getElementById('labelInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') submitAdd();
     if (e.key === 'Escape') sendToAhk('cancel');
 });
+document.getElementById('labelInput').addEventListener('input', (e) => {
+    e.target.classList.remove('input-invalid');
+});
 
 function submitAdd() {
-    const label = document.getElementById('labelInput').value.trim();
+    const input = document.getElementById('labelInput');
+    const label = input.value.trim();
     const kind = document.getElementById('kindSelect').value;
-    if (!label) return;
+    if (!label) {
+        input.classList.remove('input-invalid');
+        void input.offsetWidth; // restart the animation if it's already showing
+        input.classList.add('input-invalid');
+        input.focus();
+        return;
+    }
     sendToAhk('accept', { label, kind });
 }
 
