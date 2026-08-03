@@ -57,9 +57,13 @@ function renderPois() {
     filtered.forEach((poi, index) => {
         const tr = document.createElement('tr');
         tr.dataset.realIndex = poi.index; // 1-based index from AHK
+        tr.tabIndex = 0;
+        tr.setAttribute('aria-selected', 'false');
 
         const tdLabel = document.createElement('td');
+        tdLabel.className = 'cell-truncate';
         tdLabel.textContent = poi.label;
+        tdLabel.title = poi.label;
 
         const tdType = document.createElement('td');
         const badge = document.createElement('span');
@@ -78,10 +82,21 @@ function renderPois() {
         tr.appendChild(tdX);
         tr.appendChild(tdY);
 
-        tr.addEventListener('click', () => {
-            document.querySelectorAll('#poiBody tr').forEach(r => r.classList.remove('selected'));
+        const selectRow = () => {
+            document.querySelectorAll('#poiBody tr').forEach(r => {
+                r.classList.remove('selected');
+                r.setAttribute('aria-selected', 'false');
+            });
             tr.classList.add('selected');
+            tr.setAttribute('aria-selected', 'true');
             selectedIndex = poi.index;
+        };
+        tr.addEventListener('click', selectRow);
+        tr.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                selectRow();
+            }
         });
 
         tbody.appendChild(tr);
@@ -122,6 +137,7 @@ function openAddModal(zoneName, x, y, defaultKind) {
     document.getElementById('modalCoordText').textContent = `${zoneName} at ${x}, ${y}`;
     document.getElementById('modalLabelInput').value = '';
     document.getElementById('modalLabelInput').classList.remove('input-invalid');
+    document.getElementById('btnModalAdd').disabled = false;
     if (defaultKind) document.getElementById('modalKindSelect').value = defaultKind;
     document.getElementById('addPoiModal').style.display = 'flex';
     document.addEventListener('keydown', onModalKeydown);
@@ -151,7 +167,9 @@ function trapModalFocus(e) {
     }
 }
 
-document.getElementById('btnModalAdd').addEventListener('click', () => {
+document.getElementById('btnModalAdd').addEventListener('click', (e) => {
+    if (e.currentTarget.disabled) return; // already submitted this round
+
     const input = document.getElementById('modalLabelInput');
     const label = input.value.trim();
     const kind = document.getElementById('modalKindSelect').value;
@@ -162,6 +180,7 @@ document.getElementById('btnModalAdd').addEventListener('click', () => {
         input.focus();
         return;
     }
+    e.currentTarget.disabled = true;
     sendToAhk('submit-add-poi', { label, kind });
     closeAddModal();
 });

@@ -60,12 +60,13 @@
 }
 .modal-body {
     padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
-.modal-coord {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-bottom: 12px;
-}
+/* .dialog-coord is shared — see ui/common/style.css. It's the same
+   chip the standalone Add-POI dialog uses, so both entry points to
+   "add a POI" look identical. */
 .modal-footer {
     display: flex;
     justify-content: flex-end;
@@ -75,21 +76,12 @@
     border-top: 1px solid var(--border);
 }
 
-/* POI Badges */
-.badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--text);
-    border: 1px solid var(--border);
-}
-.badge-npc    { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
-.badge-shop   { background: rgba(74, 222, 128, 0.15); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.3); }
-.badge-portal { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
-.badge-note   { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-.badge-quest  { background: rgba(236, 72, 153, 0.15); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.3); }
+/* POI Badges — shape/sizing comes from the shared .badge in
+   ui/common/style.css (same 4px pill every other badge in the app
+   uses); only the per-kind color lives here, tokenized in
+   common/style.css (--poi-*) so a re-theme touches one place. */
+.badge-npc    { background: rgba(96, 165, 250, 0.15);  color: var(--poi-npc);    border-color: rgba(96, 165, 250, 0.3); }
+.badge-shop   { background: rgba(74, 222, 128, 0.15);  color: var(--poi-shop);   border-color: rgba(74, 222, 128, 0.3); }
+.badge-portal { background: rgba(192, 132, 252, 0.15); color: var(--poi-portal); border-color: rgba(192, 132, 252, 0.3); }
+.badge-note   { background: rgba(251, 191, 36, 0.15);  color: var(--poi-note);   border-color: rgba(251, 191, 36, 0.3); }
+.badge-quest  { background: rgba(244, 114, 182, 0.15); color: var(--poi-quest);  border-color: rgba(244, 114, 182, 0.3); }

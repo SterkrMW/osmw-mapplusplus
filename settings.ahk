@@ -97,6 +97,8 @@ _Settings_OnWebMessage(wv, args) {
             _Settings_HandleBrowse()
         case "start-hotkey-capture":
             _Settings_HandleStartCapture(msg)
+        case "cancel-hotkey-capture":
+            CancelHotkeyCapture()
     }
 }
 

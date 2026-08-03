@@ -53,6 +53,9 @@ document.getElementById('labelInput').addEventListener('input', (e) => {
 });
 
 function submitAdd() {
+    const btn = document.getElementById('btnAdd');
+    if (btn.disabled) return; // already submitted — AHK is closing this window
+
     const input = document.getElementById('labelInput');
     const label = input.value.trim();
     const kind = document.getElementById('kindSelect').value;
@@ -63,6 +66,7 @@ function submitAdd() {
         input.focus();
         return;
     }
+    btn.disabled = true;
     sendToAhk('accept', { label, kind });
 }
 

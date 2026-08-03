@@ -66,6 +66,20 @@
     --warning:       #f59e0b;
     --info:          #3b82f6;
 
+    /* Map POI kind colors (ui/map_pois) */
+    --poi-npc:       #60a5fa;
+    --poi-shop:      #4ade80;
+    --poi-portal:    #c084fc;
+    --poi-quest:     #f472b6;
+    --poi-note:      #fbbf24;
+
+    /* Hotkey category coloring (ui/settings): a hotkey is either always
+       present (Core) or contributed by a toggleable addon and can
+       disappear if that addon gets disabled — teal marks the latter so
+       that distinction is visible while scanning the list, not just
+       readable from the category label text. */
+    --category-addon: #2dd4bf;
+
     /* Sizing & Typography */
     --radius-sm:     4px;
     --radius:        6px;
@@ -244,6 +258,11 @@ body {
 .btn:active {
     transform: translateY(1px);
 }
+.btn:disabled {
+    cursor: default;
+    opacity: 0.5;
+    pointer-events: none;
+}
 
 .btn-primary {
     color: var(--accent-text);
@@ -325,6 +344,15 @@ body {
     color: var(--text);
     white-space: nowrap;
 }
+/* A user-entered value (POI label, character name, zone text) has no
+   real upper bound — clip it instead of forcing the whole table into
+   horizontal scroll for one long row. Callers should also set the
+   native `title` attribute so the full value is still reachable. */
+.cell-truncate {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 .table tbody tr {
     cursor: pointer;
     transition: background var(--transition);
@@ -346,4 +374,62 @@ body {
     background: var(--bg-dark);
     border-top: 1px solid var(--border);
     flex-shrink: 0;
+}
+
+/* ── Shared Field Primitive ─────────────────────────────────────
+   Used by Settings and every standalone dialog (Add POI, Main
+   Character prompt, etc.) — keep this the one definition so a
+   label/input pair looks identical everywhere it appears. */
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.field-label {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+/* ── Standalone Dialog Body ─────────────────────────────────────
+   Shared shell for small single-purpose popup windows (Add POI,
+   Main Character prompt). */
+.dialog-body {
+    padding: 16px 18px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+}
+.dialog-desc {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+}
+.dialog-coord {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: var(--font-sm);
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+/* ── Keyboard Focus ─────────────────────────────────────────────
+   .input/.select/.range already carry their own themed focus
+   treatment above; this covers every plain button and the toggle
+   switch so Tab-focus is never invisible or left at the browser
+   default blue ring. */
+button:focus-visible,
+[tabindex]:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+}
+input[type="checkbox"].toggle:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
 }

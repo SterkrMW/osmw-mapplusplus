@@ -116,6 +116,14 @@ function buildTabBar() {
 }
 
 function activateTab(name) {
+    // Leaving the Hotkeys tab mid-capture would otherwise leave AHK's
+    // InputHook listening in the background with no visible "capturing"
+    // button — the next keystroke typed anywhere (e.g. into another
+    // tab's text field) would silently get bound to the hidden action.
+    if (name !== 'Hotkeys' && capturingActionId) {
+        cancelActiveCapture();
+    }
+
     // Buttons
     document.querySelectorAll('.tab-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.tab === name);
@@ -218,9 +226,19 @@ function populateHotkeys() {
     for (const action of state.hotkeys.actions) {
         const cat = action.category || 'Other';
         if (cat !== prevCat) {
+            const isCore = cat === 'Core';
             const header = document.createElement('div');
-            header.className = 'hotkey-category';
-            header.textContent = cat;
+            header.className = `hotkey-category ${isCore ? 'category-core' : 'category-addon'}`;
+            if (!isCore) {
+                const icon = document.createElement('span');
+                icon.className = 'material-symbols-outlined category-icon';
+                icon.textContent = 'extension';
+                icon.title = 'Provided by an addon — disappears if the addon is disabled';
+                header.appendChild(icon);
+            }
+            const label = document.createElement('span');
+            label.textContent = cat;
+            header.appendChild(label);
             container.appendChild(header);
             prevCat = cat;
         }
@@ -261,7 +279,8 @@ function populateHotkeys() {
 }
 
 function startCapture(actionId) {
-    // Cancel any current capture
+    // Cancel any current capture — AHK-side cancellation happens as a
+    // side effect of start-hotkey-capture, so no separate message needed.
     if (capturingActionId) {
         const prevBtn = document.getElementById(`hk-btn-${capturingActionId}`);
         if (prevBtn) prevBtn.classList.remove('capturing');
@@ -274,6 +293,21 @@ function startCapture(actionId) {
         btn.classList.add('capturing');
     }
     sendToAhk('start-hotkey-capture', { actionId });
+}
+
+// Tell AHK to stop listening for a keypress when the capture is abandoned
+// through something other than pressing a key or starting another capture
+// (e.g. Reset / Reset all, or switching away from the Hotkeys tab). AHK's
+// InputHook otherwise keeps running silently and the next keystroke typed
+// anywhere gets bound to the action that's no longer even showing "Press
+// new shortcut…".
+function cancelActiveCapture() {
+    if (!capturingActionId) return;
+    const actionId = capturingActionId;
+    const btn = document.getElementById(`hk-btn-${actionId}`);
+    if (btn) btn.classList.remove('capturing');
+    capturingActionId = null;
+    sendToAhk('cancel-hotkey-capture', { actionId });
 }
 
 function handleHotkeyCaptured(msg) {
@@ -318,6 +352,7 @@ function formatChordForDisplay(chord, action) {
 }
 
 function resetHotkey(actionId, defaultDisplay, defaultChord) {
+    if (capturingActionId === actionId) cancelActiveCapture();
     pendingHotkeys[actionId] = defaultChord;
     const btn = document.getElementById(`hk-btn-${actionId}`);
     if (btn) {

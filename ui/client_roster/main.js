@@ -38,15 +38,21 @@ function renderRoster(clients) {
     for (const client of clients) {
         const tr = document.createElement('tr');
         tr.dataset.hwnd = client.hwnd;
+        tr.tabIndex = 0;
 
         // Character column
+        const charName = client.charName || `PID ${client.pid}`;
         const tdChar = document.createElement('td');
-        tdChar.className = 'char-name';
-        tdChar.textContent = client.charName || `PID ${client.pid}`;
+        tdChar.className = 'char-name cell-truncate';
+        tdChar.textContent = charName;
+        tdChar.title = charName;
 
         // Zone column
+        const zoneText = client.zoneText || '—';
         const tdZone = document.createElement('td');
-        tdZone.textContent = client.zoneText || '—';
+        tdZone.className = 'cell-truncate';
+        tdZone.textContent = zoneText;
+        tdZone.title = zoneText;
 
         // Status column
         const tdStatus = document.createElement('td');
@@ -59,8 +65,13 @@ function renderRoster(clients) {
         tr.appendChild(tdZone);
         tr.appendChild(tdStatus);
 
-        tr.addEventListener('dblclick', () => {
-            sendToAhk('activate-client', { hwnd: client.hwnd });
+        const activate = () => sendToAhk('activate-client', { hwnd: client.hwnd });
+        tr.addEventListener('dblclick', activate);
+        tr.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                activate();
+            }
         });
 
         tbody.appendChild(tr);

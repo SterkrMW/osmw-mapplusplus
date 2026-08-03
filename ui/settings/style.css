@@ -152,15 +152,12 @@
 }
 
 /* ── Fields ─────────────────────────────────────────────────── */
-.field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-.field-label {
+/* .field / .field-label are shared — see ui/common/style.css */
+
+.addon-field-info {
     font-size: var(--font-sm);
     color: var(--text-muted);
-    font-weight: 500;
+    line-height: 1.5;
 }
 
 .field-row {
@@ -299,14 +296,28 @@
 }
 
 .hotkey-category {
+    display: flex;
+    align-items: center;
+    gap: 5px;
     font-size: 11px;
     font-weight: 700;
-    color: var(--accent);
     text-transform: uppercase;
     letter-spacing: 0.8px;
     margin: 12px 0 4px;
     padding-bottom: 4px;
     border-bottom: 1px solid var(--border);
+}
+.hotkey-category.category-core {
+    color: var(--accent);
+}
+/* Addon-contributed categories (anything but Core) get a distinct color
+   plus an icon — never color alone — since these rows disappear if the
+   owning addon is disabled, unlike the fixed Core set. */
+.hotkey-category.category-addon {
+    color: var(--category-addon);
+}
+.hotkey-category .category-icon {
+    font-size: 13px;
 }
 .hotkey-category:first-child { margin-top: 0; }
 
