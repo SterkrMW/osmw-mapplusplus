@@ -1,0 +1,413 @@
+/* Character Vendor — panel-local only. Colours, buttons, inputs, badges,
+   tables, the title bar and the footer all come from ../common/style.css. */
+
+/* ── Header strip ───────────────────────────────────────────── */
+.vendor-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: var(--surface-alt);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.head-spacer { flex: 1; }
+
+.listed-count {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.tb-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.tb-label {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+}
+.tb-sep {
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+}
+.select-sm, .input-sm {
+    height: 26px;
+    font-size: var(--font-sm);
+    padding: 0 8px;
+}
+#clientSelect { max-width: 220px; }
+
+/* ── Body ───────────────────────────────────────────────────── */
+.vendor-body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 210px;
+    min-height: 0;
+}
+
+.grid-pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+}
+
+.bulk-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+}
+.bulk-count {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+    min-width: 96px;
+}
+.price-bulk {
+    width: 150px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── The 6x4 grid ───────────────────────────────────────────── */
+.grid-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 14px 16px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+.grid-wrap::-webkit-scrollbar { width: 6px; }
+.grid-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.slot-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr));
+    gap: 8px;
+}
+
+.slot {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 7px 7px 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid transparent;
+    border-radius: var(--radius);
+    transition: border-color var(--transition), background var(--transition);
+}
+.slot:hover { background: var(--surface-hover); }
+
+.slot-selected {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent-glow, rgba(229, 184, 59, 0.35));
+}
+
+/* A slot whose draft price differs from what the client currently holds. */
+.slot-dirty { border-left-color: var(--accent); }
+
+.slot-empty { opacity: 0.55; }
+.slot-empty .price-input { color: var(--text-dim); }
+
+.slot-top {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+}
+
+/* Out of the flow so the icon centres over the price field rather than being
+   pushed off-axis by the slot number. The tile is position: relative and its
+   left border is always 3px (transparent until dirty), so this never shifts. */
+.slot-index {
+    position: absolute;
+    top: 5px;
+    left: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+}
+
+.slot-icon {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+    image-rendering: pixelated;
+    flex-shrink: 0;
+}
+.slot-icon[hidden] { display: none; }
+
+/* Either the slot holds nothing, or the icon file is missing — both get a
+   placeholder rather than a broken-image glyph. It stands in for the icon, so
+   only ever one of the two is visible. */
+.slot-ph {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: var(--text-dim);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+}
+/* Required, not defensive: the `display: flex` above outranks the browser's
+   built-in [hidden] rule, so without this the placeholder stays on screen
+   next to a thumbnail that loaded perfectly well. */
+.slot-ph[hidden] { display: none; }
+
+.price-input {
+    width: 100%;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.slot-hint {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    min-height: 13px;
+}
+.slot-was {
+    text-decoration: line-through;
+    opacity: 0.75;
+}
+
+/* ── Magnitude bands ────────────────────────────────────────────
+   Colour is bound to digit count, so adding or dropping a zero always
+   changes the colour. That is the pre-attentive signal a bare number
+   cannot give, and it is the whole reason this panel exists. Bands are
+   computed AHK-side so the native list and this grid cannot drift. */
+.band-0 .price-input { color: var(--text-dim); }
+.band-1 .price-input { color: var(--text-muted); }
+.band-2 .price-input { color: var(--info); }
+.band-3 .price-input { color: var(--success); }
+.band-4 .price-input { color: var(--accent); }
+.band-5 .price-input { color: var(--warning); }
+.band-6 .price-input { color: var(--danger); }
+
+.band-5 .slot-hint::before {
+    content: '⚠';
+    color: var(--warning);
+}
+
+.legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px 10px;
+    font-size: 11px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+.legend-title {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+.legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.legend-item i {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: currentColor;
+}
+.legend-item.band-1 { color: var(--text-muted); }
+.legend-item.band-2 { color: var(--info); }
+.legend-item.band-3 { color: var(--success); }
+.legend-item.band-4 { color: var(--accent); }
+.legend-item.band-5 { color: var(--warning); }
+
+/* ── Drag marquee ───────────────────────────────────────────── */
+.marquee {
+    position: absolute;
+    border: 1px solid var(--accent);
+    background: rgba(229, 184, 59, 0.12);
+    border-radius: var(--radius-sm);
+    pointer-events: none;
+    z-index: 5;
+}
+.marquee[hidden] { display: none; }
+
+/* ── Preset rail ────────────────────────────────────────────── */
+.rail {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--surface-alt);
+}
+.rail-right { border-left: 1px solid var(--border); }
+
+.rail-title {
+    padding: 10px 12px 8px;
+    font-size: var(--font-sm);
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.rail-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 8px 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+.rail-scroll::-webkit-scrollbar { width: 6px; }
+.rail-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.rail-empty {
+    padding: 4px 4px 10px;
+    font-size: var(--font-sm);
+    line-height: 1.5;
+    color: var(--text-dim);
+}
+.rail-empty strong { color: var(--text-muted); }
+
+.rail-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 8px;
+    border-top: 1px solid var(--border);
+}
+.rail-actions-stack { grid-template-columns: 1fr; }
+
+.preset-list { list-style: none; }
+.preset-item {
+    padding: 7px 9px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background var(--transition), border-color var(--transition);
+}
+.preset-item:hover { background: var(--surface-hover); }
+.preset-item.selected {
+    background: rgba(229, 184, 59, 0.1);
+    border-color: var(--accent);
+}
+.preset-name {
+    display: block;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.preset-meta {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+.footer-left { min-width: 0; flex: 1; }
+.footer-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.apply-note {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-right: 4px;
+}
+.apply-note strong { color: var(--text-muted); }
+
+.status {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.status.error   { color: var(--danger); }
+.status.warn    { color: var(--warning); }
+.status.success { color: var(--success); }
+
+/* ── Diff modal ─────────────────────────────────────────────── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6, 7, 10, 0.65);
+    z-index: 20;
+}
+.modal-overlay[hidden] { display: none; }
+
+.modal {
+    width: 340px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+}
+.modal-wide {
+    width: 560px;
+    max-height: 78vh;
+    display: flex;
+    flex-direction: column;
+}
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 10px 10px 16px;
+    font-weight: 600;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    min-height: 0;
+}
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--bg-dark);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.diff-table td { font-variant-numeric: tabular-nums; }
+.diff-table tbody tr { cursor: default; }
+.diff-icon {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    image-rendering: pixelated;
+    vertical-align: middle;
+    margin-right: 5px;
+}

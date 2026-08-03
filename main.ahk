@@ -349,6 +349,10 @@ _IconForLabel(lbl) {
         case "Client Roster (list)": return "format_list_bulleted"
         case "Quick Actions": return "tune"
         case "Inventory": return "inventory_2"
+        ; TODO: `storefront` once the icon subset is next regenerated.
+        case "Character Vendor": return "inventory_2"
+        case "Pricing Panel…": return "grid_view"
+        case "Verify Slot Mapping…": return "track_changes"
         case "Map POIs": return "location_on"
         case "View Mode": return "visibility"
         case "Window Layout", "Apply Preset", "Apply Custom": return "grid_view"

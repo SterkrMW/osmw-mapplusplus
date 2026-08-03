@@ -7,5 +7,6 @@ inventory_toggle.ahk
 map_pois.ahk
 party_markers.ahk
 quick_actions.ahk
+shop_prices.ahk
 view_mode.ahk
 window_layout.ahk

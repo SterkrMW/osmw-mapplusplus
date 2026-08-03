@@ -268,6 +268,65 @@ Useful when multi-boxing: hide chat on alts to reduce clutter, or shrink chat gl
 | **Alt+E** | Open inventory on the active client (clicks the inventory button) |
 | **Alt+Shift+E** | Send **Alt+I** to open inventory |
 
+### Character Vendor (Full only)
+
+| Hotkey | Action |
+|--------|--------|
+| **Ctrl+Alt+B** | Open the Character Vendor pricing panel for the active client |
+
+Setting up a player shop normally means typing a price for each item one at a time, into a
+client box that shows no thousands separators — so `1000000` and `100000` look almost
+identical. This panel shows your 24 inventory slots as a 6×4 grid with item thumbnails and
+prices formatted as you type (`1,500,000`), coloured by magnitude so a missing or extra zero
+changes the colour.
+
+**It only writes prices.** It never opens your shop — after applying, you click **Open**
+in-game yourself so you can check every price first.
+
+Using it:
+
+- **Type a price** into any slot. It formats itself as you go; `1.2m` and `850k` are accepted
+  and expand when you leave the field.
+- **Select several slots** — click, Ctrl+click to add one, Shift+click for a range, or drag a
+  box across the grid. Then type a price in the toolbar and press **Set on selected** to price
+  them all at once.
+- **Nothing is written until you press Apply.** Changed slots are marked with a gold bar and
+  show the old price struck through. **Revert** puts everything back.
+- After applying, Maps++ reads the values back and checks each one. If any price did not take,
+  it says so rather than reporting success.
+
+**Presets** save the prices you have in the grid under a name, for shops you re-list often.
+Presets are keyed by **slot position**, not by item — so if your inventory has been reordered
+since you saved, the prices would land on different items. Loading a preset therefore always
+shows a preview first, flagging any slot that now holds a different item or is empty, and
+"Load into grid" only fills in the grid: you still press Apply yourself.
+
+Presets are stored in `shop_presets.ini` next to `config.ini`.
+
+**The grid follows the game.** While the panel is open it re-reads your client about once a
+second, so prices you change in the game’s own shop window appear in the grid. That makes a
+useful workflow: set one base price across a group of similar items from the panel, apply it,
+then nudge individual ones up or down in game and watch the grid keep up.
+
+Anything you have typed but not applied is kept — the slot stays marked as changed, and the
+value it will replace updates underneath it. The one exception is a slot where the *item*
+itself changed: that price was meant for something that is no longer there, so it is dropped
+and the panel tells you which slots.
+
+**Close your vendor before pricing.** While the vendor window is open in-game the client owns
+the price table, so applying is blocked and the header shows *“Your vendor is open”*. Close it
+and the panel unblocks within a second. You can still read and edit the grid meanwhile —
+only writing is held back.
+
+The panel writes to the client it was opened from — shown in the title bar — and will not
+follow your focus to another window. Use the **Client** dropdown in the header to switch
+deliberately. Applying is blocked while that client is in battle, not logged in, or has the
+vendor open.
+
+**Tray → Character Vendor → Verify Slot Mapping…** dumps the raw price and item-id arrays
+next to each other. Use it after a game update to confirm the grid still lines up with your
+real inventory.
+
 ### Battle Send (Full / Battle)
 
 | Hotkey | Action |
@@ -437,6 +496,12 @@ LabelMode=autohide
 DefaultKind=npc
 LayerVisible=1
 
+[ShopPrices]
+ConfirmHigh=1
+WarnAbove=10000000
+PresetClears=0
+IconBase=0
+
 [QuickActions]
 Actions=viewModeToggle,battleSend,inventoryOpenClick,chatToggleAll,windowLayoutPrimary,clientRosterToggle,poiToggleLayer,openSettings
 Prewarm=1
@@ -450,6 +515,7 @@ ClientRoster=1
 PartyMarkers=1
 MapPois=1
 QuickActions=1
+ShopPrices=1
 ```
 
 | Setting | Meaning |
@@ -475,10 +541,41 @@ QuickActions=1
 | `DefaultLayout` | Layout used by **Ctrl+Shift+L/K** — a preset name, or the name of one of your custom layouts |
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |
+| `ConfirmHigh` | `1` = ask for confirmation before applying a large vendor price |
+| `WarnAbove` | The price at which that confirmation kicks in |
+| `PresetClears` | `1` = loading a shop preset also clears prices on slots the preset doesn’t mention. Off by default, so presets only add |
+| `IconBase` | Whether the client’s item id is `0`- or `1`-based, which decides how thumbnails are matched. Set it from **Settings → Character Vendor** after comparing one known item |
+| `ItemIdOffset` | Override for the inventory item-id address, e.g. `0x2E2028`. Only needed if a game update moves it; blank uses the built-in value, `0` turns thumbnails off |
 | `[Hotkeys]` | One entry per rebindable action, in AutoHotkey chord syntax (`^`=Ctrl, `!`=Alt, `+`=Shift). Only actions you have rebound appear here; rebind from **Settings → Hotkeys** |
 | `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
 
 After editing `config.ini`, use **Reload** from the tray menu or **Ctrl+Alt+R**.
+
+### Shop presets (`shop_presets.ini`)
+
+Character Vendor presets live beside `config.ini` in the same way. The editor writes this for
+you, but the format is plain text:
+
+```ini
+[Index]
+1=Weekend Prices
+
+[Preset.1]
+Saved=20260803143012
+Char=Sterkr
+Slot1=1000000|37
+Slot7=250000|118
+```
+
+| Field | Meaning |
+|-------|---------|
+| `[Index]` | One `id=name` line per preset. Renaming only touches this section |
+| `Saved` | When the preset was captured |
+| `Char` | The character whose grid it was captured from |
+| `Slot<N>` | `price|item id at save time`. Slots with no line are left alone when the preset is loaded |
+
+The item id is only used to warn you when a slot now holds something different — presets match
+by **slot position**, which is why loading one always shows a preview first.
 
 ### Custom layouts (`layouts.ini`)
 

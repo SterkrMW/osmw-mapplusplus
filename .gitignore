@@ -3,6 +3,7 @@
 *.zip
 config.ini
 layouts.ini
+shop_presets.ini
 /releases
 _addons.ahk
 /docs/superpowers
