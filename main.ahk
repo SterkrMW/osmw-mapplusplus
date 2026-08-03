@@ -94,7 +94,7 @@ global gWebTrayItems := []
 global gWebTrayPos := 0
 global gWebTrayShown := false     ; on screen right now
 global gWebTrayPending := false   ; an open is waiting for the page
-global TRAY_MENU_W := 320, TRAY_MENU_H := 380
+global TRAY_MENU_W := 320, TRAY_MENU_H := 390
 
 _EnsureWebTrayGui() {
     global gWebTrayGui, TRAY_MENU_W, TRAY_MENU_H

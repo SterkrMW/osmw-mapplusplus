@@ -90,6 +90,7 @@ RadialRegister(spec) {
         hostHwnd: 0,
         hit: 0,             ; page's self-measured layout, in its own CSS pixels
         items: [],          ; what the page was last told to draw
+        payload: "",        ; last rendered JSON; unchanged refreshes are no-ops
         hoverIndex: 0,      ; 0 none, -1 hub, else 1-based spoke
         pos: 0              ; where the next reveal puts the window
     }
@@ -188,7 +189,7 @@ _Radial_MakeMessageHandler(name) {
 ; The page is ready but may still be settling; give it a beat before the first
 ; push, exactly as the roster's own load handler did.
 _Radial_MakeLoadHandler(name) {
-    return (*) => SetTimer(_Radial_PushItems.Bind(_Radial_Ring(name)), -50)
+    return (*) => SetTimer(_Radial_PushItems.Bind(_Radial_Ring(name), true), -50)
 }
 
 ; Warms a ring up in the background so even the first press is quick. The
@@ -266,7 +267,7 @@ RadialOpen(name) {
     ; Re-render with the items that apply now. The page answers with a fresh
     ; hit map, and that is what slides the ring in — so it never appears
     ; showing the previous open's spokes.
-    _Radial_PushItems(ring)
+    _Radial_PushItems(ring, true)
     ; Backstop for a page that fails to load and never reports.
     SetTimer(_Radial_RevealPending, -600)
 }
@@ -375,7 +376,7 @@ _Radial_OnWebMessage(name, wv, args) {
 
     switch msg["type"] {
         case "init-request":
-            _Radial_PushItems(ring)
+            _Radial_PushItems(ring, true)
         case "hit-map":
             _Radial_SetHitMap(ring, msg)
         case "dismiss":
@@ -429,7 +430,7 @@ RadialRefresh(name) {
     _Radial_PushItems(_Radial_Ring(name))
 }
 
-_Radial_PushItems(ring) {
+_Radial_PushItems(ring, force := false) {
     if !IsObject(ring) || !IsObject(ring.gui) {
         return
     }
@@ -455,8 +456,19 @@ _Radial_PushItems(ring) {
             hubJson := _Radial_HubJson(hub)
     }
 
-    try ring.gui.PostWebMessageAsJson('{"type":"radial-items","ring":' _JSON_Str(ring.name)
-        . ',"items":' itemsJson ',"hub":' hubJson '}')
+    payload := '{"type":"radial-items","ring":' _JSON_Str(ring.name)
+        . ',"items":' itemsJson ',"hub":' hubJson '}'
+    ; Snapshot consumers may ask for a refresh on every poll. Rebuilding an
+    ; unchanged page resets hover and replays the spoke bloom, which looks like
+    ; the whole menu is periodically flashing. Always push on page load/open
+    ; (a fresh hit map is required), but make routine refreshes data-driven.
+    if (!force && payload = ring.payload) {
+        return
+    }
+    try {
+        ring.gui.PostWebMessageAsJson(payload)
+        ring.payload := payload
+    }
 }
 
 _Radial_Field(m, key, default := "") {
