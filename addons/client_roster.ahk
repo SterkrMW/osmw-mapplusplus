@@ -246,9 +246,7 @@ _ClientRoster_OnNativeRowActivate(lv, row) {
     global _ClientRoster_RowHwnds
     if (row < 1 || row > _ClientRoster_RowHwnds.Length)
         return
-    hwnd := _ClientRoster_RowHwnds[row]
-    if WinExist("ahk_id " hwnd)
-        WinActivate("ahk_id " hwnd)
+    _ClientRoster_Activate(_ClientRoster_RowHwnds[row])
 }
 
 _ClientRoster_PushSnapshot() {
@@ -273,11 +271,27 @@ _ClientRoster_OnWebMessage(wv, args) {
         case "init-request":
             _ClientRoster_PushSnapshot()
         case "activate-client":
-            if msg.Has("hwnd") && WinExist("ahk_id " msg["hwnd"]) {
-                WinActivate("ahk_id " msg["hwnd"])
-            }
+            if msg.Has("hwnd")
+                _ClientRoster_Activate(msg["hwnd"])
         case "close":
             _ClientRoster_UserHide()
+    }
+}
+
+; Activates a roster selection and leaves the pointer ready to interact with
+; the game. Client coordinates exclude the title bar and window borders, and
+; WinGetClientPos returns them in screen space so this also works across
+; monitors with different origins.
+_ClientRoster_Activate(hwnd) {
+    if !WinExist("ahk_id " hwnd)
+        return
+    WinActivate("ahk_id " hwnd)
+    try {
+        WinGetClientPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        if (w > 0 && h > 0) {
+            CoordMode("Mouse", "Screen")
+            MouseMove(x + w // 2, y + h // 2, 0)
+        }
     }
 }
 
@@ -350,9 +364,7 @@ _ClientRadial_Hub() {
 }
 
 _ClientRadial_OnSelect(item, index) {
-    if WinExist("ahk_id " item["key"]) {
-        WinActivate("ahk_id " item["key"])
-    }
+    _ClientRoster_Activate(item["key"])
 }
 
 _ClientRadial_OnHub() {
