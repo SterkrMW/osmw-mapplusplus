@@ -460,6 +460,26 @@ class WebViewCtrl extends Gui.Custom {
         this.wvc := WebView2.Create(this.Hwnd,, CreatedEnvironment, DataDir, EdgeRuntime, Options, DllPath)
         this.wv := this.wvc.CoreWebView2
         WebViewCtrl.ActiveHwnds[this.Hwnd] := this.wvc
+
+        ; These controls host application UI, not general-purpose browser tabs.
+        ; Leaving browser chrome enabled lets a stray right-click, F5, browser
+        ; mouse button, or touch gesture navigate away from the only UI page.
+        this.AreDefaultContextMenusEnabled := false
+        this.AreBrowserAcceleratorKeysEnabled := false
+        this.IsSwipeNavigationEnabled := false
+
+        ; Defence in depth: cancel history/reload navigation even if WebView2
+        ; receives it through an input path not covered by the settings above.
+        ; NEW_DOCUMENT remains allowed so the host can call Navigate() normally.
+        this.wv.add_NavigationStarting(PreventBrowserNavigation)
+        PreventBrowserNavigation(ICoreWebView2, Args) {
+            kind := Args.NavigationKind
+            if (kind = WebView2.NAVIGATION_KIND.RELOAD
+                || kind = WebView2.NAVIGATION_KIND.BACK_OR_FORWARD) {
+                Args.Cancel := true
+            }
+        }
+
         this.wv.InjectAhkComponent().await()
         this.wvc.IsVisible := 1
         if (A_IsCompiled && !DirExist(A_WorkingDir "\ui")) {
