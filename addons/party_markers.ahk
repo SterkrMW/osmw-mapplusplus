@@ -50,8 +50,15 @@ _PartyMarkers_OnInit() {
 }
 
 _PartyMarkers_OnTrayMenu(trayMenu) {
-    trayMenu.Add("Party Markers`t" GetHotkeyDisplay("partyMarkersToggleLayer"),
-        (*) => _PartyMarkers_ToggleLayer())
+    global _PartyMarkers_LayerVisible
+    itemLabel := "Party Markers — " (_PartyMarkers_LayerVisible ? "On" : "Off")
+        . "`t" GetHotkeyDisplay("partyMarkersToggleLayer")
+    trayMenu.Add(itemLabel, (*) => _PartyMarkers_ToggleLayer())
+    if _PartyMarkers_LayerVisible {
+        ; Native menus get the familiar checkmark as well as the explicit text;
+        ; the enhanced tray still receives the On/Off label through its bridge.
+        trayMenu.Check(itemLabel)
+    }
 }
 
 _PartyMarkers_ToggleLayer() {
@@ -71,6 +78,9 @@ _PartyMarkers_SetLayerVisible(visible) {
     } else {
         _PartyMarkers_HideAll()
     }
+    ; Rebuild after the current callback returns so the native tray's label and
+    ; checkmark cannot remain stale. The enhanced tray also rebuilds on open.
+    SetTimer(RebuildTrayMenu, -1)
 }
 
 _PartyMarkers_OnSettingsWeb() {
@@ -181,12 +191,16 @@ _PartyMarkers_OnSnapshot(snapshots) {
 
         used++
         entry := _PartyMarkers_Pool[used]
-        ; Colour is fixed per pool slot at creation, so slot N is always the
-        ; same colour for as long as the overlay lives.
+        ; Reapply and redraw the background just as the POI layer does.  These
+        ; controls start life hidden; on some redraw paths Windows otherwise
+        ; paints the label but leaves the newly-shown static's background
+        ; transparent, making the party dot appear to be missing.
+        entry.dot.Opt("+Background" _PartyMarkers_ColorFor(used))
         entry.dot.Move(px + MINIMAP_MAP_INSET, py + MINIMAP_MAP_INSET, size, size)
         entry.dot.Visible := true
+        entry.dot.Redraw()
 
-        ; Positioned even when hidden, so showing them on hover is instant.
+        ; Positioned even when hidden, so restoring names after hover is instant.
         PositionMarkerLabel(entry.label, snap.charName,
             px + MINIMAP_MAP_INSET, py + MINIMAP_MAP_INSET, size,
             showLabels && snap.charName != "")

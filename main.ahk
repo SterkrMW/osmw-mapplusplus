@@ -2,7 +2,7 @@
 ;@Ahk2Exe-SetName Maps++
 ;@Ahk2Exe-SetDescription Maps++
 ;@Ahk2Exe-SetProductName Maps++
-;@Ahk2Exe-SetCompanyName SterkrMW
+;@Ahk2Exe-SetCompanyName osMW
 #SingleInstance Force
 #Warn
 
@@ -35,6 +35,9 @@ LoadHotkeyOverrides()
 ApplyAllHotkeys()
 SetTimer(UpdateMapState, 200)
 SetTimer(CloseOverlayIfFocusLeftGame, 200)
+SetTimer(UpdateClientSnapshots, CLIENT_SNAPSHOT_INTERVAL)
+RegisterOverlayMouseHandlers()
+OnExit((*) => (ReleaseCachedProcessHandle(), ReleaseAllClientProcesses()))
 
 ; Auto-launch a game instance on startup / re-launch.
 if (gLaunchOnStartup) {
@@ -328,6 +331,9 @@ _MakeHmenuCallback(hMenu, cmdId) {
 }
 
 _IconForLabel(lbl) {
+    ; Toggle items may append their live state to the visible label.
+    if (InStr(lbl, "Party Markers — ") = 1)
+        return "shield"
     switch lbl {
         case "Launch Game", "Launch Game (Secondary)": return "rocket_launch"
         case "Launch Clients + Apply Layout": return "devices"
@@ -343,7 +349,6 @@ _IconForLabel(lbl) {
         case "Client Roster (list)": return "format_list_bulleted"
         case "Inventory": return "inventory_2"
         case "Map POIs": return "location_on"
-        case "Party Markers": return "shield"
         case "View Mode": return "visibility"
         case "Window Layout", "Apply Preset", "Apply Custom": return "grid_view"
         case "Capture Current As…": return "devices"
