@@ -1,5 +1,45 @@
-@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0');
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* Self-hosted — these used to be @import'd live from fonts.googleapis.com,
+   which meant every panel (including the client-radial switcher, which needs
+   to pop open instantly mid-fight) depended on a network fetch just to render
+   its own chrome. The Material Symbols file below is subset to only the
+   ~26 icon names this app actually uses (see _IconForLabel in main.ahk and
+   TAB_ICONS in settings/main.js) — add any new icon name to that subset
+   request or it will render as blank/tofu. */
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('fonts/inter-400.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('fonts/inter-500.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('fonts/inter-600.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('fonts/inter-700.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Material Symbols Outlined';
+    font-style: normal;
+    font-weight: 400;
+    font-display: block;
+    src: url('fonts/material-symbols-outlined.woff2') format('woff2');
+}
 
 :root {
     /* Color Palette - Modern Charcoal Slate & Refined Warm Gold */

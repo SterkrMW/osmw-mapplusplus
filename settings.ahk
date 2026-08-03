@@ -56,7 +56,6 @@ _Settings_BuildWebView() {
 
     ; Listen for messages from the JS frontend.
     g.WebMessageReceived(_Settings_OnWebMessage)
-    g.DOMContentLoaded((*) => SetTimer(_Settings_SendState, -50))
 
     ; Navigate to the settings page. WebViewToo routes via ahk.localhost.
     g.Navigate("ui/settings/index.html")

@@ -328,11 +328,16 @@ function resetHotkey(actionId, defaultDisplay, defaultChord) {
 
 function populateAddonTabs() {
     const panels = document.getElementById('panels');
+
+    // State may be refreshed while this page is open. Replace previously
+    // generated add-on panels instead of appending another copy of each one.
+    panels.querySelectorAll('.addon-panel').forEach(panel => panel.remove());
+
     if (!state.addonTabs) return;
 
     for (const addonTab of state.addonTabs) {
         const section = document.createElement('section');
-        section.className = 'panel';
+        section.className = 'panel addon-panel';
         section.dataset.tab = addonTab.label;
 
         const header = document.createElement('div');

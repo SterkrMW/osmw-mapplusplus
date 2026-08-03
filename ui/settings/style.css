@@ -228,6 +228,10 @@
     outline: none;
     cursor: pointer;
     flex: 1;
+    transition: box-shadow var(--transition);
+}
+.range:focus-visible {
+    box-shadow: 0 0 0 2px var(--border-focus);
 }
 .range::-webkit-slider-thumb {
     -webkit-appearance: none;
@@ -345,7 +349,7 @@
     height: 28px;
     padding: 0 8px;
     font-size: 11px;
-    color: var(--text-dim);
+    color: var(--text-muted);
     background: transparent;
     border: 1px solid transparent;
     border-radius: var(--radius-sm);

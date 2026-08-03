@@ -123,6 +123,8 @@ function openAddModal(zoneName, x, y, defaultKind) {
     document.getElementById('modalLabelInput').value = '';
     if (defaultKind) document.getElementById('modalKindSelect').value = defaultKind;
     document.getElementById('addPoiModal').style.display = 'flex';
+    document.addEventListener('keydown', onModalKeydown);
+    document.addEventListener('focus', trapModalFocus, true);
     setTimeout(() => document.getElementById('modalLabelInput').focus(), 50);
 }
 
@@ -131,6 +133,21 @@ document.getElementById('btnModalCancel').addEventListener('click', closeAddModa
 
 function closeAddModal() {
     document.getElementById('addPoiModal').style.display = 'none';
+    document.removeEventListener('keydown', onModalKeydown);
+    document.removeEventListener('focus', trapModalFocus, true);
+}
+
+function onModalKeydown(e) {
+    if (e.key === 'Escape') closeAddModal();
+}
+
+// Tab never leaves the modal while it's open — the modal is a sibling of the
+// table, not a native <dialog>, so nothing else stops focus escaping into it.
+function trapModalFocus(e) {
+    const modal = document.getElementById('addPoiModal');
+    if (!modal.contains(e.target)) {
+        document.getElementById('modalLabelInput').focus();
+    }
 }
 
 document.getElementById('btnModalAdd').addEventListener('click', () => {
