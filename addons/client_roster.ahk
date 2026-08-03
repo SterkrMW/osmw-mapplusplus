@@ -73,12 +73,6 @@ RegisterHotkeyAction(Map(
     "handler", (*) => _ClientRoster_Toggle()
 ))
 
-; The core never fires the OnInit hook, so config has to be loaded at include
-; time (variables.ahk, and therefore CONFIG_INI, is already loaded by now).
-; OnInit stays registered for whenever the core starts firing it — the loads
-; are idempotent.
-_ClientRoster_OnInit()
-
 _ClientRoster_OnInit() {
     _ClientRoster_LoadConfig()
     OnExit(_ClientRoster_OnExit)

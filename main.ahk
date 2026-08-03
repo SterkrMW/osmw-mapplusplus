@@ -26,6 +26,10 @@ LoadNpcNextId()
 if !A_IsCompiled
     GenerateAddonIncludes()
 LoadAddonEnabledStates()
+; Addons load their own config here rather than at include time: gInterfaceMode
+; is set by LoadLauncherConfig above, and the enabled/disabled state is known, so
+; a disabled addon's OnInit is correctly skipped.
+FireAddonHook("OnInit")
 RegisterCoreHotkeyActions()
 LoadHotkeyOverrides()
 ApplyAllHotkeys()
@@ -320,7 +324,10 @@ _IconForLabel(lbl) {
         case "Map POIs": return "location_on"
         case "Party Markers": return "shield"
         case "View Mode": return "visibility"
-        case "Window Layout": return "grid_view"
+        case "Window Layout", "Apply Preset", "Apply Custom": return "grid_view"
+        case "Capture Current As…": return "devices"
+        case "Layouts…": return "format_list_bulleted"
+        case "Undo Last Apply": return "refresh"
         case "Interface": return "tune"
         case "Native (low memory)", "● Native (low memory)": return "memory"
         case "WebView2 (enhanced)", "● WebView2 (enhanced)": return "web_asset"

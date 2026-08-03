@@ -2,6 +2,7 @@
 *.exe
 *.zip
 config.ini
+layouts.ini
 /releases
 _addons.ahk
 /docs/superpowers

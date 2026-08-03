@@ -1,0 +1,353 @@
+/* Window Layouts editor — three columns over a shared footer. Tokens all come
+   from ../common/style.css; the only additions here are the stage primitives,
+   which have no analogue in any other panel. */
+
+.workspace {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr) 224px;
+    min-height: 0;
+}
+
+/* ── Rails ──────────────────────────────────────────────────── */
+.rail {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--surface-alt);
+}
+.rail-left  { border-right: 1px solid var(--border); }
+.rail-right { border-left: 1px solid var(--border); }
+
+.rail-title {
+    padding: 10px 12px 8px;
+    font-size: var(--font-sm);
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.rail-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    /* A number input's intrinsic min-width is wider than the rail, which would
+       otherwise push the Y field out of sight behind a horizontal scrollbar. */
+    overflow-x: hidden;
+    padding: 0 8px 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+.rail-scroll::-webkit-scrollbar { width: 6px; }
+.rail-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.rail-empty {
+    padding: 4px 4px 10px;
+    font-size: var(--font-sm);
+    line-height: 1.5;
+    color: var(--text-dim);
+}
+.rail-empty strong { color: var(--text-muted); }
+
+.rail-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 8px;
+    border-top: 1px solid var(--border);
+}
+.rail-actions-stack { grid-template-columns: 1fr; }
+
+/* ── Saved layout list ──────────────────────────────────────── */
+.layout-list { list-style: none; }
+
+.layout-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 7px 9px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background var(--transition), border-color var(--transition);
+}
+.layout-item:hover { background: var(--surface-hover); }
+.layout-item.selected {
+    background: var(--accent-glow);
+    border-color: rgba(229, 184, 59, 0.35);
+}
+
+.layout-name {
+    flex: 1 1 100%;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.layout-meta {
+    font-size: 11px;
+    color: var(--text-dim);
+}
+.layout-item.offline .layout-meta { color: var(--warning); }
+
+.default-dot {
+    color: var(--accent);
+    font-size: 11px;
+    line-height: 1;
+}
+
+/* ── Toolbar ────────────────────────────────────────────────── */
+.stage-pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+.tb-icon { font-size: 14px; }
+.tb-sep {
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+}
+.tb-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.tb-label {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+}
+.select-sm, .input-sm {
+    height: 26px;
+    font-size: var(--font-sm);
+    padding: 0 8px;
+}
+#monitorSelect { max-width: 230px; }
+
+/* ── Stage ──────────────────────────────────────────────────── */
+.stage-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 0;
+    padding: 16px;
+    overflow: auto;
+}
+
+/* The frame is capped in both axes so a tall work area can't push the stage
+   past the viewport; .stage keeps the true aspect ratio inside it. */
+.stage-frame {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 100%;
+    flex: 1;
+    min-height: 0;
+}
+
+.stage {
+    position: relative;
+    background:
+        linear-gradient(var(--border-subtle) 1px, transparent 1px) 0 0 / 100% 25%,
+        linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px) 0 0 / 25% 100%,
+        var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    outline: none;
+    touch-action: none;
+}
+.stage:focus-visible {
+    box-shadow: 0 0 0 2px var(--border-focus);
+}
+
+.stage-hint {
+    font-size: var(--font-sm);
+    color: var(--text-dim);
+    text-align: center;
+    max-width: 460px;
+    line-height: 1.5;
+}
+
+/* ── Slot boxes ─────────────────────────────────────────────── */
+.slot {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 2px;
+    overflow: hidden;
+    background: rgba(229, 184, 59, 0.10);
+    border: 1px solid rgba(229, 184, 59, 0.45);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 11px;
+    line-height: 1.2;
+    text-align: center;
+    cursor: grab;
+    touch-action: none;
+    transition: background var(--transition), border-color var(--transition);
+}
+.slot:hover { background: rgba(229, 184, 59, 0.18); }
+.slot.unbound {
+    background: rgba(148, 153, 173, 0.08);
+    border-style: dashed;
+    border-color: rgba(148, 153, 173, 0.45);
+    color: var(--text-muted);
+}
+.slot.offline {
+    border-color: rgba(245, 158, 11, 0.55);
+    background: rgba(245, 158, 11, 0.10);
+}
+.slot.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 4px 14px rgba(0, 0, 0, 0.45);
+    z-index: 3;
+}
+.slot.dragging {
+    cursor: grabbing;
+    z-index: 4;
+    transition: none;
+}
+.slot:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 1px;
+}
+
+.slot-index {
+    font-weight: 700;
+    color: var(--accent);
+    font-size: 12px;
+}
+.slot.unbound .slot-index { color: var(--text-dim); }
+.slot-name {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.slot-flag { font-size: 10px; color: var(--text-dim); }
+
+/* ── Alignment guides ───────────────────────────────────────── */
+.guide {
+    position: absolute;
+    background: var(--accent);
+    opacity: 0.75;
+    pointer-events: none;
+    z-index: 5;
+}
+.guide-v { top: 0; bottom: 0; width: 1px; }
+.guide-h { left: 0; right: 0; height: 1px; }
+
+/* ── Right rail form ────────────────────────────────────────── */
+.slot-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 4px 4px 8px;
+}
+.xy-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.xy-pair .field { min-width: 0; }
+.slot-form .input, .slot-form .select { width: 100%; min-width: 0; }
+.field-note {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.4;
+}
+.check-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    line-height: 1.35;
+}
+.check-row input { margin-top: 2px; accent-color: var(--accent); }
+
+/* ── Footer status ──────────────────────────────────────────── */
+.footer-left, .footer-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.status {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.status.error   { color: var(--danger); }
+.status.warn    { color: var(--warning); }
+.status.success { color: var(--success); }
+.status.dirty::after {
+    content: ' • unsaved';
+    color: var(--accent);
+}
+
+/* ── Name modal ─────────────────────────────────────────────── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6, 7, 10, 0.65);
+    z-index: 20;
+}
+.modal-overlay[hidden] { display: none; }
+
+.modal {
+    width: 340px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+}
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 10px 10px 16px;
+    font-weight: 600;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
+}
+.modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+}
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+}

@@ -103,7 +103,7 @@ Right-click the tray icon for the main menu:
 |------|---------|
 | **Launch Game** | Start a client on the primary monitor |
 | **Launch Game (Secondary)** | Start a client on the secondary monitor |
-| **Window Layout** | Apply window arrangements (Full / Lite) |
+| **Window Layout** | Apply preset or custom window arrangements, capture the current one, undo the last apply (Full / Lite) |
 | **Chat** | Chat panel shortcuts (Full / Battle) |
 | **Inventory** | Open inventory shortcuts (Full only) |
 | **Send Alt+Q to Fighting** | Battle command helper (Full / Battle) |
@@ -150,19 +150,24 @@ Global shortcuts work while the game or minimap overlay is focused.
 
 ### Window Layout (Full / Lite)
 
-Arranges all open game windows on one monitor. Window **size is never changed**—only position.
+Arranges your open game windows on one monitor. Window **size is never changed**—only position.
+**Minimized clients are left alone**, so a client you deliberately tucked away stays that way.
 
 | Hotkey | Action |
 |--------|--------|
 | **Ctrl+Shift+L** | Apply your default layout on the **primary** monitor |
 | **Ctrl+Shift+K** | Apply your default layout on the **secondary** monitor |
+| **Ctrl+Shift+O** | Open the **Window Layouts** window |
+| **Ctrl+Shift+Z** | **Undo** the last layout you applied |
 
-**Tray → Window Layout** offers one-time **Apply Preset** layouts: Reset, Single, Grid2x2,
-Grid3x2, CenterFocus, DiceLeft, DiceRight.
+**Tray → Window Layout** offers one-time **Apply Preset** layouts (Reset, Single, Grid2x2,
+Grid3x2, CenterFocus, DiceLeft, DiceRight), an **Apply Custom** list of your own saved layouts,
+**Capture Current As…**, **Layouts…**, and **Undo Last Apply**.
 
 The Window Layout **configuration** lives in **Settings… → Window Layout**:
 
-- **Default layout** — which preset **Ctrl+Shift+L/K** uses
+- **Default layout** — which layout **Ctrl+Shift+L/K** uses. Presets *and* your own custom
+  layouts both appear here
 - **Main character** — which character’s window is centered or brought to front
 - **Target display** — which monitor presets target when you have multiple screens
 
@@ -176,6 +181,61 @@ The Window Layout **configuration** lives in **Settings… → Window Layout**:
 | **DiceLeft / DiceRight** | Five windows in a dice pattern on one side of the screen |
 | **Single** | One window centered |
 | **Reset** | Move all windows to the top-left of the work area |
+
+More clients than a preset has slots? The extras no longer land exactly on top of each other —
+they **cascade** a little further down and right on each pass, and Maps++ tells you how many.
+
+#### Custom layouts
+
+Presets stop at six slots and treat every client as interchangeable. A **custom layout** stores
+one slot per client — up to all eleven — and remembers **which character belongs in which slot**,
+so re-applying it always puts the same client back in the same place.
+
+Two ways to make one, and they work together:
+
+1. **Capture.** Drag your clients wherever you want them, then **Tray → Window Layout →
+   Capture Current As…** and give it a name. This is the fast path, and it is exact.
+2. **Edit.** **Ctrl+Shift+O** (or **Tray → Window Layout → Layouts…**) opens the editor: a
+   scale drawing of your monitor with a draggable box per client. Use it to line things up
+   precisely, or to design a layout for alts that aren’t even launched yet.
+
+In the editor:
+
+| Control | What it does |
+|---------|--------------|
+| **Capture current** | Replaces the selected layout’s boxes with where your clients sit right now |
+| **Add slot** / **Remove slot** | Change how many clients the layout arranges |
+| **Snap** | **Guides** aligns to other boxes’ edges and centres; **8/16/32 px** snaps to a grid |
+| **Display** | Which monitor the layout targets |
+| **Character** | Pin a slot to one character, or leave it as **Any client** |
+| **Focus this window after applying** | The one client that gets activated at the end |
+| **Apply** / **Save** | Try it out, or store it |
+| **Set as default** | Make **Ctrl+Shift+L** apply this layout |
+
+Drag a box to move it, or select it and use the **arrow keys** (**Shift** for bigger steps).
+**Ctrl+S** saves. Boxes are drawn at the client window size recorded when the layout was
+captured — applying a layout still never resizes anything.
+
+**Native (low memory) mode** gets the same layouts without the canvas: **Ctrl+Shift+O** opens a
+list with Capture, Apply, Rename, Delete, Set as default and Undo. Capture is the main way to
+author a layout either way; switch to **Tray → Interface → WebView2 (enhanced)** for visual editing.
+
+**How clients are matched to slots when you apply:**
+
+1. A slot naming a character claims that character’s window.
+2. Whatever is left fills the unnamed slots, top-to-bottom then left-to-right.
+3. Any client beyond the last slot cascades instead of stacking.
+4. Slots whose character isn’t running are simply skipped.
+
+Character names are only readable once a client has logged in. Capturing at the login screen
+still works — those slots are saved as **Any client**, and Maps++ says so.
+
+Layouts are stored as **fractions of the monitor’s work area**, not fixed pixels, so they survive
+a resolution change. Each one also records the display it was authored on, and Maps++ finds that
+same physical monitor again even if Windows renumbers your displays. If it has to rescale or fall
+back to another screen, it tells you.
+
+Made a mess? **Ctrl+Shift+Z** puts every window back where the last apply found it.
 
 ### Chat (Full / Battle)
 
@@ -362,13 +422,41 @@ MapPois=1
 | `LabelMode` | When marker labels are drawn: `autohide` (shown, except while the mouse is over the minimap), `always`, or `never`. Applies to both POI labels and party marker names |
 | `LayerVisible` | `0` = that layer stays hidden. Set by **Ctrl+Alt+O** (POIs) and **Ctrl+Alt+I** (party markers), so a layer you switch off stays off next session |
 | `DefaultKind` | Type pre-selected when adding a POI: `npc`, `shop`, `portal`, `quest`, `note` |
-| `DefaultLayout` | Preset used by **Ctrl+Shift+L/K** |
+| `DefaultLayout` | Layout used by **Ctrl+Shift+L/K** — a preset name, or the name of one of your custom layouts |
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |
 | `[Hotkeys]` | One entry per rebindable action, in AutoHotkey chord syntax (`^`=Ctrl, `!`=Alt, `+`=Shift). Only actions you have rebound appear here; rebind from **Settings → Hotkeys** |
 | `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
 
 After editing `config.ini`, use **Reload** from the tray menu or **Ctrl+Alt+R**.
+
+### Custom layouts (`layouts.ini`)
+
+Custom window layouts live in their own file beside `config.ini` (or in `%AppData%\osMW Maps++\`
+when that folder isn’t writable). You never need to edit it by hand — the editor and
+**Capture Current As…** write it for you — but it is plain text if you want to back it up or
+share it:
+
+```ini
+[Index]
+1=Six Box — Main Left
+
+[Layout.1]
+Monitor=1|3840x2160|3840x2120|0,0
+WinSize=1024x768
+Slot1=0.0000|0.0000|Sterkr|1
+Slot2=0.2667|0.0000|Alt2|0
+Slot3=0.5333|0.0000||0
+```
+
+| Field | Meaning |
+|-------|---------|
+| `[Index]` | One `id=name` line per layout. Renaming only touches this section |
+| `Monitor` | `index|screen size|work-area size|top-left` — how Maps++ recognises the display this layout was made on |
+| `WinSize` | Client window size at capture time. Used to draw boxes to scale in the editor; **never applied to a window** |
+| `Slot<N>` | `x|y|character|flags` — position as a fraction of the work area (`0.0`–`1.0`), the character pinned to the slot (blank = any client), and `1` if this window should be focused after applying |
+
+A malformed `Slot` line is skipped rather than breaking the layout.
 
 ---
 
@@ -380,7 +468,9 @@ A typical setup with the **Full** variant:
 2. **Ctrl+Alt+L** — launch main character on primary monitor.
 3. **Ctrl+Alt+K** — launch alts on secondary monitor (if you have two displays).
 4. **Settings → Window Layout → Main character** — choose your main.
-5. **Ctrl+Shift+L** — snap everyone into your default grid.
+5. **Ctrl+Shift+L** — snap everyone into your default grid. Once you have your windows exactly
+   where you like them, **Tray → Window Layout → Capture Current As…** saves that arrangement,
+   and **Set as default** makes **Ctrl+Shift+L** restore it every session.
 6. In game on a supported map, press **Tab** on your main window for the custom minimap.
 7. Use **Shift+Ctrl+C** to hide chat on alts during farming.
 8. In battle, **Shift+Alt+Q** to send commands to all fighting clients.
