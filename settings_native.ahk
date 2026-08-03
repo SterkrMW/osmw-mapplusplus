@@ -134,10 +134,25 @@ _Settings_BuildNative() {
             label := field.Has("label") ? field["label"] : ""
             value := field.Has("value") ? field["value"] : ""
             ctrl := 0
+            rowIds := []
             if (fieldType = "checkbox") {
                 ctrl := g.Add("CheckBox", "x" contentX " y" y " w590", label)
                 ctrl.Value := value ? 1 : 0
                 y += 32
+            } else if (fieldType = "orderedlist") {
+                g.Add("Text", "x" contentX " y" y " w590", label)
+                y += 20
+                ctrl := g.Add("ListView", "x" contentX " y" y " w500 h190 Checked -Multi NoSortHdr",
+                    ["Action"])
+                rowIds := _SettingsNative_FillOrderedList(ctrl, field)
+                ; The row order is the value, so it needs to be editable. The
+                ; buttons carry their own copy of rowIds — the save loop reads
+                ; the same object back off the controls entry.
+                upBtn := g.Add("Button", "x+8 y" y " w70", "Move up")
+                downBtn := g.Add("Button", "x" (contentX + 508) " y" (y + 32) " w70", "Move down")
+                upBtn.OnEvent("Click", _SettingsNative_MakeOrderedMover(ctrl, rowIds, -1))
+                downBtn.OnEvent("Click", _SettingsNative_MakeOrderedMover(ctrl, rowIds, 1))
+                y += 200
             } else {
                 g.Add("Text", "x" contentX " y" y " w180", label)
                 if (fieldType = "dropdown") {
@@ -156,7 +171,7 @@ _Settings_BuildNative() {
                 }
                 y += 36
             }
-            controls.Push(Map("field", field, "control", ctrl))
+            controls.Push(Map("field", field, "control", ctrl, "rowIds", rowIds))
         }
         addonFieldGroups[addonName] := controls
     }
@@ -251,6 +266,10 @@ _Settings_BuildNative() {
                 ctrl := entry["control"]
                 if (fieldType = "checkbox") {
                     value := ctrl.Value ? true : false
+                } else if (fieldType = "orderedlist") {
+                    ; Same comma-separated shape the web frontend sends, so the
+                    ; addon has one save path to write.
+                    value := _SettingsNative_ReadOrderedList(ctrl, entry["rowIds"])
                 } else if (fieldType = "dropdown") {
                     value := ctrl.Value - 1
                 } else if (fieldType = "combo") {
@@ -291,4 +310,100 @@ _Settings_BuildNative() {
         if _Settings_HandleSave(msg)
             TrayTip("Settings saved.", "Maps++", "Iconi")
     }
+}
+
+; ── orderedlist field ────────────────────────────────────────
+; The web frontend's pick-and-order list, as a checked ListView plus two move
+; buttons. Both frontends produce the same comma-separated id string.
+;
+; rowIds is the row order as ids, kept alongside the control and mutated in
+; place by the movers — the ListView itself only stores display text, so the
+; ids have to be reordered in step with it.
+
+_SettingsNative_FillOrderedList(lv, field) {
+    items := field.Has("items") ? field["items"] : []
+    value := field.Has("value") ? String(field["value"]) : ""
+
+    labels := Map()
+    for it in items {
+        if it.Has("id")
+            labels[it["id"]] := it.Has("label") ? it["label"] : it["id"]
+    }
+
+    ; Chosen first, in their stored order; everything else keeps catalog order.
+    rowIds := []
+    seen := Map()
+    for part in StrSplit(value, ",") {
+        id := Trim(part)
+        if (id != "" && labels.Has(id) && !seen.Has(id)) {
+            seen[id] := true
+            rowIds.Push(id)
+            lv.Add("Check", labels[id])
+        }
+    }
+    for it in items {
+        id := it.Has("id") ? it["id"] : ""
+        if (id = "" || seen.Has(id))
+            continue
+        seen[id] := true
+        rowIds.Push(id)
+        lv.Add(, labels[id])
+    }
+    lv.ModifyCol(1, 470)
+    return rowIds
+}
+
+_SettingsNative_MakeOrderedMover(lv, rowIds, delta) {
+    return (*) => _SettingsNative_MoveOrderedRow(lv, rowIds, delta)
+}
+
+_SettingsNative_MoveOrderedRow(lv, rowIds, delta) {
+    row := lv.GetNext(0, "F")            ; focused row, checked or not
+    if (row = 0)
+        return
+    target := row + delta
+    if (target < 1 || target > rowIds.Length)
+        return
+
+    ; Swap the two rows' text, checked state and id together, then follow the
+    ; selection so a repeated click keeps moving the same entry.
+    rowText := lv.GetText(row, 1)
+    targetText := lv.GetText(target, 1)
+    rowChecked := _SettingsNative_IsRowChecked(lv, row)
+    targetChecked := _SettingsNative_IsRowChecked(lv, target)
+
+    lv.Modify(row, targetChecked ? "Check" : "-Check", targetText)
+    lv.Modify(target, (rowChecked ? "Check" : "-Check") " Select Focus", rowText)
+
+    tmp := rowIds[row]
+    rowIds[row] := rowIds[target]
+    rowIds[target] := tmp
+}
+
+_SettingsNative_IsRowChecked(lv, row) {
+    checked := 0
+    loop {
+        checked := lv.GetNext(checked, "C")
+        if (checked = 0)
+            return false
+        if (checked = row)
+            return true
+    }
+}
+
+_SettingsNative_ReadOrderedList(lv, rowIds) {
+    checked := Map()
+    row := 0
+    loop {
+        row := lv.GetNext(row, "C")
+        if (row = 0)
+            break
+        checked[row] := true
+    }
+    out := ""
+    for i, id in rowIds {
+        if checked.Has(i)
+            out .= (out = "" ? "" : ",") id
+    }
+    return out
 }

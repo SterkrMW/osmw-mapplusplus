@@ -6,5 +6,6 @@ discord_rpc.ahk
 inventory_toggle.ahk
 map_pois.ahk
 party_markers.ahk
+quick_actions.ahk
 view_mode.ahk
 window_layout.ahk

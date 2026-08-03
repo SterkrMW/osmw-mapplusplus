@@ -1,3 +1,4 @@
 # Lite variant — minimap, launcher and window layout only.
 map_pois.ahk
+quick_actions.ahk
 window_layout.ahk

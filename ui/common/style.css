@@ -2,9 +2,11 @@
    which meant every panel (including the client-radial switcher, which needs
    to pop open instantly mid-fight) depended on a network fetch just to render
    its own chrome. The Material Symbols file below is subset to only the
-   ~26 icon names this app actually uses (see _IconForLabel in main.ahk and
-   TAB_ICONS in settings/main.js) — add any new icon name to that subset
-   request or it will render as blank/tofu. */
+   ~26 icon names this app actually uses (see _IconForLabel in main.ahk,
+   TAB_ICONS in settings/main.js, and the catalog in addons/quick_actions.ahk)
+   — add any new icon name to that subset request or it will render as
+   blank/tofu. font-display: block means there is no fallback glyph: a name
+   outside the subset is a permanent empty box, not a substituted icon. */
 @font-face {
     font-family: 'Inter';
     font-style: normal;

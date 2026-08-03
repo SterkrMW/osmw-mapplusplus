@@ -13,6 +13,7 @@ SetTitleMatchMode(2)
 #Include variables.ahk
 #Include functions.ahk
 #Include settings.ahk
+#Include radial.ahk
 #Include hotkeys.ahk
 #Include *i _addons.ahk
 
@@ -347,6 +348,7 @@ _IconForLabel(lbl) {
         case "Chat": return "chat"
         case "Client Roster": return "group"
         case "Client Roster (list)": return "format_list_bulleted"
+        case "Quick Actions": return "tune"
         case "Inventory": return "inventory_2"
         case "Map POIs": return "location_on"
         case "View Mode": return "visibility"

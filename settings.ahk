@@ -287,7 +287,22 @@ _Settings_FieldToJson(f) {
         json .= ',"options":' optJson
     }
 
-    ; Min / max for number fields
+    ; Selectable rows for orderedlist fields
+    if f.Has("items") {
+        itemJson := "["
+        for i, it in f["items"] {
+            if (i > 1)
+                itemJson .= ","
+            itemJson .= '{"id":' _JSON_Str(it.Has("id") ? it["id"] : "")
+                . ',"label":' _JSON_Str(it.Has("label") ? it["label"] : "")
+                . ',"icon":' _JSON_Str(it.Has("icon") ? it["icon"] : "")
+                . '}'
+        }
+        itemJson .= "]"
+        json .= ',"items":' itemJson
+    }
+
+    ; Min / max for number fields, and the cap on an orderedlist's selection
     if f.Has("min")
         json .= ',"min":' f["min"]
     if f.Has("max")
@@ -706,6 +721,12 @@ _JSON_SkipWhitespace(str, &pos) {
 ;   Map("type","dropdown", "id","mode",    "label","Mode", "options",["A","B"], "value",0)
 ;   Map("type","combo",    "id","name",    "label","Name", "options",["x","y"], "value","x")
 ;   Map("type","number",   "id","count",   "label","Count","value",5, "min",0, "max",100)
+;   Map("type","orderedlist", "id","picks", "label","Shown, in order",
+;       "items",[Map("id","a","label","Alpha","icon","map"), …],  ; everything offerable
+;       "value","b,a",                                            ; chosen ids, in order
+;       "max",10)                                                 ; optional cap
 ;
 ; OnSettingsWebSave receives a Map of { fieldId: value } for the addon's fields.
 ; Boolean fields arrive as true/false. Dropdown fields arrive as 0-based index.
+; Orderedlist fields arrive as a comma-separated id string — from both the web
+; and the native frontend, so an addon has one save path to write.

@@ -3,4 +3,5 @@ battle_send.ahk
 chat_toggle.ahk
 client_roster.ahk
 party_markers.ahk
+quick_actions.ahk
 view_mode.ahk

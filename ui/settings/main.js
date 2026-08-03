@@ -510,9 +510,122 @@ function renderAddonField(addonName, field) {
             addonSettingsValues[addonName][field.id] = parseInt(inp.value, 10);
             return wrapper;
         }
+        case 'orderedlist':
+            return renderOrderedList(addonName, field);
         default:
             return null;
     }
+}
+
+/* A pick-and-order list: every offerable row, checked ones first in the order
+   they were chosen, unchecked ones after. The stored value is the checked ids
+   joined with commas — the same shape the native frontend sends, so the addon
+   has one save path rather than one per frontend. */
+function renderOrderedList(addonName, field) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'field';
+
+    const lbl = document.createElement('span');
+    lbl.className = 'field-label';
+    lbl.textContent = field.label;
+    wrapper.appendChild(lbl);
+
+    const list = document.createElement('div');
+    list.className = 'ordered-list';
+    wrapper.appendChild(list);
+
+    const hint = document.createElement('div');
+    hint.className = 'ordered-hint';
+    wrapper.appendChild(hint);
+
+    const all = field.items || [];
+    const chosen = String(field.value || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(id => id && all.some(it => it.id === id));
+
+    // Chosen first, in their stored order; everything else keeps catalog order.
+    let rows = chosen
+        .map(id => ({ id, checked: true }))
+        .concat(all.filter(it => !chosen.includes(it.id)).map(it => ({ id: it.id, checked: false })));
+
+    const meta = id => all.find(it => it.id === id) || { id, label: id, icon: '' };
+
+    function commit() {
+        ensureAddonValues(addonName);
+        addonSettingsValues[addonName][field.id] =
+            rows.filter(r => r.checked).map(r => r.id).join(',');
+    }
+
+    function move(index, delta) {
+        const to = index + delta;
+        if (to < 0 || to >= rows.length) return;
+        [rows[index], rows[to]] = [rows[to], rows[index]];
+        draw();
+    }
+
+    function draw() {
+        const count = rows.filter(r => r.checked).length;
+        const atMax = field.max !== undefined && count >= field.max;
+
+        list.innerHTML = '';
+        rows.forEach((row, i) => {
+            const info = meta(row.id);
+            const el = document.createElement('div');
+            el.className = 'ordered-row' + (row.checked ? ' is-on' : '');
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'toggle';
+            cb.checked = row.checked;
+            // A full list still lets you uncheck, just not check anything more.
+            cb.disabled = atMax && !row.checked;
+            cb.addEventListener('change', () => {
+                row.checked = cb.checked;
+                draw();
+            });
+
+            const icon = document.createElement('span');
+            icon.className = 'material-symbols-outlined ordered-icon';
+            icon.textContent = info.icon || 'pin_drop';
+
+            const name = document.createElement('span');
+            name.className = 'ordered-label';
+            name.textContent = info.label;
+
+            const up = document.createElement('button');
+            up.type = 'button';
+            up.className = 'ordered-move';
+            up.textContent = '↑';
+            up.title = 'Move up';
+            up.disabled = i === 0;
+            up.addEventListener('click', () => move(i, -1));
+
+            const down = document.createElement('button');
+            down.type = 'button';
+            down.className = 'ordered-move';
+            down.textContent = '↓';
+            down.title = 'Move down';
+            down.disabled = i === rows.length - 1;
+            down.addEventListener('click', () => move(i, 1));
+
+            el.appendChild(cb);
+            el.appendChild(icon);
+            el.appendChild(name);
+            el.appendChild(up);
+            el.appendChild(down);
+            list.appendChild(el);
+        });
+
+        hint.textContent = field.max !== undefined
+            ? `${count} of ${field.max} selected${atMax ? ' — uncheck one to add another' : ''}`
+            : `${count} selected`;
+
+        commit();
+    }
+
+    draw();
+    return wrapper;
 }
 
 function ensureAddonValues(name) {

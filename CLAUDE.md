@@ -20,7 +20,7 @@ Windows-only. Requires AutoHotkey v2.0.
 
 ### Load order and global state
 
-`main.ahk` includes, in order: `variables.ahk` (all global state/constants) → `functions.ahk` (core logic) → `settings.ahk` (+ `settings_native.ahk`) → `hotkeys.ahk` → `_addons.ahk` (generated, conditionally included — see below). Nearly all state is declared as `global` in `variables.ahk` and mutated in place; there is no dependency-injection or module boundary, so when adding state, put constants/config-backed globals there and follow the existing naming (`g`-prefixed mutable globals, UPPER_CASE constants).
+`main.ahk` includes, in order: `variables.ahk` (all global state/constants) → `functions.ahk` (core logic) → `settings.ahk` (+ `settings_native.ahk`) → `radial.ahk` (the shared radial-menu engine) → `hotkeys.ahk` → `_addons.ahk` (generated, conditionally included — see below). Nearly all state is declared as `global` in `variables.ahk` and mutated in place; there is no dependency-injection or module boundary, so when adding state, put constants/config-backed globals there and follow the existing naming (`g`-prefixed mutable globals, UPPER_CASE constants).
 
 `_addons.ahk` is a **generated** file (gitignored-style scratch, not hand-edited) listing `#Include addons\<file>.ahk` lines. In dev mode, `GenerateAddonIncludes()` regenerates it from whatever is physically in `addons\` and `Reload()`s if it changed. In a compiled release, it's frozen to whatever `build.ps1` wrote for that variant and never regenerated (`!A_IsCompiled` guards the regen call in `main.ahk`).
 
@@ -38,6 +38,14 @@ When editing an offset or adding a new memory read, update the fallback constant
 ### Minimap overlay lifecycle
 
 The overlay (`gGui`, built in `main.ahk`'s `ShowOrToggleOverlay`) is a borderless always-on-top `+E0x08000000` (`WS_EX_NOACTIVATE`) window so it never steals game focus. `UpdateMapState()` runs on a 200ms timer, reads the current map name from memory, resolves it to an image in `maps\`, and auto-closes the overlay when the minimap becomes disallowed (`IsMinimapAllowed()`: battle, loading screen, unsupported/unreadable zone). Calibration (world position → overlay pixel) is per-map data in `maps\calibration.ini`, always in **base** (unscaled 400×300) map space — the user's `Scale` setting is applied only at draw time (`MinimapScaleFactor()`), so calibrating at any zoom level produces the same stored numbers.
+
+### Radial menus
+
+`radial.ahk` is a core, addon-agnostic engine for the ring-of-buttons-at-the-cursor menus, rendered by the single WebView2 page in `ui\radial\`. Two rings ship on it: the client switcher (`addons\client_roster.ahk`) and Quick Actions (`addons\quick_actions.ahk`). An addon calls `RadialRegister(Map("name", ..., "getItems", fn, "onSelect", fn, ...))` in its `OnInit` and drives it with `RadialToggle/Open/Close/Refresh(name)`; it supplies items and decides what a click means, and owns nothing else.
+
+The engine's two unusual mechanisms are both documented at length in the file header and must not be "simplified" away: the ring window is colour-key transparent, which takes three things together (controller `DefaultBackgroundColor := 0`, the host Static painted via `WM_CTLCOLORSTATIC`, and `WinSetTransColor`) and is silently opaque if any is missing; and because a colour-keyed window is click-through everywhere, **no mouse event ever reaches the page** — instead the page posts a hit map of its own measured layout and AHK does the pointing (hover on a timer, clicks via dynamically registered `Hotkey("LButton")`, not `#HotIf`).
+
+Consequences to respect when adding a ring: only one may be on screen at a time (the mouse grab is process-global — `RadialOpen` enforces this), per-ring state like the hit map lives on the ring object rather than in a global (every page posts into the same handler, so a background push would otherwise clobber the live ring), and rings are built once and parked off-screen while *shown*, never hidden. Item `icon` names must exist in the subsetted Material Symbols font — see the header of `ui\common\style.css`.
 
 ### Addon system
 

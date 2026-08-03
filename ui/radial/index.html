@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maps++ Radial</title>
+    <link rel="stylesheet" href="../common/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="radial" id="radial">
+        <!-- Spokes are injected here, one per item the ring was given -->
+        <div class="ring" id="ring"></div>
+
+        <!-- Both hub faces are filled from the hub descriptor; the second is
+             cross-faded in on hover. -->
+        <button class="hub" id="hub">
+            <span class="hub-face hub-rest">
+                <span class="hub-num" id="hubTitle"></span>
+                <span class="hub-sub" id="hubSub"></span>
+            </span>
+            <span class="hub-face hub-alt">
+                <span class="material-symbols-outlined hub-icon" id="hubHoverIcon"></span>
+                <span class="hub-sub" id="hubHoverSub"></span>
+            </span>
+        </button>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>

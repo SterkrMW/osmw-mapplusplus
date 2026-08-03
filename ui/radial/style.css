@@ -1,4 +1,5 @@
-/* Radial client switcher — a ring of character avatars around the cursor.
+/* Radial ring — a ring of buttons around the cursor, shared by the client
+   switcher (avatar faces) and quick actions (icon faces).
    The window is colour-keyed transparent, so every visible element has to be
    an opaque, hard-edged shape sitting on nothing. Soft washes and large blurs
    would fringe against the key colour. */
@@ -68,16 +69,21 @@ body {
     outline: none;
 }
 
-/* No plate behind the portrait — the avatar PNGs are already round tokens with
-   transparent edges, so the art itself is the shape. Everything that would
-   normally be a border or backdrop is done with drop-shadow instead, which
-   follows the alpha rather than boxing it in. */
-.avatar-frame {
+/* Every spoke's face is the same 72px disc whichever kind it is, so the ring
+   geometry and the hit map AHK measures off `.face-frame` stay uniform. */
+.face-frame {
     display: grid;
     place-items: center;
     width: 72px;
     height: 72px;
     border-radius: 50%;
+}
+
+/* No plate behind the portrait — the avatar PNGs are already round tokens with
+   transparent edges, so the art itself is the shape. Everything that would
+   normally be a border or backdrop is done with drop-shadow instead, which
+   follows the alpha rather than boxing it in. */
+.avatar-frame {
     filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
     transition: filter var(--transition);
 }
@@ -119,6 +125,51 @@ body {
 
 .spoke-btn.active .avatar-frame.is-initials {
     border-color: var(--accent);
+}
+
+/* An action has no artwork of its own, so unlike a portrait it does need a
+   plate to sit on. */
+.icon-frame {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+    color: var(--text);
+    transition: border-color var(--transition), background var(--transition),
+        color var(--transition);
+}
+
+.spoke-icon {
+    font-size: 30px;
+    line-height: 1;
+}
+
+.spoke-btn.is-hover .icon-frame {
+    border-color: var(--border-focus);
+    background: var(--surface-hover);
+    color: var(--accent);
+}
+
+/* Live on/off for the toggles the app already tracks. Flat and hard-edged —
+   a glow here would fringe against the key colour. */
+.state-badge {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--surface);
+    box-sizing: border-box;
+}
+
+.state-badge.is-on {
+    background: var(--accent);
+}
+
+.state-badge.is-off {
+    background: var(--bg-dark);
+    border-color: var(--text-dim);
 }
 
 .spoke-name {
@@ -170,7 +221,8 @@ body {
     outline: none;
 }
 
-/* Count and "List view" are stacked and cross-faded on hover. */
+/* The resting face and the action it offers are stacked and cross-faded on
+   hover. */
 .hub-face {
     position: absolute;
     inset: 0;
@@ -182,17 +234,27 @@ body {
     transition: opacity var(--transition);
 }
 
-.hub-list {
+.hub-alt {
     opacity: 0;
 }
 
-.hub.is-hover .hub-count {
+.hub.is-hover .hub-rest {
     opacity: 0;
 }
 
-.hub.is-hover .hub-list {
+.hub.is-hover .hub-alt {
     opacity: 1;
     color: var(--accent);
+}
+
+/* A hub with nothing to do stays a label: no cross-fade, no pointer. AHK also
+   drops it from the hit map, so the two can't disagree. */
+.hub.is-static {
+    cursor: default;
+}
+
+.hub.is-static .hub-alt {
+    display: none;
 }
 
 .hub-num {
@@ -213,11 +275,12 @@ body {
     color: var(--text-muted);
 }
 
-.hub.is-hover .hub-list .hub-sub {
+.hub.is-hover .hub-alt .hub-sub {
     color: var(--accent);
 }
 
-/* No clients running — the hub says so instead of showing a bare "0". */
-.radial.is-empty .hub-num {
+/* A word rather than a count ("No clients", "Quick") needs to drop a size to
+   fit the disc. */
+.hub.is-wordy .hub-num {
     font-size: 13px;
 }

@@ -14,6 +14,7 @@ Maps++ runs in the background and appears in your system tray as **osMW Maps++**
 | **Live position marker** | A dot on the map tracks your character as you move. |
 | **Game launcher** | Launch new game clients from the tray menu or a hotkey, centered on your chosen monitor. |
 | **Multi-box helpers** | Optional addons arrange windows, toggle chat, open inventory, and send battle commands to all fighting characters. |
+| **Radial menus** | **Ctrl+Alt+M** rings your open clients around the cursor to jump between alts; **Ctrl+Alt+A** rings your common shortcuts. One click each. |
 
 Maps++ reads information from the running game client (`main.exe`). It does not modify game files and works alongside the normal client.
 
@@ -108,6 +109,7 @@ Right-click the tray icon for the main menu:
 | **Inventory** | Open inventory shortcuts (Full only) |
 | **Send Alt+Q to Fighting** | Battle command helper (Full / Battle) |
 | **Client Roster** | Open the radial client picker, or the native list in low-memory mode (Full / Battle) |
+| **Quick Actions** | Open the radial shortcut ring, or a popup menu in low-memory mode (all variants) |
 | **Map POIs** | Add, manage and export minimap points of interest (Full / Lite) |
 | **Interface** | Switch between Native (low memory) and WebView2 (enhanced); Maps++ reloads automatically |
 | **Settings…** | Open the settings window (game path, launcher, monitors, Window Layout, addons) |
@@ -120,9 +122,9 @@ count/delay, primary/secondary monitors, the Window Layout defaults, and enablin
 addons. The tray keeps only the quick **actions**.
 
 **Tray → Interface** selects the GUI used by Maps++. **WebView2 (enhanced)** keeps the polished
-tray and radial client picker prewarmed for immediate response. **Native (low memory)** uses
-standard Windows/AHK controls, does not preload WebView2, and opens the client roster as a list.
-Your selection is remembered in `config.ini`.
+tray and the radial rings prewarmed for immediate response. **Native (low memory)** uses
+standard Windows/AHK controls, does not preload WebView2, opens the client roster as a list and
+Quick Actions as a popup menu. Your selection is remembered in `config.ini`.
 
 > **Run on Windows start-up** is a per-user setting (no admin needed). When enabled, Maps++
 > registers itself to launch at login; disabling removes that entry. You can also remove it
@@ -144,6 +146,7 @@ Global shortcuts work while the game or minimap overlay is focused.
 | **Right-click** | Close minimap (while overlay is open) |
 | **Ctrl+Alt+L** | Launch game on primary monitor |
 | **Ctrl+Alt+K** | Launch game on secondary monitor |
+| **Ctrl+Alt+A** | Open the Quick Actions ring |
 | **Ctrl+Alt+,** | Open the Settings window |
 | **Ctrl+Alt+R** | Reload Maps++ |
 | **Ctrl+Alt+Q** | Exit Maps++ |
@@ -288,6 +291,32 @@ rather it opened itself whenever two or more clients are running, tick that in
 Use it with **Ctrl+Alt+E** (*Send Enter Until Ready*): the roster is what shows you which alt is
 still sitting at a login prompt.
 
+### Quick Actions (all variants)
+
+| Hotkey | Action |
+|--------|--------|
+| **Ctrl+Alt+A** | Open / close the Quick Actions ring |
+
+The same ring as the client picker, but the spokes are shortcuts instead of characters: view
+mode, battle send, inventory, chat, window layout, POIs, settings. Press the hotkey and the ring
+appears **at your cursor** — move onto a spoke and left-click to fire it. Right-click, **Esc**,
+a click in the gaps, or the hotkey again all dismiss it, and a click in the gaps does *not* also
+reach the game.
+
+It works from anywhere, including with the game unfocused: actions that act on "the active
+client" use whichever client you were last in, and Maps++ brings that window back to the front
+before firing. If no client is running at all you get a tray notification rather than a
+misfire.
+
+Spokes for **Minimap**, **POIs** and **Party Markers** carry a small dot showing whether that
+layer is currently on. View mode and chat size have no dot — their state lives in the game's
+memory, and reading it on every open would make the ring feel slow.
+
+**Settings → Quick Actions** chooses which shortcuts appear and in what order (up to ten), using
+checkboxes and the ↑/↓ buttons. Only actions from addons you actually have are listed, so the
+ring is always correct for your build — the Lite variant, for instance, offers the minimap,
+layout, POI and launcher entries. The centre of the ring opens that settings page.
+
 ### Map POIs (Full / Lite)
 
 Marks NPCs, shops, portals, quest spots and notes on the minimap.
@@ -395,6 +424,10 @@ LabelMode=autohide
 DefaultKind=npc
 LayerVisible=1
 
+[QuickActions]
+Actions=viewModeToggle,battleSend,inventoryOpenClick,chatToggleAll,windowLayoutPrimary,clientRosterToggle,poiToggleLayer,openSettings
+Prewarm=1
+
 [Addons]
 WindowLayout=1
 ChatToggle=1
@@ -403,6 +436,7 @@ InventoryToggle=1
 ClientRoster=1
 PartyMarkers=1
 MapPois=1
+QuickActions=1
 ```
 
 | Setting | Meaning |
@@ -422,6 +456,8 @@ MapPois=1
 | `LabelMode` | When marker labels are drawn: `autohide` (shown, except while the mouse is over the minimap), `always`, or `never`. Applies to both POI labels and party marker names |
 | `LayerVisible` | `0` = that layer stays hidden. Set by **Ctrl+Alt+O** (POIs) and **Ctrl+Alt+I** (party markers), so a layer you switch off stays off next session |
 | `DefaultKind` | Type pre-selected when adding a POI: `npc`, `shop`, `portal`, `quest`, `note` |
+| `Actions` | Quick Actions ring contents: hotkey action ids, comma-separated, in ring order (first at 12 o'clock, then clockwise). Ids for addons this build doesn't have are ignored, so one file works across variants. Set from **Settings → Quick Actions** |
+| `Prewarm` | `1` = load the Quick Actions ring at startup so the first press is instant; `0` = build it on first use, saving memory |
 | `DefaultLayout` | Layout used by **Ctrl+Shift+L/K** — a preset name, or the name of one of your custom layouts |
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |
