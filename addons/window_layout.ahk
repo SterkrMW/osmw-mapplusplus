@@ -637,16 +637,20 @@ _WLayouts_LoadIndex() {
             list.Push({id: Integer(id), name: name})
         }
     }
-    ; Numeric order, so the manager list matches creation order.
-    Loop list.Length - 1 {
-        i := A_Index + 1
-        item := list[i]
-        j := i - 1
-        while (j >= 1 && list[j].id > item.id) {
-            list[j + 1] := list[j]
-            j -= 1
+    ; Numeric order, so the manager list matches creation order.  A clean
+    ; install has no layouts.ini yet, so avoid passing -1 to Loop (which throws
+    ; and prevents the Window Layout submenu from being added to the tray).
+    if (list.Length > 1) {
+        Loop list.Length - 1 {
+            i := A_Index + 1
+            item := list[i]
+            j := i - 1
+            while (j >= 1 && list[j].id > item.id) {
+                list[j + 1] := list[j]
+                j -= 1
+            }
+            list[j + 1] := item
         }
-        list[j + 1] := item
     }
     _WLayouts_Index := list
     return list

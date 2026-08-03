@@ -267,8 +267,8 @@ _ConvertHmenuToWebItems(hMenu, idPrefix := "menu_") {
 
     loop count {
         idx := A_Index - 1
-        state := DllCall("GetMenuState", "Ptr", hMenu, "UInt", idx, "UInt", 0x400)
-        if (state & 0x800) {
+        meta := _GetHmenuItemMeta(hMenu, idx)
+        if meta.isSeparator {
             items.Push(Map("isDivider", true))
             continue
         }
@@ -285,7 +285,7 @@ _ConvertHmenuToWebItems(hMenu, idPrefix := "menu_") {
         parts := StrSplit(str, "`t")
         label := parts[1]
         shortcut := (parts.Length >= 2) ? parts[2] : ""
-        isDefault := (state & 0x1000) ? true : false
+        isDefault := meta.isDefault
 
         hSub := DllCall("GetSubMenu", "Ptr", hMenu, "Int", idx, "Ptr")
         if (hSub) {
@@ -300,6 +300,27 @@ _ConvertHmenuToWebItems(hMenu, idPrefix := "menu_") {
         }
     }
     return items
+}
+
+; GetMenuState() packs a popup submenu's item count into its high byte, so a
+; submenu with eight children also has bit 0x800 set and looks like
+; MF_SEPARATOR. GetMenuItemInfoW keeps type and state in distinct fields.
+_GetHmenuItemMeta(hMenu, idx) {
+    static MIIM_STATE := 0x1, MIIM_FTYPE := 0x100
+    static MFT_SEPARATOR := 0x800, MFS_DEFAULT := 0x1000
+    infoSize := (A_PtrSize = 8) ? 80 : 48
+    info := Buffer(infoSize, 0)
+    NumPut("UInt", infoSize, info, 0)
+    NumPut("UInt", MIIM_STATE | MIIM_FTYPE, info, 4)
+    if !DllCall("GetMenuItemInfoW", "Ptr", hMenu, "UInt", idx, "Int", true,
+        "Ptr", info.Ptr, "Int")
+        return {isSeparator: false, isDefault: false}
+    itemType := NumGet(info, 8, "UInt")
+    itemState := NumGet(info, 12, "UInt")
+    return {
+        isSeparator: (itemType & MFT_SEPARATOR) ? true : false,
+        isDefault: (itemState & MFS_DEFAULT) ? true : false
+    }
 }
 
 _MakeHmenuCallback(hMenu, cmdId) {
