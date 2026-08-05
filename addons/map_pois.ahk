@@ -56,7 +56,7 @@ RegisterHotkeyAction(Map(
     "id", "poiAddHere",
     "label", "Add POI at my position",
     "category", "Map POIs",
-    "default", "^!p",
+    "default", "",
     "addon", "MapPois",
     "handler", (*) => _Pois_AddHere()
 ))
@@ -64,7 +64,7 @@ RegisterHotkeyAction(Map(
     "id", "poiToggleLayer",
     "label", "Show/hide POI layer",
     "category", "Map POIs",
-    "default", "^!o",
+    "default", "",
     "addon", "MapPois",
     "handler", (*) => _Pois_ToggleLayer()
 ))
@@ -72,7 +72,7 @@ RegisterHotkeyAction(Map(
     "id", "poiGenerateNpc",
     "label", "Generate NPC entry at my position",
     "category", "Map POIs",
-    "default", "^!n",
+    "default", "",
     "addon", "MapPois",
     "handler", (*) => GenerateNpcEntry()
 ))

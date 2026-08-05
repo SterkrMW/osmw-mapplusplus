@@ -461,12 +461,23 @@
     color: var(--accent);
     animation: capturePulse 1.2s ease infinite;
 }
+.hotkey-btn.is-unbound {
+    color: var(--text-dim);
+    font-family: inherit;
+    font-style: italic;
+    font-weight: 500;
+}
 @keyframes capturePulse {
     0%, 100% { border-color: var(--accent); }
     50%      { border-color: var(--accent-hover); box-shadow: 0 0 8px var(--accent-glow); }
 }
 
-.hotkey-reset {
+.hotkey-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+.hotkey-action {
     height: 28px;
     padding: 0 8px;
     font-size: 11px;
@@ -477,7 +488,7 @@
     cursor: pointer;
     transition: all var(--transition);
 }
-.hotkey-reset:hover {
+.hotkey-action:hover {
     color: var(--text-muted);
     border-color: var(--border);
 }

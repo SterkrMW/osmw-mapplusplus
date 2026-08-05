@@ -14,7 +14,7 @@ Maps++ runs in the background and appears in your system tray as **osMW Maps++**
 | **Live position marker** | A dot on the map tracks your character as you move. |
 | **Game launcher** | Launch new game clients from the tray menu or a hotkey, centered on your chosen monitor. |
 | **Multi-box helpers** | Optional addons arrange windows, toggle chat, open inventory, and send battle commands to all fighting characters. |
-| **Radial menus** | **Ctrl+Alt+M** rings your open clients around the cursor to jump between alts; **Ctrl+Alt+A** rings your common shortcuts. One click each. |
+| **Radial menus** | **Ctrl+Alt+A** rings your common actions around the cursor; choose **Clients** there to jump between alts. One click each. |
 
 Maps++ reads information from the running game client (`main.exe`). It does not modify game files and works alongside the normal client.
 
@@ -141,7 +141,11 @@ Quick Actions as a popup menu. Your selection is remembered in `config.ini`.
 
 ## Hotkey Reference
 
-Everyday shortcuts can be changed under **Settings → Hotkeys** (click a shortcut, press new keys, then OK). Changes apply immediately — no Reload needed. The tables below list the **default** bindings.
+Everyday shortcuts can be changed under **Settings → Hotkeys** (click a shortcut, press new keys, then Save). Choose **Unbind** when an action should have no direct shortcut. Changes apply immediately — no Reload needed. The tables below list the **default** bindings.
+
+The default set is intentionally small: core controls and the **Ctrl+Alt+A** Quick Actions ring are bound, while addon actions start unbound. This avoids claiming common game and Windows shortcuts just because an addon is installed; use the ring or tray menu, or bind only the addon actions you want.
+
+Existing saved bindings are left alone during an update. Use **Reset** (or **Reset all shortcuts to defaults**) if you want the revised defaults.
 
 Global shortcuts work while the game or minimap overlay is focused.
 
@@ -153,6 +157,7 @@ Global shortcuts work while the game or minimap overlay is focused.
 | **Right-click** | Close minimap (while overlay is open) |
 | **Ctrl+Alt+L** | Launch the configured clients on the primary target |
 | **Ctrl+Alt+K** | Launch the configured clients on the secondary target |
+| **Ctrl+Alt+E** | Send Enter to clients until each one reaches the game |
 | **Ctrl+Alt+A** | Open the Quick Actions ring |
 | **Ctrl+Alt+,** | Open the Settings window |
 | **Ctrl+Alt+R** | Reload Maps++ |
@@ -165,10 +170,10 @@ Arranges your open game windows on one monitor. Window **size is never changed**
 
 | Hotkey | Action |
 |--------|--------|
-| **Ctrl+Shift+L** | Apply your default layout on the **primary** monitor |
-| **Ctrl+Shift+K** | Apply your default layout on the **secondary** monitor |
-| **Ctrl+Shift+O** | Open the **Window Layouts** window |
-| **Ctrl+Shift+Z** | **Undo** the last layout you applied |
+| **Not bound** | Apply your default layout on the **primary** monitor |
+| **Not bound** | Apply your default layout on the **secondary** monitor |
+| **Not bound** | Open the **Window Layouts** window |
+| **Not bound** | **Undo** the last layout you applied |
 
 **Tray → Window Layout** offers one-time **Apply Preset** layouts (Reset, Single, Grid2x2,
 Grid3x2, CenterFocus, DiceLeft, DiceRight), an **Apply Custom** list of your own saved layouts,
@@ -176,7 +181,7 @@ Grid3x2, CenterFocus, DiceLeft, DiceRight), an **Apply Custom** list of your own
 
 The Window Layout **configuration** lives in **Settings… → Window Layout**:
 
-- **Default layout** — which layout **Ctrl+Shift+L/K** uses. Presets *and* your own custom
+- **Default layout** — which layout the **Apply default layout** actions use. Presets *and* your own custom
   layouts both appear here
 - **Main character** — which character’s window is centered or brought to front
 - **Target display** — which monitor presets target when you have multiple screens
@@ -205,7 +210,7 @@ Two ways to make one, and they work together:
 
 1. **Capture.** Drag your clients wherever you want them, then **Tray → Window Layout →
    Capture Current As…** and give it a name. This is the fast path, and it is exact.
-2. **Edit.** **Ctrl+Shift+O** (or **Tray → Window Layout → Layouts…**) opens the editor: a
+2. **Edit.** **Tray → Window Layout → Layouts…** opens the editor (or bind **Open window layouts**): a
    scale drawing of your monitor with a draggable box per client. Use it to line things up
    precisely, or to design a layout for alts that aren’t even launched yet.
 
@@ -220,13 +225,13 @@ In the editor:
 | **Character** | Pin a slot to one character, or leave it as **Any client** |
 | **Focus this window after applying** | The one client that gets activated at the end |
 | **Apply** / **Save** | Try it out, or store it |
-| **Set as default** | Make **Ctrl+Shift+L** apply this layout |
+| **Set as default** | Make the primary/secondary **Apply default layout** actions use this layout |
 
 Drag a box to move it, or select it and use the **arrow keys** (**Shift** for bigger steps).
 **Ctrl+S** saves. Boxes are drawn at the client window size recorded when the layout was
 captured — applying a layout still never resizes anything.
 
-**Native (low memory) mode** gets the same layouts without the canvas: **Ctrl+Shift+O** opens a
+**Native (low memory) mode** gets the same layouts without the canvas: the tray menu opens a
 list with Capture, Apply, Rename, Delete, Set as default and Undo. Capture is the main way to
 author a layout either way; switch to **Tray → Interface → WebView2 (enhanced)** for visual editing.
 
@@ -245,15 +250,15 @@ a resolution change. Each one also records the display it was authored on, and M
 same physical monitor again even if Windows renumbers your displays. If it has to rescale or fall
 back to another screen, it tells you.
 
-Made a mess? **Ctrl+Shift+Z** puts every window back where the last apply found it.
+Made a mess? **Undo Last Apply** puts every window back where the last apply found it.
 
 ### Chat (Full / Battle)
 
 | Hotkey | Action |
 |--------|--------|
-| **Shift+Ctrl+C** | Toggle chat on **all other** clients (keeps active window’s chat as-is) |
-| **Ctrl+C** | Toggle chat on the **active** client only |
-| **Alt+Ctrl+C** | Toggle **mini chat size** on all clients |
+| **Not bound** | Toggle chat on **all other** clients (keeps active window’s chat as-is) |
+| **Not bound** | Toggle chat on the **active** client only |
+| **Not bound** | Toggle **mini chat size** on all clients |
 
 Useful when multi-boxing: hide chat on alts to reduce clutter, or shrink chat globally.
 
@@ -261,14 +266,14 @@ Useful when multi-boxing: hide chat on alts to reduce clutter, or shrink chat gl
 
 | Hotkey | Action |
 |--------|--------|
-| **Alt+E** | Open inventory on the active client (clicks the inventory button) |
-| **Alt+Shift+E** | Send **Alt+I** to open inventory |
+| **Not bound** | Open inventory on the active client (clicks the inventory button) |
+| **Not bound** | Send **Alt+I** to open inventory |
 
 ### Character Vendor (Full only)
 
 | Hotkey | Action |
 |--------|--------|
-| **Ctrl+Alt+B** | Open the Character Vendor pricing panel for the active client |
+| **Not bound** | Open the Character Vendor pricing panel for the active client |
 
 Setting up a player shop normally means typing a price for each item one at a time, into a
 client box that shows no thousands separators — so `1000000` and `100000` look almost
@@ -327,7 +332,7 @@ real inventory.
 
 | Hotkey | Action |
 |--------|--------|
-| **Shift+Alt+Q** | For every client **currently in battle** with a pending action, queue **Alt+Q** (action 9) for both character and pet |
+| **Not bound** | For every client **currently in battle** with a pending action, queue **Alt+Q** (action 9) for both character and pet |
 
 Use this to confirm or send the same battle command across all fighting characters at once.
 
@@ -335,8 +340,8 @@ Use this to confirm or send the same battle command across all fighting characte
 
 | Hotkey | Action |
 |--------|--------|
-| **Alt+2** | Cycle view mode on **all** clients (0→3, wrap) |
-| **Alt+1** | Toggle view mode 0/1 on **all** clients (0→1; 1/2/3→0) |
+| **Not bound** | Cycle view mode on **all** clients (0→3, wrap) |
+| **Not bound** | Toggle view mode 0/1 on **all** clients (0→1; 1/2/3→0) |
 
 Echoes the in-game **F2** view-mode cycle across every open client without focusing each window.
 
@@ -344,13 +349,13 @@ Echoes the in-game **F2** view-mode cycle across every open client without focus
 
 | Hotkey | Action |
 |--------|--------|
-| **Ctrl+Alt+M** | Show / hide the client roster |
+| **Not bound** | Show / hide the client roster |
 
 A small always-on-top window listing every running client with its character, current zone and
 status (**Playing**, **In battle**, **Loading**, **Not ready**). **Double-click a row** to bring
 that client to the front.
 
-It only appears when you ask for it — press **Ctrl+Alt+M** or use the tray menu. If you would
+It only appears when you ask for it — choose **Clients** in Quick Actions, bind the action, or use the tray menu. If you would
 rather it opened itself whenever two or more clients are running, tick that in
 **Settings → Client Roster**; closing it by hand still keeps it closed for that session.
 
@@ -389,12 +394,12 @@ Marks NPCs, shops, portals, quest spots and notes on the minimap.
 
 | Hotkey | Action |
 |--------|--------|
-| **Ctrl+Alt+P** | Add a POI where you are standing |
-| **Ctrl+Alt+O** | Show / hide the POI layer (remembered between sessions) |
-| **Ctrl+Alt+N** | Append an NPC entry for your position to `npc_generated.txt` |
+| **Not bound** | Add a POI where you are standing |
+| **Not bound** | Show / hide the POI layer (remembered between sessions) |
+| **Not bound** | Append an NPC entry for your position to `npc_generated.txt` |
 
-Adding one works the way mapping already worked: **stand where the thing is and press the
-hotkey**. The position is read from game memory, so it lands exactly where you stood — no
+Adding one works the way mapping already worked: **stand where the thing is and run Add POI at
+my position** from Quick Actions, or assign it a shortcut. The position is read from game memory, so it lands exactly where you stood — no
 clicking on the map, no eyeballing. You give it a label and a type, and it appears on the
 minimap in that type's colour.
 
@@ -418,7 +423,7 @@ coordinates are raw X ÷ 16 and Y ÷ 8, applied for display only:
 
 **Tray → Map POIs** has the rest: **Manage POIs…** (list, delete for the current map) and
 **Export This Map's POIs**, which writes every POI in the server repo's NPC entry format —
-the same shape **Ctrl+Alt+N** produces for a single position — into `npc_generated.txt` and
+the same shape the **Generate NPC entry** action produces for a single position — into `npc_generated.txt` and
 onto the clipboard:
 
 ```ts
@@ -436,7 +441,7 @@ onto the clipboard:
 
 | Hotkey | Action |
 |--------|--------|
-| **Ctrl+Alt+I** | Show / hide the party marker layer (remembered between sessions) |
+| **Not bound** | Show / hide the party marker layer (remembered between sessions) |
 
 Every *other* client running on the same map as you appears
 as a coloured dot, labelled with the character name, alongside your own standard marker. Alts
@@ -486,6 +491,7 @@ TargetMonitor=0
 toggleMinimap=Tab
 launchPrimary=^!l
 openSettings=^!,
+clientRosterToggle=
 
 [MapPois]
 LabelMode=autohide
@@ -530,11 +536,11 @@ ShopPrices=1
 | `OffsetX` / `OffsetY` | Pixel nudge from the anchor (negative allowed). Dragging the minimap writes these for you |
 | `KeepOpenOnFocusLoss` | `1` = keep the minimap open when you Alt+Tab away |
 | `LabelMode` | When marker labels are drawn: `autohide` (shown, except while the mouse is over the minimap), `always`, or `never`. Applies to both POI labels and party marker names |
-| `LayerVisible` | `0` = that layer stays hidden. Set by **Ctrl+Alt+O** (POIs) and **Ctrl+Alt+I** (party markers), so a layer you switch off stays off next session |
+| `LayerVisible` | `0` = that layer stays hidden. Set by the POI/party **Show/hide layer** actions, so a layer you switch off stays off next session |
 | `DefaultKind` | Type pre-selected when adding a POI: `npc`, `shop`, `portal`, `quest`, `note` |
 | `Actions` | Quick Actions ring contents: hotkey action ids, comma-separated, in ring order (first at 12 o'clock, then clockwise). Ids for addons this build doesn't have are ignored, so one file works across variants. Set from **Settings → Quick Actions** |
 | `Prewarm` | `1` = load the Quick Actions ring at startup so the first press is instant; `0` = build it on first use, saving memory |
-| `DefaultLayout` | Layout used by **Ctrl+Shift+L/K** — a preset name, or the name of one of your custom layouts |
+| `DefaultLayout` | Layout used by the primary/secondary **Apply default layout** actions — a preset name, or the name of one of your custom layouts |
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |
 | `ConfirmHigh` | `1` = ask for confirmation before applying a large vendor price |
@@ -542,7 +548,7 @@ ShopPrices=1
 | `PresetClears` | `1` = loading a shop preset also clears prices on slots the preset doesn’t mention. Off by default, so presets only add |
 | `IconBase` | Whether the client’s item id is `0`- or `1`-based, which decides how thumbnails are matched. Set it from **Settings → Character Vendor** after comparing one known item |
 | `ItemIdOffset` | Override for the inventory item-id address, e.g. `0x2E2028`. Only needed if a game update moves it; blank uses the built-in value, `0` turns thumbnails off |
-| `[Hotkeys]` | One entry per rebindable action, in AutoHotkey chord syntax (`^`=Ctrl, `!`=Alt, `+`=Shift). Only actions you have rebound appear here; rebind from **Settings → Hotkeys** |
+| `[Hotkeys]` | One entry per rebindable action, in AutoHotkey chord syntax (`^`=Ctrl, `!`=Alt, `+`=Shift). A blank value means **Not bound**; rebind or unbind from **Settings → Hotkeys** |
 | `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
 
 After editing `config.ini`, use **Reload** from the tray menu or **Ctrl+Alt+R**.
@@ -611,12 +617,12 @@ A typical setup with the **Full** variant:
 2. **Ctrl+Alt+L** — launch main character on primary monitor.
 3. **Ctrl+Alt+K** — launch alts on secondary monitor (if you have two displays).
 4. **Settings → Window Layout → Main character** — choose your main.
-5. **Ctrl+Shift+L** — snap everyone into your default grid. Once you have your windows exactly
+5. Choose **Layout** in Quick Actions to snap everyone into your default grid. Once you have your windows exactly
    where you like them, **Tray → Window Layout → Capture Current As…** saves that arrangement,
-   and **Set as default** makes **Ctrl+Shift+L** restore it every session.
+   and **Set as default** makes the Layout action restore it every session.
 6. In game on a supported map, press **Tab** on your main window for the custom minimap.
-7. Use **Shift+Ctrl+C** to hide chat on alts during farming.
-8. In battle, **Shift+Alt+Q** to send commands to all fighting clients.
+7. Choose **Chat (others)** in Quick Actions to hide chat on alts during farming.
+8. In battle, choose **Battle send** to send commands to all fighting clients.
 
 ---
 

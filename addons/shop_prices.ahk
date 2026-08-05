@@ -73,7 +73,7 @@ RegisterHotkeyAction(Map(
     "id", "shopPricesOpen",
     "label", "Open Character Vendor pricing",
     "category", "Character Vendor",
-    "default", "^!b",
+    "default", "",
     "addon", "ShopPrices",
     "handler", (*) => _ShopPrices_Open(),
     "hotIfWinActive", true

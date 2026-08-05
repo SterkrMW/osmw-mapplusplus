@@ -1249,7 +1249,9 @@ LaunchGameInstance(monitorWhich := "primary") {
     global gGamePath, gGameArgs
 
     if (gGamePath = "" || !FileExist(gGamePath)) {
-        TrayTip("Game path not configured or file missing.`nOpen Settings (" GetHotkeyDisplay("openSettings") ") → Launcher → Browse…", "Maps++", "Iconx")
+        settingsShortcut := GetHotkeyDisplay("openSettings")
+        settingsHint := (settingsShortcut != "") ? "Settings (" settingsShortcut ")" : "Settings from the tray menu"
+        TrayTip("Game path not configured or file missing.`nOpen " settingsHint " → Launcher → Browse…", "Maps++", "Iconx")
         return
     }
 
@@ -1346,7 +1348,9 @@ LaunchConfiguredClients(monitorWhich := "primary", count := 0) {
         count := gMultiClientCount
 
     if (gGamePath = "" || !FileExist(gGamePath)) {
-        TrayTip("Game path not configured or file missing.`nOpen Settings (" GetHotkeyDisplay("openSettings") ") → Launcher → Browse…", "Maps++", "Iconx")
+        settingsShortcut := GetHotkeyDisplay("openSettings")
+        settingsHint := (settingsShortcut != "") ? "Settings (" settingsShortcut ")" : "Settings from the tray menu"
+        TrayTip("Game path not configured or file missing.`nOpen " settingsHint " → Launcher → Browse…", "Maps++", "Iconx")
         return
     }
 

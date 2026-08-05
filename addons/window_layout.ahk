@@ -54,7 +54,7 @@ RegisterHotkeyAction(Map(
     "id", "windowLayoutPrimary",
     "label", "Apply default layout (primary monitor)",
     "category", "Window Layout",
-    "default", "^+l",
+    "default", "",
     "addon", "WindowLayout",
     "handler", (*) => _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary()),
     "hotIfWinActive", true
@@ -63,7 +63,7 @@ RegisterHotkeyAction(Map(
     "id", "windowLayoutSecondary",
     "label", "Apply default layout (secondary monitor)",
     "category", "Window Layout",
-    "default", "^+k",
+    "default", "",
     "addon", "WindowLayout",
     "handler", (*) => _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex()),
     "hotIfWinActive", true
@@ -72,7 +72,7 @@ RegisterHotkeyAction(Map(
     "id", "windowLayoutManage",
     "label", "Open window layouts",
     "category", "Window Layout",
-    "default", "^+o",
+    "default", "",
     "addon", "WindowLayout",
     "handler", (*) => _WindowLayout_ShowManager()
 ))
@@ -80,7 +80,7 @@ RegisterHotkeyAction(Map(
     "id", "windowLayoutUndo",
     "label", "Undo last layout apply",
     "category", "Window Layout",
-    "default", "^+z",
+    "default", "",
     "addon", "WindowLayout",
     "handler", (*) => _WindowLayout_UndoLastApply()
 ))
@@ -1400,7 +1400,9 @@ _WindowLayout_MgrSetDefault() {
     _WindowLayout_DefaultLayout := layout.name
     _WindowLayout_SaveConfig()
     _WindowLayout_MgrRefresh(id)
-    TrayTip("“" layout.name "” is now applied by " GetHotkeyDisplay("windowLayoutPrimary") ".",
+    shortcut := GetHotkeyDisplay("windowLayoutPrimary")
+    access := (shortcut != "") ? shortcut : "the primary layout action"
+    TrayTip("“" layout.name "” is now applied by " access ".",
         "Window Layout", "Iconi")
 }
 
@@ -1836,7 +1838,9 @@ _WindowLayout_WebSetDefault(id) {
     _WindowLayout_DefaultLayout := layout.name
     _WindowLayout_SaveConfig()
     _WindowLayout_SendState()
-    _WindowLayout_WebToast("info", "“" layout.name "” is now applied by " GetHotkeyDisplay("windowLayoutPrimary") ".")
+    shortcut := GetHotkeyDisplay("windowLayoutPrimary")
+    access := (shortcut != "") ? shortcut : "the primary layout action"
+    _WindowLayout_WebToast("info", "“" layout.name "” is now applied by " access ".")
 }
 
 ; ── Undo ─────────────────────────────────────────────────────────

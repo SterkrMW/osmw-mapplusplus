@@ -40,7 +40,7 @@ RegisterHotkeyAction(Map(
     "id", "partyMarkersToggleLayer",
     "label", "Show/hide party marker layer",
     "category", "Party Markers",
-    "default", "^!i",
+    "default", "",
     "addon", "PartyMarkers",
     "handler", (*) => _PartyMarkers_ToggleLayer()
 ))

@@ -65,6 +65,11 @@ FormatHotkeyDisplay(chord) {
     return mods key
 }
 
+FormatHotkeySettingsDisplay(chord) {
+    display := FormatHotkeyDisplay(chord)
+    return (display = "") ? "Not bound" : display
+}
+
 NormalizeHotkeyChord(chord) {
     chord := Trim(chord)
     if (chord = "")
@@ -78,8 +83,11 @@ ToHotkeyApiName(chord) {
 
 IsHotkeyChordValid(chord) {
     chord := NormalizeHotkeyChord(chord)
+    ; An empty chord is a deliberate, valid "unbound" setting. Binding code
+    ; skips it, while persistence must preserve it instead of restoring the
+    ; action's default on the next launch.
     if (chord = "")
-        return false
+        return true
     modChars := "^!+#"
     i := 1
     while (i <= StrLen(chord)) {
@@ -241,6 +249,8 @@ HotIfGameOrOverlay(*) {
 }
 
 RegisterCoreHotkeyActions() {
+    ; Keep the out-of-box set intentionally small. Addon actions are available
+    ; through Quick Actions and the tray, and users can opt into direct chords.
     RegisterHotkeyAction(Map(
         "id", "toggleMinimap",
         "label", "Toggle minimap",
@@ -293,7 +303,9 @@ RegisterCoreHotkeyActions() {
 
 GetHotkeyActionsForSettings() {
     global gHotkeyActions
-    categoryOrder := ["Core", "Window Layout", "Inventory", "Battle", "Chat"]
+    categoryOrder := ["Core", "Quick Actions", "Client Roster", "Window Layout",
+        "View Mode", "Battle", "Inventory", "Chat", "Map POIs", "Party Markers",
+        "Character Vendor"]
     byCategory := Map()
     for id, action in gHotkeyActions {
         if !IsHotkeyActionEnabled(action)

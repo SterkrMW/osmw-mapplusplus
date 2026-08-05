@@ -350,6 +350,10 @@ _QuickActions_MakeMenuHandler(item) {
 
 _QuickActions_OnSettingsWeb() {
     global _QuickActions_Ids, _QuickActions_Prewarm, QUICK_ACTIONS_MAX
+    shortcut := GetHotkeyDisplay("quickActionsToggle")
+    openHint := (shortcut != "")
+        ? "Open it with " shortcut " or from the tray menu, then click an action"
+        : "Open it from the tray menu, then click an action"
     choices := []
     for entry in _QuickActions_Catalog() {
         if !_QuickActions_IsAvailable(entry["id"]) {
@@ -364,8 +368,7 @@ _QuickActions_OnSettingsWeb() {
     return [
         Map("type", "info", "text",
             "A ring of one-click shortcuts around the cursor.`n"
-            . "Open it with " GetHotkeyDisplay("quickActionsToggle") " or from the tray menu, "
-            . "then click an action — or press Escape to dismiss it.`n"
+            . openHint " — or press Escape to dismiss it.`n"
             . "Only actions from addons you have enabled are listed."),
         Map("type", "orderedlist", "id", "actions",
             "label", "Actions shown in the ring",

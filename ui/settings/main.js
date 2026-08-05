@@ -274,17 +274,29 @@ function populateHotkeys() {
         const btn = document.createElement('button');
         btn.className = 'hotkey-btn';
         btn.id = `hk-btn-${action.id}`;
-        btn.textContent = action.display;
+        btn.textContent = action.display || 'Not bound';
+        btn.classList.toggle('is-unbound', !action.chord);
         btn.addEventListener('click', () => startCapture(action.id));
 
+        const actions = document.createElement('span');
+        actions.className = 'hotkey-row-actions';
+
+        const unbind = document.createElement('button');
+        unbind.className = 'hotkey-action';
+        unbind.textContent = 'Unbind';
+        unbind.addEventListener('click', () => unbindHotkey(action.id));
+
         const reset = document.createElement('button');
-        reset.className = 'hotkey-reset';
+        reset.className = 'hotkey-action';
         reset.textContent = 'Reset';
         reset.addEventListener('click', () => resetHotkey(action.id, action.defaultDisplay, action.defaultChord));
 
+        actions.appendChild(unbind);
+        actions.appendChild(reset);
+
         row.appendChild(label);
         row.appendChild(btn);
-        row.appendChild(reset);
+        row.appendChild(actions);
         container.appendChild(row);
 
         // Initialize pending state
@@ -313,7 +325,7 @@ function startCapture(actionId) {
         btn.textContent = 'Press new shortcut…';
         btn.classList.add('capturing');
     }
-    sendToAhk('start-hotkey-capture', { actionId });
+    sendToAhk('start-hotkey-capture', { actionId, hotkeys: collectHotkeys() });
 }
 
 // Tell AHK to stop listening for a keypress when the capture is abandoned
@@ -336,11 +348,14 @@ function handleHotkeyCaptured(msg) {
     if (btn) {
         btn.classList.remove('capturing');
         if (msg.ok) {
-            btn.textContent = msg.display;
+            btn.textContent = msg.display || 'Not bound';
+            btn.classList.toggle('is-unbound', !msg.chord);
             pendingHotkeys[msg.actionId] = msg.chord;
         } else {
             // Conflict — show brief error, revert text
-            btn.textContent = msg.display || pendingHotkeys[msg.actionId] || '';
+            const action = state.hotkeys.actions.find(a => a.id === msg.actionId);
+            const chord = action ? getPendingHotkey(action) : '';
+            btn.textContent = msg.display || formatChordForDisplay(chord, action);
             showToast(msg.conflict || 'Conflict', 'error');
         }
     }
@@ -355,9 +370,10 @@ function handleHotkeyCaptureCancelled(msg) {
         btn.classList.remove('capturing');
         // Restore previous display
         const action = state.hotkeys.actions.find(a => a.id === msg.actionId);
-        const chord = pendingHotkeys[msg.actionId] || (action && action.chord) || '';
+        const chord = action ? getPendingHotkey(action) : '';
         // Find display for the current pending chord
         btn.textContent = action ? formatChordForDisplay(chord, action) : chord;
+        btn.classList.toggle('is-unbound', !chord);
     }
     if (capturingActionId === msg.actionId) {
         capturingActionId = null;
@@ -365,6 +381,7 @@ function handleHotkeyCaptureCancelled(msg) {
 }
 
 function formatChordForDisplay(chord, action) {
+    if (!chord) return 'Not bound';
     // If the chord matches original, use original display
     if (chord === action.chord) return action.display;
     if (chord === action.defaultChord) return action.defaultDisplay;
@@ -372,13 +389,38 @@ function formatChordForDisplay(chord, action) {
     return chord;
 }
 
+function getPendingHotkey(action) {
+    return Object.prototype.hasOwnProperty.call(pendingHotkeys, action.id)
+        ? pendingHotkeys[action.id]
+        : action.chord;
+}
+
+function collectHotkeys() {
+    return state.hotkeys.actions.map(action => ({
+        id: action.id,
+        chord: getPendingHotkey(action),
+    }));
+}
+
+function unbindHotkey(actionId) {
+    if (capturingActionId === actionId) cancelActiveCapture();
+    pendingHotkeys[actionId] = '';
+    const btn = document.getElementById(`hk-btn-${actionId}`);
+    if (btn) {
+        btn.textContent = 'Not bound';
+        btn.classList.remove('capturing');
+        btn.classList.add('is-unbound');
+    }
+}
+
 function resetHotkey(actionId, defaultDisplay, defaultChord) {
     if (capturingActionId === actionId) cancelActiveCapture();
     pendingHotkeys[actionId] = defaultChord;
     const btn = document.getElementById(`hk-btn-${actionId}`);
     if (btn) {
-        btn.textContent = defaultDisplay;
+        btn.textContent = defaultDisplay || 'Not bound';
         btn.classList.remove('capturing');
+        btn.classList.toggle('is-unbound', !defaultChord);
     }
 }
 
@@ -720,13 +762,7 @@ function collectAndSave() {
     };
 
     // Hotkeys
-    const hotkeys = [];
-    for (const action of state.hotkeys.actions) {
-        hotkeys.push({
-            id:    action.id,
-            chord: pendingHotkeys[action.id] || action.chord,
-        });
-    }
+    const hotkeys = collectHotkeys();
 
     // Addon enable/disable
     const addons = {};

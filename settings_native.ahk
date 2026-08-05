@@ -5,7 +5,7 @@
 ; settings behavior in one place while allowing a Chromium-free interface.
 
 _Settings_BuildNative() {
-    global gSettingsGui, gAddonHooks, gDisabledAddons
+    global gSettingsGui, gAddonHooks, gDisabledAddons, gSettingsHotkeyRows
     global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
@@ -109,24 +109,28 @@ _Settings_BuildNative() {
     ; Hotkeys -----------------------------------------------------
     tab.UseTab(3)
     g.Add("Text", "x" contentX " y" contentY " w590",
-        "Select an action, choose Change, then press the new shortcut. Escape cancels capture.")
+        "Select an action to change, unbind, or reset it. Escape cancels shortcut capture.")
     hotkeyLv := g.Add("ListView", "x" contentX " y82 w590 h340 -Multi Grid", ["Action", "Shortcut"])
     nativeHotkeyRows := []
     for action in GetHotkeyActionsForSettings() {
-        hotkeyLv.Add(, action["label"], FormatHotkeyDisplay(action["chord"]))
+        hotkeyLv.Add(, action["label"], FormatHotkeySettingsDisplay(action["chord"]))
         nativeHotkeyRows.Push(Map(
             "id", action["id"],
             "pending", action["chord"],
             "default", action["default"],
+            "action", action,
             "allowMouse", action.Has("allowMouse") && action["allowMouse"]
         ))
     }
+    gSettingsHotkeyRows := nativeHotkeyRows
     hotkeyLv.ModifyCol(1, 420)
     hotkeyLv.ModifyCol(2, 145)
     captureBtn := g.Add("Button", "x" contentX " y434 w130", "Change selected")
+    unbindBtn := g.Add("Button", "x+8 w130", "Unbind selected")
     resetBtn := g.Add("Button", "x+8 w130", "Reset selected")
     resetAllBtn := g.Add("Button", "x+8 w130", "Reset all")
     captureBtn.OnEvent("Click", BeginHotkeyCapture)
+    unbindBtn.OnEvent("Click", UnbindSelectedHotkey)
     resetBtn.OnEvent("Click", ResetSelectedHotkey)
     resetAllBtn.OnEvent("Click", ResetAllHotkeys)
 
@@ -242,8 +246,17 @@ _Settings_BuildNative() {
 
     FinishHotkeyCapture(rowNum, chord) {
         nativeHotkeyRows[rowNum]["pending"] := chord
-        hotkeyLv.Modify(rowNum, "Col2", FormatHotkeyDisplay(chord))
+        hotkeyLv.Modify(rowNum, "Col2", FormatHotkeySettingsDisplay(chord))
         captureBtn.Text := "Change selected"
+    }
+
+    UnbindSelectedHotkey(*) {
+        CancelHotkeyCapture()
+        rowNum := hotkeyLv.GetNext()
+        if (rowNum < 1 || rowNum > nativeHotkeyRows.Length)
+            return
+        nativeHotkeyRows[rowNum]["pending"] := ""
+        hotkeyLv.Modify(rowNum, "Col2", FormatHotkeySettingsDisplay(""))
     }
 
     ResetSelectedHotkey(*) {
@@ -252,14 +265,14 @@ _Settings_BuildNative() {
         if (rowNum < 1 || rowNum > nativeHotkeyRows.Length)
             return
         nativeHotkeyRows[rowNum]["pending"] := nativeHotkeyRows[rowNum]["default"]
-        hotkeyLv.Modify(rowNum, "Col2", FormatHotkeyDisplay(nativeHotkeyRows[rowNum]["default"]))
+        hotkeyLv.Modify(rowNum, "Col2", FormatHotkeySettingsDisplay(nativeHotkeyRows[rowNum]["default"]))
     }
 
     ResetAllHotkeys(*) {
         CancelHotkeyCapture()
         for rowNum, row in nativeHotkeyRows {
             row["pending"] := row["default"]
-            hotkeyLv.Modify(rowNum, "Col2", FormatHotkeyDisplay(row["default"]))
+            hotkeyLv.Modify(rowNum, "Col2", FormatHotkeySettingsDisplay(row["default"]))
         }
     }
 

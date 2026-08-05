@@ -13,7 +13,7 @@ RegisterHotkeyAction(Map(
     "id", "viewModeCycle",
     "label", "Cycle view mode (all clients)",
     "category", "View Mode",
-    "default", "!2",
+    "default", "",
     "addon", "ViewMode",
     "handler", _ViewMode_CycleAll,
     "hotIfWinActive", true
@@ -22,7 +22,7 @@ RegisterHotkeyAction(Map(
     "id", "viewModeToggle",
     "label", "Toggle view mode 0/1 (all clients)",
     "category", "View Mode",
-    "default", "!1",
+    "default", "",
     "addon", "ViewMode",
     "handler", _ViewMode_ToggleAll,
     "hotIfWinActive", true

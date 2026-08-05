@@ -49,7 +49,7 @@ RegisterHotkeyAction(Map(
     "id", "clientRosterToggle",
     "label", "Show/hide client roster",
     "category", "Client Roster",
-    "default", "^!m",
+    "default", "",
     "addon", "ClientRoster",
     "handler", (*) => _ClientRoster_Toggle()
 ))
@@ -87,12 +87,16 @@ _ClientRoster_OnTrayMenu(trayGroups) {
 
 _ClientRoster_OnSettingsWeb() {
     global _ClientRoster_AutoShow, _ClientRoster_DefaultView
+    shortcut := GetHotkeyDisplay("clientRosterToggle")
+    openHint := (shortcut != "")
+        ? "Open it with " shortcut " or from the tray menu."
+        : "Open it from Quick Actions or the tray menu."
     return [
         Map("type", "info", "text",
             "Shows every running client so you can jump straight to an alt.`n"
             . "The radial menu opens a ring of class avatars around the cursor — click one to focus it.`n"
             . "The list shows character, zone and status; double-click a row to focus that client.`n"
-            . "Open it with " GetHotkeyDisplay("clientRosterToggle") " or from the tray menu."),
+            . openHint),
         Map("type", "checkbox", "id", "listView", "label",
             "Open the list view instead of the radial menu",
             "value", (_ClientRoster_DefaultView = "list") ? true : false),

@@ -212,9 +212,9 @@ _Settings_HotkeysToJson() {
             . ',"label":' _JSON_Str(action["label"])
             . ',"category":' _JSON_Str(cat)
             . ',"chord":' _JSON_Str(chord)
-            . ',"display":' _JSON_Str(FormatHotkeyDisplay(chord))
+            . ',"display":' _JSON_Str(FormatHotkeySettingsDisplay(chord))
             . ',"defaultChord":' _JSON_Str(defChord)
-            . ',"defaultDisplay":' _JSON_Str(FormatHotkeyDisplay(defChord))
+            . ',"defaultDisplay":' _JSON_Str(FormatHotkeySettingsDisplay(defChord))
         . '}'
     }
     json .= "]"
@@ -409,11 +409,16 @@ _Settings_HandleSave(msg) {
     ; ── Hotkeys ──
     hotkeys := msg["hotkeys"]
     if IsObject(hotkeys) {
+        _Settings_SetPendingHotkeyRows(hotkeys)
         for entry in hotkeys {
             id := entry["id"]
             chord := NormalizeHotkeyChord(entry["chord"])
+            if !gHotkeyActions.Has(id) {
+                _Settings_SendSaveResult(false, "Unknown hotkey action: " id ".")
+                return false
+            }
             if !IsHotkeyChordValid(chord) {
-                actionLabel := gHotkeyActions.Has(id) ? gHotkeyActions[id]["label"] : id
+                actionLabel := gHotkeyActions[id]["label"]
                 _Settings_SendSaveResult(false, "Invalid shortcut for " actionLabel ".")
                 return false
             }
@@ -424,7 +429,7 @@ _Settings_HandleSave(msg) {
             }
         }
         for entry in hotkeys {
-            gHotkeyActions[entry["id"]]["chord"] := entry["chord"]
+            gHotkeyActions[entry["id"]]["chord"] := NormalizeHotkeyChord(entry["chord"])
         }
         SaveHotkeyOverrides()
     }
@@ -484,18 +489,30 @@ _Settings_HandleBrowse() {
 
 _Settings_HandleStartCapture(msg) {
     actionId := msg["actionId"]
-    global gHotkeyActions, gSettingsGui
+    global gHotkeyActions, gSettingsGui, gSettingsHotkeyRows
 
     if !gHotkeyActions.Has(actionId)
         return
 
+    if msg.Has("hotkeys")
+        _Settings_SetPendingHotkeyRows(msg["hotkeys"])
+
     action := gHotkeyActions[actionId]
     allowMouse := action.Has("allowMouse") && action["allowMouse"]
+    pendingChord := action["chord"]
+    if IsObject(gSettingsHotkeyRows) {
+        for pendingRow in gSettingsHotkeyRows {
+            if pendingRow["id"] = actionId {
+                pendingChord := pendingRow["pending"]
+                break
+            }
+        }
+    }
 
     ; Create a temporary row-like object that StartHotkeyCapture expects.
     fakeRow := Map(
         "id", actionId,
-        "pending", action["chord"],
+        "pending", pendingChord,
         "default", action["default"],
         "button", _Settings_FakeButton(),
         "allowMouse", allowMouse
@@ -516,12 +533,34 @@ class _Settings_FakeButton {
 }
 
 _Settings_OnCaptureDone(actionId, chord, row) {
-    display := FormatHotkeyDisplay(chord)
+    display := FormatHotkeySettingsDisplay(chord)
     _Settings_PostMessage('{"type":"hotkey-captured"'
         . ',"actionId":' _JSON_Str(actionId)
         . ',"chord":' _JSON_Str(chord)
         . ',"display":' _JSON_Str(display)
         . ',"ok":true}')
+}
+
+; Keep AHK's conflict checks aligned with the unsaved values shown by the web
+; UI. This makes it possible to unbind one action and immediately reuse that
+; chord for another before pressing Save.
+_Settings_SetPendingHotkeyRows(hotkeys) {
+    global gSettingsHotkeyRows, gHotkeyActions
+    rows := []
+    if IsObject(hotkeys) {
+        for entry in hotkeys {
+            if !entry.Has("id") || !gHotkeyActions.Has(entry["id"])
+                continue
+            id := entry["id"]
+            chord := entry.Has("chord") ? NormalizeHotkeyChord(entry["chord"]) : ""
+            rows.Push(Map(
+                "id", id,
+                "pending", chord,
+                "action", gHotkeyActions[id]
+            ))
+        }
+    }
+    gSettingsHotkeyRows := rows
 }
 
 _Settings_OnCaptureCancel(actionId) {
