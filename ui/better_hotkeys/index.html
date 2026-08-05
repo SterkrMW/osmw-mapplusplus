@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Better Hotkeys</title>
+    <link rel="stylesheet" href="../common/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="title-bar">
+        <div class="title-bar-drag">
+            <span class="material-symbols-outlined title-bar-icon">tune</span>
+            <span class="title-bar-title">Better Hotkeys</span>
+        </div>
+        <div class="title-bar-controls">
+            <button class="title-btn title-btn-close" id="titleClose" aria-label="Close">✕</button>
+        </div>
+    </header>
+
+    <div class="editor-shell">
+        <aside class="profile-rail" aria-label="Character profiles">
+            <div class="rail-heading">
+                <div>
+                    <p class="eyebrow">Profiles</p>
+                    <h1>Characters</h1>
+                </div>
+                <button class="btn btn-sm" id="showCreate">Create</button>
+            </div>
+
+            <form class="create-profile" id="createProfile" hidden>
+                <div class="create-heading">
+                    <strong>Create profile</strong>
+                    <button type="button" class="quiet-button" id="cancelCreate">Cancel</button>
+                </div>
+                <label class="field">
+                    <span class="field-label">Running character</span>
+                    <select class="select" id="runningCharacter">
+                        <option value="">Enter manually</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">Character name</span>
+                    <input class="input" id="characterName" maxlength="48" autocomplete="off">
+                </label>
+                <label class="field">
+                    <span class="field-label">Class</span>
+                    <select class="select" id="characterClass"></select>
+                </label>
+                <p class="field-error" id="createError" role="alert"></p>
+                <button class="btn btn-primary" type="submit">Create profile</button>
+            </form>
+
+            <nav class="profile-list" id="profileList" aria-label="Saved character profiles"></nav>
+            <div class="rail-empty" id="profileEmpty">
+                <strong>No character profiles yet</strong>
+                <span>Create only the characters whose battle skills you want to bind.</span>
+                <button class="btn btn-primary" id="emptyCreate">Create first profile</button>
+            </div>
+        </aside>
+
+        <main class="profile-editor" id="profileEditor">
+            <section class="welcome-state" id="welcomeState">
+                <div class="key-illustration" aria-hidden="true">
+                    <kbd>F1</kbd><span>→</span><span class="skill-mark">IV</span>
+                </div>
+                <h2>One shortcut, the right character</h2>
+                <p>The active game client decides which character profile receives the shortcut.</p>
+            </section>
+
+            <div class="editor-content" id="editorContent" hidden>
+                <header class="profile-header">
+                    <div class="profile-identity">
+                        <img id="profileAvatar" alt="">
+                        <div>
+                            <div class="identity-line">
+                                <h2 id="profileName"></h2>
+                                <span class="presence" id="profilePresence"></span>
+                            </div>
+                            <select class="class-select" id="profileClass" aria-label="Character class"></select>
+                        </div>
+                    </div>
+                    <button class="quiet-button danger-text" id="deleteProfile">Delete profile</button>
+                </header>
+
+                <div class="class-warning" id="classWarning" role="status" hidden></div>
+
+                <section class="bindings-section" aria-labelledby="bindingsTitle">
+                    <div class="section-heading">
+                        <div>
+                            <p class="eyebrow">Active profile</p>
+                            <h3 id="bindingsTitle">Bindings</h3>
+                        </div>
+                        <span class="binding-count" id="bindingCount"></span>
+                    </div>
+                    <div class="binding-list" id="bindingList"></div>
+                    <div class="binding-empty" id="bindingEmpty">
+                        <strong>No bindings for this character</strong>
+                        <span>Choose a skill below, then press the shortcut you want to use.</span>
+                    </div>
+                </section>
+
+                <section class="skill-section" aria-labelledby="skillTitle">
+                    <div class="section-heading skill-heading">
+                        <div>
+                            <p class="eyebrow">Class skills</p>
+                            <h3 id="skillTitle">Choose a skill to bind</h3>
+                        </div>
+                    </div>
+                    <div class="skill-matrix" id="skillMatrix"></div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <footer class="footer">
+        <div class="footer-status">
+            <span class="save-state" id="saveState">No unsaved changes</span>
+            <span class="runtime-note">Runs only in battle on the active client</span>
+        </div>
+        <div class="footer-actions">
+            <button class="btn" id="closeEditor">Close</button>
+            <button class="btn btn-primary" id="saveProfiles" disabled>Save hotkeys</button>
+        </div>
+    </footer>
+
+    <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+    <script src="main.js"></script>
+</body>
+</html>

@@ -339,6 +339,7 @@ _IconForLabel(lbl) {
     switch lbl {
         case "Launch (Primary)", "Launch (Secondary)": return "rocket_launch"
         case "Send Enter Until Ready": return "keyboard"
+        case "Better Hotkeys…": return "keyboard"
         case "Settings…": return "settings"
         case "Reload": return "refresh"
         case "Debug", "Debug State": return "bug_report"

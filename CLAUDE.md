@@ -74,6 +74,7 @@ Shared web UI styling lives in `ui\common\style.css` (one dark theme via CSS cus
 - `maps\calibration.ini` — per-map world→pixel calibration (base 400×300 space).
 - `maps\pois.ini` — user/curated map points of interest, keyed by map id, storing **raw** game positions (raw X÷16, Y÷8 = the in-game displayed coordinates).
 - `layouts.ini` — user-authored window layouts (owned by `addons\window_layout.ahk`), also via `ResolveWritableIniPath()`. An `[Index]` section maps a numeric id to the display name, and one `[Layout.<id>]` section per layout holds a monitor fingerprint, the authoring client window size, and `Slot<N>=fx|fy|charName|flags` records. Slot positions are **fractions of the target monitor's work area**, not pixels, so a layout survives a resolution change; `WinSize` is used only to draw boxes to scale in the editor, since applying a layout never resizes a window. Deliberately *not* in `maps\`, which `build.ps1` copies into `releases\`.
+- `better_hotkeys.ini` — explicit per-character skill profiles owned by `addons\better_hotkeys.ahk`. Dynamic profile chords are transient hidden entries in the central registry, rebuilt through `OnBeforeApplyHotkeys`; they must not be persisted into `config.ini [Hotkeys]` or exposed in the general Settings hotkey list.
 - `signatures.ini` / `offsets_cache.ini` — persisted byte-signatures and per-build resolved RVAs from the signature calibration system above.
 - `maps\*.jpg` — one custom minimap image per supported zone, named `MAP<id>.jpg` matching the in-game map filename.
 

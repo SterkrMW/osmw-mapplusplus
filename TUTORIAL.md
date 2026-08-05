@@ -13,6 +13,7 @@ Maps++ runs in the background and appears in your system tray as **osMW Maps++**
 | **Custom minimap** | Press **Tab** to overlay a high-resolution map on top of the game window. |
 | **Live position marker** | A dot on the map tracks your character as you move. |
 | **Game launcher** | Launch new game clients from the tray menu or a hotkey, centered on your chosen monitor. |
+| **Better Hotkeys** | Give each character any number of persistent battle-skill shortcuts, including different skills on the same key. |
 | **Multi-box helpers** | Optional addons arrange windows, toggle chat, open inventory, and send battle commands to all fighting characters. |
 | **Radial menus** | **Ctrl+Alt+A** rings your common actions around the cursor; choose **Clients** there to jump between alts. One click each. |
 
@@ -25,9 +26,9 @@ Maps++ reads information from the running game client (`main.exe`). It does not 
 ### 1. Install and run
 
 1. Download the release that matches how you play:
-   - **Full** — minimap, launcher, window layout, chat, inventory, battle helpers, map POIs, and the multi-client roster and party markers.
+   - **Full** — minimap, launcher, window layout, chat, inventory, Better Hotkeys, battle helpers, map POIs, and the multi-client roster and party markers.
    - **Lite** — minimap, map POIs, launcher, and window layout only.
-   - **Battle** — minimap, launcher, chat, battle helpers, roster and party markers (no inventory or window layout).
+   - **Battle** — minimap, launcher, chat, Better Hotkeys, battle helpers, roster and party markers (no inventory or window layout).
 2. Extract the folder somewhere convenient (Desktop, a games folder, etc.).
 3. Run **`mapsplusplus.exe`**.
 
@@ -336,6 +337,26 @@ real inventory.
 
 Use this to confirm or send the same battle command across all fighting characters at once.
 
+### Better Hotkeys (Full / Battle)
+
+Choose **Tray → Quick Actions → Better Hotkeys…** to create character profiles and bind their
+battle skills. Profiles are created only when you ask, so bank characters and other mules do
+not clutter the editor. A saved profile remains editable while its character is offline.
+
+1. Choose **Create**, then select a running character or enter its exact name and class.
+2. Select that profile and choose one of its four skill families and tiers I–IV.
+3. Press the shortcut when prompted. Add as many bindings as you need, then choose
+   **Save hotkeys**.
+
+The same shortcut can mean something different for each character. For example, **F1** can
+select **Stun IV** while one Human is active and **Heal Other IV** while a Centaur is active.
+It never switches clients: the character's own `main.exe` window must already be active, and
+the shortcut only acts while that client is in battle. Pressing another Better Hotkey before
+the turn resolves replaces the previously selected action.
+
+Player skills are supported now. Pet skill/action offsets are reserved in the addon for future
+support, but pet bindings are not shown until Maps++ can reliably identify a pet's four skills.
+
 ### View Mode (Full / Lite / Battle)
 
 | Hotkey | Action |
@@ -518,6 +539,7 @@ PartyMarkers=1
 MapPois=1
 QuickActions=1
 ShopPrices=1
+BetterHotkeys=1
 ```
 
 | Setting | Meaning |
@@ -552,6 +574,33 @@ ShopPrices=1
 | `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
 
 After editing `config.ini`, use **Reload** from the tray menu or **Ctrl+Alt+R**.
+
+### Better Hotkeys profiles (`better_hotkeys.ini`)
+
+The Better Hotkeys editor owns this file and stores it beside `config.ini` (or in the same
+writable AppData fallback). Profiles use numbered sections so character names never need to
+be used as INI keys:
+
+```ini
+[Meta]
+Version=1
+Count=1
+
+[Profile.1]
+Name=YourCharName
+Class=0
+BindingCount=2
+Binding1Chord=F1
+Binding1Actor=player
+Binding1Skill=19
+Binding2Chord=^2
+Binding2Actor=player
+Binding2Skill=11
+```
+
+`Class` is the client class ID (`0`–`7`), `Skill` is the server/client skill enum, and `Chord`
+uses AutoHotkey syntax. Edit through the visual editor where possible so class restrictions and
+conflicts with Maps++ shortcuts are checked before saving.
 
 ### Shop presets (`shop_presets.ini`)
 

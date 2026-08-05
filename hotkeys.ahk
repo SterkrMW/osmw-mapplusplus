@@ -120,6 +120,17 @@ GetHotkeyConflictAction(chord, exceptId := "") {
             if (StrLower(pending) = StrLower(chord))
                 return row["action"].Has("label") ? row["action"]["label"] : row["id"]
         }
+        ; Data-driven providers may contribute hidden runtime actions which do
+        ; not have a Settings row. They still reserve their chord, otherwise a
+        ; general hotkey edit could silently replace a Better Hotkeys handler.
+        for id, action in gHotkeyActions {
+            if !(action.Has("hidden") && action["hidden"])
+                continue
+            if !IsHotkeyActionEnabled(action)
+                continue
+            if (StrLower(action["chord"]) = StrLower(chord))
+                return action.Has("label") ? action["label"] : id
+        }
         return ""
     }
     for id, action in gHotkeyActions {
@@ -138,6 +149,8 @@ LoadHotkeyOverrides() {
     if !FileExist(CONFIG_INI)
         return
     for id, action in gHotkeyActions {
+        if action.Has("persist") && !action["persist"]
+            continue
         raw := Trim(IniRead(CONFIG_INI, "Hotkeys", id, "__MISSING__"))
         if (raw = "__MISSING__")
             continue
@@ -151,6 +164,8 @@ LoadHotkeyOverrides() {
 SaveHotkeyOverrides() {
     global gHotkeyActions, CONFIG_INI
     for id, action in gHotkeyActions {
+        if action.Has("persist") && !action["persist"]
+            continue
         IniWrite(action["chord"], CONFIG_INI, "Hotkeys", id)
     }
 }
@@ -199,6 +214,12 @@ ApplyAllHotkeys() {
     for entry in gAppliedHotkeys
         _ApplyHotkeyOff(entry)
     gAppliedHotkeys := []
+
+    ; Addons with data-driven bindings (Better Hotkeys, for example) rebuild
+    ; their transient action specs immediately before the registry is applied.
+    ; Keeping them in this same cycle gives them the same teardown, addon
+    ; enable/disable, and conflict behaviour as every static action.
+    FireAddonHook("OnBeforeApplyHotkeys")
 
     for id, action in gHotkeyActions {
         if !IsHotkeyActionEnabled(action)
@@ -309,6 +330,8 @@ GetHotkeyActionsForSettings() {
     byCategory := Map()
     for id, action in gHotkeyActions {
         if !IsHotkeyActionEnabled(action)
+            continue
+        if action.Has("hidden") && action["hidden"]
             continue
         cat := action.Has("category") ? action["category"] : "Other"
         if !byCategory.Has(cat)
