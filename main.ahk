@@ -299,6 +299,8 @@ _TrayItemsToJson(items) {
             . ',"shortcut":' _JSON_Str(item.Has("shortcut") ? item["shortcut"] : "")
             . ',"isDefault":' (item.Has("isDefault") && item["isDefault"] ? "true" : "false")
             . ',"isExit":' (item.Has("isExit") && item["isExit"] ? "true" : "false")
+            . ',"isSelected":' (item.Has("isSelected") && item["isSelected"] ? "true" : "false")
+            . ',"state":' _JSON_Str(item.Has("state") ? item["state"] : "")
         if item.Has("children") {
             json .= ',"children":' _TrayItemsToJson(item["children"])
         }
@@ -334,19 +336,32 @@ _ConvertHmenuToWebItems(hMenu, idPrefix := "menu_") {
 
         parts := StrSplit(str, "`t")
         label := parts[1]
+        rawLabel := label
         shortcut := (parts.Length >= 2) ? parts[2] : ""
         isDefault := meta.isDefault
+        isSelected := meta.isChecked
+        stateText := ""
+        if (SubStr(label, 1, 2) = "● ") {
+            isSelected := true
+            label := SubStr(label, 3)
+        }
+        if RegExMatch(label, "^(.*) — (On|Off)$", &stateMatch) {
+            label := stateMatch[1]
+            stateText := stateMatch[2]
+        }
 
         hSub := DllCall("GetSubMenu", "Ptr", hMenu, "Int", idx, "Ptr")
         if (hSub) {
             children := _ConvertHmenuToWebItems(hSub, idPrefix idx "_")
-            items.Push(Map("label", label, "icon", _IconForLabel(label), "children", children))
+            items.Push(Map("label", label, "icon", _IconForLabel(rawLabel), "children", children,
+                "isSelected", isSelected, "state", stateText))
         } else {
             itemId := idPrefix idx
             cmdId := DllCall("GetMenuItemID", "Ptr", hMenu, "Int", idx, "UInt")
             gWebTrayCallbacks[itemId] := _MakeHmenuCallback(hMenu, cmdId)
-            items.Push(Map("id", itemId, "label", label, "icon", _IconForLabel(label), "shortcut", shortcut,
-            "isDefault", isDefault, "isExit", label = "Exit"))
+            items.Push(Map("id", itemId, "label", label, "icon", _IconForLabel(rawLabel), "shortcut", shortcut,
+                "isDefault", isDefault, "isExit", label = "Exit", "isSelected", isSelected,
+                "state", stateText))
         }
     }
     return items
@@ -364,12 +379,13 @@ _GetHmenuItemMeta(hMenu, idx) {
     NumPut("UInt", MIIM_STATE | MIIM_FTYPE, info, 4)
     if !DllCall("GetMenuItemInfoW", "Ptr", hMenu, "UInt", idx, "Int", true,
         "Ptr", info.Ptr, "Int")
-        return {isSeparator: false, isDefault: false}
+        return {isSeparator: false, isDefault: false, isChecked: false}
     itemType := NumGet(info, 8, "UInt")
     itemState := NumGet(info, 12, "UInt")
     return {
         isSeparator: (itemType & MFT_SEPARATOR) ? true : false,
-        isDefault: (itemState & MFS_DEFAULT) ? true : false
+        isDefault: (itemState & MFS_DEFAULT) ? true : false,
+        isChecked: (itemState & 0x8) ? true : false
     }
 }
 

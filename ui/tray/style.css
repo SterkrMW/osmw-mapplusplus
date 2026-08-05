@@ -17,6 +17,15 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
+/* Edge headless clamps its viewport to 800px even when asked for the tray's
+   320px window. Keep local visual-regression captures honest without touching
+   the WebView2 runtime path. */
+.preview-mode,
+.preview-mode body {
+    width: 320px;
+    height: 390px;
+}
+
 .menu-container {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -28,6 +37,14 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+.menu-container.opening {
+    transform-origin: calc(100% - 18px) calc(100% - 12px);
+    animation: menu-open 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes menu-open {
+    from { opacity: 0; transform: translateY(4px) scale(0.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* The action area scrolls independently; Exit remains anchored below it. */
@@ -74,10 +91,11 @@ body {
     color: var(--text);
     border-radius: var(--radius);
     cursor: pointer;
-    transition: background var(--transition), color var(--transition);
+    transition: background var(--transition), color var(--transition), transform 90ms ease-out;
     user-select: none;
     flex-shrink: 0;
 }
+.menu-item:active { transform: translateX(1px); }
 .menu-item:hover, .menu-item.active {
     background: rgba(255, 255, 255, 0.07);
     color: var(--text);
@@ -89,6 +107,9 @@ body {
 .menu-item.default {
     font-weight: 600;
     color: var(--accent);
+}
+.menu-item.selected {
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .item-left {
@@ -105,11 +126,12 @@ body {
     align-items: center;
     justify-content: center;
     color: var(--text-muted);
-    transition: color var(--transition);
+    transition: color var(--transition), transform var(--transition);
     flex-shrink: 0;
 }
 .menu-item:hover .item-icon, .menu-item.active .item-icon, .menu-item.default .item-icon {
     color: var(--accent);
+    transform: translateX(1px);
 }
 .item-label {
     white-space: nowrap;
@@ -127,6 +149,53 @@ body {
     border-radius: 3px;
     margin-left: 12px;
     flex-shrink: 0;
+}
+
+.item-right {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-left: 12px;
+    flex-shrink: 0;
+}
+.item-right .item-shortcut,
+.item-right .item-arrow { margin-left: 0; }
+
+.item-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+.item-state::before {
+    width: 6px;
+    height: 6px;
+    content: '';
+    background: var(--text-dim);
+    border-radius: 50%;
+}
+.item-state.is-on { color: var(--success); }
+.item-state.is-on::before { background: var(--success); }
+
+.item-check {
+    display: inline-grid;
+    width: 18px;
+    height: 18px;
+    place-items: center;
+    color: var(--accent-text);
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: check-settle 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes check-settle {
+    from { opacity: 0; transform: scale(0.72); }
+    to { opacity: 1; transform: scale(1); }
 }
 
 .item-arrow {
@@ -177,4 +246,8 @@ body {
 @keyframes submenuIn {
     from { opacity: 0; transform: translateY(-2px); }
     to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
