@@ -26,22 +26,34 @@
         </label>
         <span class="badge badge-muted" id="guardBadge">Reading…</span>
         <span class="head-spacer"></span>
+        <span class="draft-count" id="draftCount" hidden>0 changes</span>
         <span class="listed-count" id="listedCount">0 of 24 listed</span>
-        <button class="btn btn-sm" id="btnRefresh">Refresh</button>
+        <button class="btn btn-sm" id="btnRefresh" title="Refresh prices from the game (Ctrl+R)">Refresh</button>
     </div>
 
     <div class="vendor-body">
         <main class="grid-pane">
             <div class="bulk-bar">
-                <span class="bulk-count" id="bulkCount">Nothing selected</span>
-                <input type="text" class="input input-sm price-bulk" id="bulkPrice"
-                       inputmode="numeric" autocomplete="off" placeholder="e.g. 1,500,000"
-                       aria-label="Price to apply to the selected slots">
-                <button class="btn btn-sm btn-primary" id="btnSetSelected">Set on selected</button>
-                <button class="btn btn-sm" id="btnClearSelected">Clear</button>
-                <span class="tb-sep" aria-hidden="true"></span>
-                <button class="btn btn-sm" id="btnSelectAll">All</button>
-                <button class="btn btn-sm" id="btnSelectNone">None</button>
+                <div class="bulk-row">
+                    <span class="bulk-count" id="bulkCount">Nothing selected</span>
+                    <input type="text" class="input input-sm price-bulk" id="bulkPrice"
+                           inputmode="numeric" autocomplete="off" placeholder="e.g. 1,500,000"
+                           aria-label="Price to apply to the selected slots">
+                    <button class="btn btn-sm btn-primary" id="btnSetSelected">Set price</button>
+                    <button class="btn btn-sm" id="btnClearSelected">Clear price</button>
+                    <span class="tb-sep" aria-hidden="true"></span>
+                    <button class="btn btn-sm" id="btnSelectAll" title="Select every slot (Ctrl+A)">Select all</button>
+                    <button class="btn btn-sm" id="btnSelectNone">None</button>
+                </div>
+                <div class="quick-row" aria-label="Quick price entry">
+                    <span class="quick-label">Quick fill</span>
+                    <button class="price-chip" data-price="100000">100k</button>
+                    <button class="price-chip" data-price="500000">500k</button>
+                    <button class="price-chip" data-price="1000000">1m</button>
+                    <button class="price-chip" data-price="5000000">5m</button>
+                    <button class="price-chip" data-price="10000000">10m</button>
+                    <span class="selection-help">Ctrl/Shift-click or drag to select · Enter sets the price</span>
+                </div>
             </div>
 
             <div class="grid-wrap" id="gridWrap">
@@ -84,8 +96,8 @@
         </div>
         <div class="footer-right">
             <span class="apply-note">Check prices in game before you click <strong>Vendor</strong>.</span>
-            <button class="btn btn-sm" id="btnRevert">Revert</button>
-            <button class="btn btn-sm btn-primary" id="btnApply">Apply to game</button>
+            <button class="btn btn-sm" id="btnRevert">Revert draft</button>
+            <button class="btn btn-sm btn-primary" id="btnApply" title="Apply draft to the game (Ctrl+Enter)">Apply to game</button>
         </div>
     </footer>
 

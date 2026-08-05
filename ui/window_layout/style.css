@@ -2,6 +2,8 @@
    from ../common/style.css; the only additions here are the stage primitives,
    which have no analogue in any other panel. */
 
+[hidden] { display: none !important; }
+
 .workspace {
     flex: 1;
     display: grid;
@@ -149,6 +151,24 @@
     padding: 16px;
     overflow: auto;
 }
+.stage-context {
+    width: 100%;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+.stage-context strong {
+    overflow: hidden;
+    color: var(--text);
+    font-size: var(--font-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.stage-context[hidden] { display: none; }
 
 /* The frame is capped in both axes so a tall work area can't push the stage
    past the viewport; .stage keeps the true aspect ratio inside it. */
@@ -227,6 +247,11 @@
     z-index: 4;
     transition: none;
 }
+.slot.settled { animation: slot-settle 240ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes slot-settle {
+    0% { transform: scale(0.97); filter: brightness(1.2); }
+    100% { transform: scale(1); filter: brightness(1); }
+}
 .slot:focus-visible {
     outline: 2px solid var(--border-focus);
     outline-offset: 1px;
@@ -286,6 +311,35 @@
     line-height: 1.35;
 }
 .check-row input { margin-top: 2px; accent-color: var(--accent); }
+.align-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.align-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+}
+.align-btn {
+    height: 28px;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color var(--transition), background var(--transition), border-color var(--transition), transform 90ms ease-out;
+}
+.align-btn:hover {
+    color: var(--accent);
+    background: var(--surface-hover);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.align-btn:active { transform: translateY(1px); }
+.align-btn:disabled { opacity: 0.4; pointer-events: none; }
 
 /* ── Footer status ──────────────────────────────────────────── */
 .footer-left, .footer-right {
@@ -350,4 +404,12 @@
     gap: 8px;
     padding: 12px 16px;
     border-top: 1px solid var(--border);
+}
+
+@media (max-width: 850px) {
+    .workspace { grid-template-columns: 190px minmax(0, 1fr) 204px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

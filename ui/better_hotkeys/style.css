@@ -9,6 +9,16 @@
 }
 
 [hidden] { display: none !important; }
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
 
 /* WebView2 delegates an open <select> to Chromium's native menu. Declare the
    dark scheme explicitly so Windows does not pair a white popup surface with
@@ -309,6 +319,39 @@ h3 { font-size: 1rem; line-height: 1.3; }
 .binding-count,
 .section-note { color: var(--text-muted); font-size: var(--font-sm); }
 
+.capture-banner,
+.binding-notice {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: 38px;
+    padding: 7px 9px 7px 12px;
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+    line-height: 1.35;
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+    border-radius: var(--radius);
+}
+.capture-banner span:nth-child(2) { flex: 1; }
+.capture-banner strong { color: var(--text); margin-right: 4px; }
+.capture-pulse {
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: capture-pulse 1s ease-in-out infinite alternate;
+}
+@keyframes capture-pulse {
+    from { opacity: 0.45; transform: scale(0.75); }
+    to { opacity: 1; transform: scale(1); }
+}
+.binding-notice {
+    color: color-mix(in srgb, var(--danger) 76%, var(--text));
+    background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+    border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+}
+
 .binding-list { display: flex; flex-direction: column; gap: var(--space-sm); }
 .binding-row {
     display: grid;
@@ -323,6 +366,11 @@ h3 { font-size: 1rem; line-height: 1.3; }
 }
 .binding-row.capturing { border-color: var(--accent); background: var(--accent-glow); }
 .binding-row.invalid { border-color: var(--danger); }
+.binding-row.just-bound { animation: binding-settle 560ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes binding-settle {
+    0% { transform: translateY(3px); border-color: var(--success); background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
+    100% { transform: translateY(0); border-color: var(--border); background: color-mix(in srgb, var(--surface) 90%, transparent); }
+}
 .binding-main { min-width: 0; gap: var(--space-md); }
 .hotkey-button {
     min-width: 118px;
@@ -365,11 +413,27 @@ h3 { font-size: 1rem; line-height: 1.3; }
     border-radius: var(--radius);
 }
 
-.skill-heading { align-items: flex-end; }
+.skill-heading { align-items: flex-end; gap: var(--space-lg); }
+.skill-search-wrap { width: min(220px, 42%); }
+.skill-search {
+    width: 100%;
+    height: 30px;
+    padding-right: 8px;
+    font-size: var(--font-sm);
+}
 .skill-matrix {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: var(--space-md) var(--space-xl);
+}
+.skill-empty {
+    min-height: 72px;
+    display: grid;
+    place-items: center;
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
 }
 .skill-family {
     display: grid;
@@ -444,6 +508,8 @@ h3 { font-size: 1rem; line-height: 1.3; }
     .binding-main { align-items: stretch; flex-direction: column; }
     .hotkey-button { width: 100%; }
     .skill-matrix { grid-template-columns: 1fr; }
+    .skill-heading { align-items: stretch; flex-direction: column; }
+    .skill-search-wrap { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -6,6 +6,8 @@ let clients = [];
 let selectedProfile = -1;
 let dirty = false;
 let captureTarget = null;
+let captureNotice = '';
+let lastBound = '';
 
 const $ = id => document.getElementById(id);
 
@@ -101,8 +103,10 @@ function renderProfiles() {
             </span>
             <span class="count-chip" title="${profile.bindings.length} bindings">${profile.bindings.length}</span>`;
         button.addEventListener('click', () => {
+            if (captureTarget) send('cancel-capture');
             selectedProfile = index;
             captureTarget = null;
+            captureNotice = '';
             renderProfiles();
             renderEditor();
         });
@@ -149,11 +153,15 @@ function renderBindings(profile, classInfo) {
     list.innerHTML = '';
     $('bindingCount').textContent = `${profile.bindings.length} ${profile.bindings.length === 1 ? 'binding' : 'bindings'}`;
     $('bindingEmpty').hidden = profile.bindings.length > 0;
+    $('captureBanner').hidden = !captureTarget;
+    $('bindingNotice').hidden = !captureNotice;
+    $('bindingNotice').textContent = captureNotice;
 
     profile.bindings.forEach((binding, bindingIndex) => {
         const row = document.createElement('div');
         const isCapturing = captureTarget?.profileIndex === selectedProfile + 1 && captureTarget?.bindingIndex === bindingIndex + 1;
-        row.className = `binding-row${isCapturing ? ' capturing' : ''}${binding.chord ? '' : ' invalid'}`;
+        const bindingKey = `${selectedProfile}:${bindingIndex}`;
+        row.className = `binding-row${isCapturing ? ' capturing' : ''}${binding.chord ? '' : ' invalid'}${lastBound === bindingKey ? ' just-bound' : ''}`;
 
         const main = document.createElement('div');
         main.className = 'binding-main';
@@ -208,6 +216,7 @@ function renderSkillMatrix(classInfo) {
         const group = classInfo.skills.slice(i, i + 4);
         const family = document.createElement('div');
         family.className = 'skill-family';
+        family.dataset.search = group.map(skill => skill.name).join(' ').toLocaleLowerCase();
         const label = document.createElement('span');
         label.className = 'family-name';
         label.textContent = familyName(group[0].name);
@@ -224,6 +233,18 @@ function renderSkillMatrix(classInfo) {
         }
         matrix.appendChild(family);
     }
+    filterSkillMatrix();
+}
+
+function filterSkillMatrix() {
+    const query = $('skillSearch').value.trim().toLocaleLowerCase();
+    let shown = 0;
+    $('skillMatrix').querySelectorAll('.skill-family').forEach(family => {
+        const match = !query || family.dataset.search.includes(query);
+        family.hidden = !match;
+        if (match) shown++;
+    });
+    $('skillEmpty').hidden = shown > 0;
 }
 
 function addBinding(skill) {
@@ -234,6 +255,7 @@ function addBinding(skill) {
         return;
     }
     profile.bindings.push({ chord: '', actor: 'player', skill });
+    captureNotice = '';
     markDirty();
     renderProfiles();
     renderEditor();
@@ -241,6 +263,7 @@ function addBinding(skill) {
 }
 
 function startCapture(bindingIndex) {
+    captureNotice = '';
     captureTarget = { profileIndex: selectedProfile + 1, bindingIndex: bindingIndex + 1 };
     renderEditor();
     send('start-capture', captureTarget);
@@ -255,13 +278,21 @@ function handleCaptured(message) {
     const duplicate = profile.bindings.some((item, index) => index !== bindingIndex && item.chord.toLocaleLowerCase() === message.chord.toLocaleLowerCase());
     captureTarget = null;
     if (duplicate) {
-        showToast(`${message.display} is already assigned on ${profile.name}.`, 'error');
+        captureNotice = `${message.display} is already assigned on ${profile.name}. Choose another shortcut or remove the existing binding.`;
+        showToast(`${message.display} is already assigned.`, 'error');
         renderEditor();
         return;
     }
     binding.chord = message.chord;
+    captureNotice = '';
+    lastBound = `${profileIndex}:${bindingIndex}`;
     markDirty();
     renderEditor();
+    showToast(`${message.display} now casts ${skillName(classById(profile.classId), binding.skill)}.`, 'success');
+    setTimeout(() => {
+        lastBound = '';
+        document.querySelector('.binding-row.just-bound')?.classList.remove('just-bound');
+    }, 650);
 }
 
 function showCreate() {
@@ -357,6 +388,7 @@ function handleMessage(event) {
             renderLiveStatus();
             break;
         case 'capture-started':
+            captureNotice = '';
             captureTarget = { profileIndex: Number(message.profileIndex), bindingIndex: Number(message.bindingIndex) };
             renderEditor();
             break;
@@ -428,10 +460,30 @@ $('runningCharacter').addEventListener('change', event => {
     $('characterClass').value = String(client.classId);
 });
 $('profileClass').addEventListener('change', changeSelectedClass);
+$('skillSearch').addEventListener('input', filterSkillMatrix);
+$('cancelCapture').addEventListener('click', () => send('cancel-capture'));
 $('deleteProfile').addEventListener('click', deleteSelectedProfile);
 $('saveProfiles').addEventListener('click', saveProfiles);
 $('closeEditor').addEventListener('click', () => send('close'));
 $('titleClose').addEventListener('click', () => send('close'));
+
+document.addEventListener('keydown', event => {
+    const command = event.ctrlKey || event.metaKey;
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || '');
+    if (command && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        if (!$('saveProfiles').disabled) saveProfiles();
+    } else if (event.key === '/' && !typing && selectedProfile >= 0) {
+        event.preventDefault();
+        $('skillSearch').focus();
+    } else if (event.key === 'Escape' && captureTarget) {
+        event.preventDefault();
+        send('cancel-capture');
+    } else if (event.key === 'Escape' && !$('createProfile').hidden) {
+        event.preventDefault();
+        hideCreate();
+    }
+});
 
 if (window.chrome?.webview) {
     window.chrome.webview.addEventListener('message', handleMessage);

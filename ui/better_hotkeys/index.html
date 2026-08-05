@@ -94,6 +94,12 @@
                         </div>
                         <span class="binding-count" id="bindingCount"></span>
                     </div>
+                    <div class="capture-banner" id="captureBanner" role="status" hidden>
+                        <span class="capture-pulse" aria-hidden="true"></span>
+                        <span><strong>Listening for a shortcut</strong> Press the combination you want to use.</span>
+                        <button class="quiet-button" id="cancelCapture">Cancel</button>
+                    </div>
+                    <div class="binding-notice" id="bindingNotice" role="alert" hidden></div>
                     <div class="binding-list" id="bindingList"></div>
                     <div class="binding-empty" id="bindingEmpty">
                         <strong>No bindings for this character</strong>
@@ -107,8 +113,14 @@
                             <p class="eyebrow">Class skills</p>
                             <h3 id="skillTitle">Choose a skill to bind</h3>
                         </div>
+                        <label class="skill-search-wrap">
+                            <span class="sr-only">Filter skills</span>
+                            <input class="input skill-search" id="skillSearch" type="search"
+                                   autocomplete="off" placeholder="Filter skills  /">
+                        </label>
                     </div>
                     <div class="skill-matrix" id="skillMatrix"></div>
+                    <div class="skill-empty" id="skillEmpty" hidden>No skills match that filter.</div>
                 </section>
             </div>
         </main>
@@ -121,7 +133,7 @@
         </div>
         <div class="footer-actions">
             <button class="btn" id="closeEditor">Close</button>
-            <button class="btn btn-primary" id="saveProfiles" disabled>Save hotkeys</button>
+            <button class="btn btn-primary" id="saveProfiles" title="Save hotkeys (Ctrl+S)" disabled>Save hotkeys</button>
         </div>
     </footer>
 

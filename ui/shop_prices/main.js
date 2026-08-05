@@ -102,10 +102,7 @@ function adoptGridState(msg) {
     state.dirty = !!msg.dirty;
     buildGrid();
     renderGrid();
-    $('listedCount').textContent =
-        `${msg.listed || 0} of ${state.slotCount} listed` +
-        (msg.liveListed !== undefined && msg.liveListed !== msg.listed
-            ? ` (${msg.liveListed} now)` : '');
+    renderCounts(msg.listed || 0, msg.liveListed);
     updateApplyEnabled();
 }
 
@@ -122,8 +119,18 @@ function adoptSlotUpdate(msg) {
     }
     state.dirty = !!msg.dirty;
     renderSlot(msg.slot, document.activeElement);
-    $('listedCount').textContent = `${msg.listed || 0} of ${state.slotCount} listed`;
+    renderCounts(msg.listed || 0);
     updateApplyEnabled();
+}
+
+function renderCounts(listed, liveListed) {
+    const dirtyCount = state.slots.filter((slot) => slot.price !== slot.live).length;
+    const draft = $('draftCount');
+    draft.hidden = dirtyCount === 0;
+    draft.textContent = `${dirtyCount} change${dirtyCount === 1 ? '' : 's'}`;
+    $('listedCount').textContent =
+        `${listed} of ${state.slotCount} listed` +
+        (liveListed !== undefined && liveListed !== listed ? ` (${liveListed} now)` : '');
 }
 
 /* ── Formatting ──────────────────────────────────────────────── */
@@ -495,6 +502,15 @@ function applyBulk() {
     sendToAhk('bulk-set', { slots: [...sel], text: $('bulkPrice').value });
 }
 
+document.querySelectorAll('.price-chip').forEach((button) => {
+    button.addEventListener('click', () => {
+        $('bulkPrice').value = formatPrice(Number(button.dataset.price));
+        $('bulkPrice').classList.remove('input-invalid');
+        $('bulkPrice').focus();
+        $('bulkPrice').select();
+    });
+});
+
 /* ── Header, guard, status ───────────────────────────────────── */
 
 function renderClients(clients, activePid) {
@@ -689,9 +705,15 @@ document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeDiff();
         return;
     }
-    const typing = document.activeElement
-        && document.activeElement.classList.contains('price-input');
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && !typing) {
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || '');
+    const command = e.ctrlKey || e.metaKey;
+    if (command && e.key === 'Enter' && !typing && !$('btnApply').disabled) {
+        e.preventDefault();
+        sendToAhk('apply');
+    } else if (command && e.key.toLowerCase() === 'r' && !typing) {
+        e.preventDefault();
+        sendToAhk('refresh', { force: false });
+    } else if (command && e.key.toLowerCase() === 'a' && !typing) {
         e.preventDefault();
         selectAll();
     } else if (e.key === 'Escape' && !typing) {
@@ -705,3 +727,33 @@ window.addEventListener('DOMContentLoaded', () => {
     sendToAhk('init-request');
 });
 sendToAhk('init-request');
+
+// Local visual-regression fixture. WebView2 never enters this branch.
+if (new URLSearchParams(location.search).has('preview') && !window.chrome?.webview) {
+    onAhkMessage({ data: {
+        type: 'shop-state', slotCount: 24, cols: 6, maxPrice: 99999999,
+        idsKnown: true, iconBase: 0,
+        target: { pid: 1, charName: 'Ardent', canWrite: true },
+        clients: [{ pid: 1, charName: 'Ardent', isActive: true }, { pid: 2, charName: 'Eir' }]
+    } });
+    const prices = [100000, 500000, 1000000, 2500000, 5000000, 10000000,
+        750000, 1200000, 4500000, 9000000, 12000000, 25000000,
+        300000, 600000, 1500000, 3500000, 7000000, 15000000,
+        0, 0, 800000, 2000000, 0, 0];
+    onAhkMessage({ data: {
+        type: 'grid-state', dirty: true, listed: 20, liveListed: 18,
+        slots: prices.map((price, index) => ({
+            i: index + 1,
+            itemId: index + 1,
+            price,
+            live: index === 2 ? 800000 : (index === 9 ? 8500000 : price),
+            band: bandFor(price),
+            empty: index >= 22,
+            suspect: false
+        }))
+    } });
+    onAhkMessage({ data: { type: 'presets-state', presets: [
+        { id: 1, name: 'Fast restock', slots: 18, savedBy: 'Ardent' },
+        { id: 2, name: 'Weekend market', slots: 20, savedBy: 'Eir' }
+    ] } });
+}

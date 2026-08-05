@@ -41,8 +41,8 @@
         <!-- Stage -->
         <main class="stage-pane">
             <div class="toolbar">
-                <button class="btn btn-sm btn-primary" id="btnCapture">
-                    <span class="material-symbols-outlined tb-icon">devices</span>Capture current
+                <button class="btn btn-sm btn-primary" id="btnCapture" title="Capture current window positions">
+                    <span class="material-symbols-outlined tb-icon">devices</span>Capture
                 </button>
                 <button class="btn btn-sm" id="btnAddSlot">Add slot</button>
                 <span class="tb-sep" aria-hidden="true"></span>
@@ -62,6 +62,10 @@
             </div>
 
             <div class="stage-wrap">
+                <div class="stage-context" id="stageContext" hidden>
+                    <strong id="activeLayoutName"></strong>
+                    <span id="stageMetrics"></span>
+                </div>
                 <div class="stage-frame" id="stageFrame">
                     <div class="stage" id="stage" tabindex="0" aria-label="Layout canvas"></div>
                 </div>
@@ -73,7 +77,7 @@
 
         <!-- Selected slot -->
         <aside class="rail rail-right">
-            <h2 class="rail-title">Slot</h2>
+            <h2 class="rail-title" id="slotTitle">Slot</h2>
             <div class="rail-scroll" id="slotPanel">
                 <p class="rail-empty" id="slotEmpty">Select a box on the canvas.</p>
                 <div class="slot-form" id="slotForm" hidden>
@@ -96,6 +100,17 @@
                         <input type="checkbox" id="slotFocus">
                         <span>Focus this window after applying</span>
                     </label>
+                    <div class="align-group">
+                        <span class="field-label">Align on display</span>
+                        <div class="align-grid" aria-label="Align selected slot on display">
+                            <button class="align-btn" data-align="left" title="Align left" aria-label="Align left">L</button>
+                            <button class="align-btn" data-align="hcenter" title="Centre horizontally" aria-label="Centre horizontally">C</button>
+                            <button class="align-btn" data-align="right" title="Align right" aria-label="Align right">R</button>
+                            <button class="align-btn" data-align="top" title="Align top" aria-label="Align top">T</button>
+                            <button class="align-btn" data-align="vcenter" title="Centre vertically" aria-label="Centre vertically">M</button>
+                            <button class="align-btn" data-align="bottom" title="Align bottom" aria-label="Align bottom">B</button>
+                        </div>
+                    </div>
                     <button class="btn btn-sm btn-danger" id="btnRemoveSlot">Remove slot</button>
                 </div>
             </div>
@@ -111,8 +126,8 @@
             <span class="status" id="status" role="status" aria-live="polite"></span>
         </div>
         <div class="footer-right">
-            <button class="btn btn-sm" id="btnApply">Apply</button>
-            <button class="btn btn-sm btn-primary" id="btnSave">Save</button>
+            <button class="btn btn-sm" id="btnApply" title="Apply the saved layout (Ctrl+Enter)">Apply saved</button>
+            <button class="btn btn-sm btn-primary" id="btnSave" title="Save changes (Ctrl+S)">Save changes</button>
             <button class="btn btn-sm" id="btnClose">Close</button>
         </div>
     </footer>

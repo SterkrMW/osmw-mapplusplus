@@ -18,6 +18,16 @@
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
 }
+.draft-count {
+    padding: 3px 7px;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    background: var(--accent-glow);
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+    border-radius: 999px;
+}
 
 .tb-field {
     display: flex;
@@ -57,16 +67,57 @@
 
 .bulk-bar {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 7px;
+    padding: 9px 16px 8px;
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
+}
+.bulk-row,
+.quick-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 .bulk-count {
     font-size: var(--font-sm);
     color: var(--text-muted);
     min-width: 96px;
+}
+.quick-row { min-height: 22px; }
+.quick-label {
+    min-width: 62px;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.price-chip {
+    height: 22px;
+    padding: 0 8px;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color var(--transition), border-color var(--transition), background var(--transition), transform 90ms ease-out;
+}
+.price-chip:hover {
+    color: var(--accent);
+    background: var(--surface-hover);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.price-chip:active { transform: translateY(1px); }
+.selection-help {
+    margin-left: auto;
+    color: var(--text-dim);
+    font-size: 11px;
+    white-space: nowrap;
 }
 .price-bulk {
     width: 150px;
@@ -101,7 +152,6 @@
     padding: 7px 7px 6px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-left: 3px solid transparent;
     border-radius: var(--radius);
     transition: border-color var(--transition), background var(--transition);
 }
@@ -112,8 +162,18 @@
     box-shadow: inset 0 0 0 1px var(--accent-glow);
 }
 
-/* A slot whose draft price differs from what the client currently holds. */
-.slot-dirty { border-left-color: var(--accent); }
+/* A quiet authored-state marker that does not compete with selection. */
+.slot-dirty::after {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 5px;
+    height: 5px;
+    content: '';
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
 
 .slot-empty { opacity: 0.55; }
 .slot-empty .price-input { color: var(--text-dim); }
@@ -126,8 +186,7 @@
 }
 
 /* Out of the flow so the icon centres over the price field rather than being
-   pushed off-axis by the slot number. The tile is position: relative and its
-   left border is always 3px (transparent until dirty), so this never shifts. */
+   pushed off-axis by the slot number. */
 .slot-index {
     position: absolute;
     top: 5px;
@@ -347,6 +406,15 @@
 .status.error   { color: var(--danger); }
 .status.warn    { color: var(--warning); }
 .status.success { color: var(--success); }
+
+@media (max-width: 860px) {
+    .selection-help { display: none; }
+    .vendor-body { grid-template-columns: minmax(0, 1fr) 190px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
 
 /* ── Diff modal ─────────────────────────────────────────────── */
 .modal-overlay {

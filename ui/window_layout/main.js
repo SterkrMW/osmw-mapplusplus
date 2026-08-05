@@ -44,6 +44,7 @@ function onAhkMessage(event) {
             renderLayoutList();
             renderMonitorSelect();
             renderCharSelect();
+            updateControls();
             break;
         case 'layout-detail':
             adoptDetail(msg);
@@ -73,6 +74,7 @@ function adoptDetail(msg) {
         layoutStage();
         renderSlotForm();
         renderLayoutList();
+        updateControls();
         return;
     }
     detail = {
@@ -98,6 +100,7 @@ function adoptDetail(msg) {
     layoutStage();
     renderSlotForm();
     renderLayoutList();
+    updateControls();
     if (!detail.fingerprintOk) {
         setStatus('Authored on a different display setup — positions are rescaled.', 'warn');
     }
@@ -195,6 +198,7 @@ function layoutStage() {
     const frame = $('stageFrame');
     const stage = $('stage');
     if (!detail) {
+        $('stageContext').hidden = true;
         stage.style.width = '0px';
         stage.style.height = '0px';
         slotEls = [];
@@ -204,6 +208,11 @@ function layoutStage() {
             : 'Capture your current window positions, or create a layout from a preset.';
         return;
     }
+
+    $('stageContext').hidden = false;
+    $('activeLayoutName').textContent = detail.name;
+    $('activeLayoutName').title = detail.name;
+    $('stageMetrics').textContent = `${detail.workW} × ${detail.workH} display · ${detail.winW} × ${detail.winH} clients`;
 
     const availW = Math.max(80, frame.clientWidth);
     const availH = Math.max(60, frame.clientHeight);
@@ -219,7 +228,7 @@ function layoutStage() {
     const chars = detail.slots.filter(s => s.charIndex > 0).length;
     $('stageHint').textContent =
         `${detail.slots.length} slot${detail.slots.length === 1 ? '' : 's'}, `
-        + `${chars} bound to a character. Drag a box to move it; arrow keys nudge.`;
+        + `${chars} bound to a character. Drag to move · arrows nudge 1 px · Shift nudges 10 px.`;
 
     renderSlots();
 }
@@ -477,6 +486,9 @@ function renderSlotForm() {
     const has = !!detail && selectedSlot >= 0 && selectedSlot < detail.slots.length;
     $('slotEmpty').hidden = has;
     $('slotForm').hidden = !has;
+    $('slotTitle').textContent = has ? `Slot ${selectedSlot + 1}` : 'Slot';
+    document.querySelectorAll('.align-btn').forEach(button => { button.disabled = !has; });
+    $('btnRemoveSlot').disabled = !has || detail.slots.length <= 1;
     if (!has) return;
 
     const slot = detail.slots[selectedSlot];
@@ -487,6 +499,29 @@ function renderSlotForm() {
     $('slotSizeNote').textContent =
         `Boxes are drawn at ${detail.winW}×${detail.winH} — the client size when this layout was captured. `
         + 'Applying a layout never resizes a window.';
+}
+
+function alignSelected(mode) {
+    if (!detail || selectedSlot < 0) return;
+    const slot = detail.slots[selectedSlot];
+    const maxX = Math.max(0, detail.workW - detail.winW);
+    const maxY = Math.max(0, detail.workH - detail.winH);
+    if (mode === 'left') slot.fx = 0;
+    if (mode === 'hcenter') slot.fx = (maxX / 2) / detail.workW;
+    if (mode === 'right') slot.fx = maxX / detail.workW;
+    if (mode === 'top') slot.fy = 0;
+    if (mode === 'vcenter') slot.fy = (maxY / 2) / detail.workH;
+    if (mode === 'bottom') slot.fy = maxY / detail.workH;
+    positionSlotEl(selectedSlot);
+    const el = slotEls[selectedSlot];
+    if (el) {
+        el.classList.remove('settled');
+        void el.offsetWidth;
+        el.classList.add('settled');
+        el.addEventListener('animationend', () => el.classList.remove('settled'), { once: true });
+    }
+    markDirty();
+    renderSlotForm();
 }
 
 function readSlotForm() {
@@ -546,6 +581,18 @@ function markDirty() {
     dirty = true;
     armedDiscard = null;
     setStatus($('status').textContent || 'Editing…');
+    updateControls();
+}
+
+function updateControls() {
+    const hasDetail = !!detail;
+    ['btnDuplicate', 'btnRename', 'btnDelete', 'btnAddSlot', 'btnSetDefault']
+        .forEach(id => { $(id).disabled = !hasDetail; });
+    $('btnSave').disabled = !hasDetail || !dirty;
+    // Apply works from the persisted layout. Keeping it unavailable while a
+    // draft is open prevents a visually unchanged, stale layout from moving windows.
+    $('btnApply').disabled = !hasDetail || dirty;
+    if (!hasDetail) $('btnRemoveSlot').disabled = true;
 }
 
 // Two-click discard rather than a blocking confirm(): a modal dialog inside the
@@ -667,6 +714,9 @@ $('btnAddSlot').addEventListener('click', addSlot);
 $('btnRemoveSlot').addEventListener('click', () => {
     if (selectedSlot >= 0) removeSlot(selectedSlot);
 });
+document.querySelectorAll('.align-btn').forEach(button => {
+    button.addEventListener('click', () => alignSelected(button.dataset.align));
+});
 
 $('monitorSelect').addEventListener('change', () => {
     if (!detail) return;
@@ -716,7 +766,18 @@ document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeNameModal();
         return;
     }
-    if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+    const command = e.ctrlKey || e.metaKey;
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || '');
+    if (command && e.key === 'Enter' && !typing && !$('btnApply').disabled) {
+        e.preventDefault();
+        $('btnApply').click();
+    } else if (command && e.key.toLowerCase() === 'n' && !typing) {
+        e.preventDefault();
+        $('btnNew').click();
+    } else if (command && e.key.toLowerCase() === 'd' && !typing && detail) {
+        e.preventDefault();
+        $('btnDuplicate').click();
+    } else if (e.key.toLowerCase() === 's' && command) {
         e.preventDefault();
         saveLayout();
     } else if (e.key === 'Escape') {
@@ -727,5 +788,33 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('resize', () => layoutStage());
 
 window.addEventListener('DOMContentLoaded', () => {
+    updateControls();
     sendToAhk('init-request');
 });
+
+// Local visual-regression fixture. WebView2 never enters this branch.
+if (new URLSearchParams(location.search).has('preview') && !window.chrome?.webview) {
+    onAhkMessage({ data: {
+        type: 'layouts-state',
+        layouts: [
+            { id: 1, name: 'Four box — main left', slotCount: 4, monitorLabel: 'Display 1', connected: true, isDefault: true },
+            { id: 2, name: 'Trading pair', slotCount: 2, monitorLabel: 'Display 2', connected: false, isDefault: false }
+        ],
+        characters: [
+            { name: 'Ardent', running: true }, { name: 'Eir', running: true },
+            { name: 'Sable', running: false }, { name: 'Morrow', running: true }
+        ],
+        monitors: [{ index: 1, label: 'Display 1 · 1920 × 1080', workW: 1920, workH: 1080 }],
+        presets: ['Two columns', 'Four corners'], defaultLayoutName: 'Four box — main left', clientCount: 4
+    } });
+    onAhkMessage({ data: {
+        type: 'layout-detail', id: 1, name: 'Four box — main left', monitorIndex: 1,
+        fingerprintOk: true, workW: 1920, workH: 1080, winW: 800, winH: 480,
+        slots: [
+            { fx: 0, fy: 0, charIndex: 1, focus: true },
+            { fx: 1120 / 1920, fy: 0, charIndex: 2, focus: false },
+            { fx: 0, fy: 600 / 1080, charIndex: 3, focus: false },
+            { fx: 1120 / 1920, fy: 600 / 1080, charIndex: 4, focus: false }
+        ]
+    } });
+}
