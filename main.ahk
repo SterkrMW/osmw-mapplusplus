@@ -94,7 +94,9 @@ global gWebTrayItems := []
 global gWebTrayPos := 0
 global gWebTrayShown := false     ; on screen right now
 global gWebTrayPending := false   ; an open is waiting for the page
+global gWebTrayFocusMisses := 0   ; consecutive watchdog polls without focus
 global TRAY_MENU_W := 320, TRAY_MENU_H := 390
+global TRAY_FOCUS_POLL_MS := 100, TRAY_FOCUS_MISS_LIMIT := 2
 
 _EnsureWebTrayGui() {
     global gWebTrayGui, TRAY_MENU_W, TRAY_MENU_H
@@ -166,6 +168,7 @@ ShowWebTrayMenu() {
 
 _RevealWebTrayMenu() {
     global gWebTrayGui, gWebTrayPos, gWebTrayShown, gWebTrayPending
+    global gWebTrayFocusMisses, TRAY_FOCUS_POLL_MS
     if !gWebTrayPending || !IsObject(gWebTrayGui) || !IsObject(gWebTrayPos) {
         return
     }
@@ -178,6 +181,40 @@ _RevealWebTrayMenu() {
     WinMove(p.x, p.y, p.w, p.h, "ahk_id " hwnd)
     ; Parked NoActivate; activate now, since losing activation dismisses it.
     try WinActivate("ahk_id " hwnd)
+    ; WM_ACTIVATE normally dismisses the menu. Some shell/no-activate windows
+    ; do not produce that exact message path, so poll foreground ownership as
+    ; a cheap backstop while (and only while) the menu is on screen.
+    gWebTrayFocusMisses := 0
+    SetTimer(_WebTrayFocusTick, TRAY_FOCUS_POLL_MS)
+}
+
+_WebTrayFocusTick() {
+    global gWebTrayGui, gWebTrayShown, gWebTrayFocusMisses
+    global TRAY_FOCUS_MISS_LIMIT
+
+    if !gWebTrayShown {
+        SetTimer(_WebTrayFocusTick, 0)
+        gWebTrayFocusMisses := 0
+        return
+    }
+    if !IsObject(gWebTrayGui) || !gWebTrayGui.Hwnd {
+        _CloseWebTrayMenu()
+        return
+    }
+
+    foreground := DllCall("GetForegroundWindow", "Ptr")
+    foregroundRoot := foreground ? DllCall("GetAncestor", "Ptr", foreground, "UInt", 2, "Ptr") : 0
+    menuRoot := DllCall("GetAncestor", "Ptr", gWebTrayGui.Hwnd, "UInt", 2, "Ptr")
+    if (foregroundRoot = menuRoot) {
+        gWebTrayFocusMisses := 0
+        return
+    }
+
+    ; Require two consecutive misses so a transient activation hand-off while
+    ; the WebView receives focus cannot immediately close a freshly shown menu.
+    gWebTrayFocusMisses += 1
+    if (gWebTrayFocusMisses >= TRAY_FOCUS_MISS_LIMIT)
+        _CloseWebTrayMenu()
 }
 
 _PushTrayMenuState() {
@@ -213,9 +250,14 @@ _OnWebTrayMessage(wv, args) {
             ; The page has drawn the items, so there is something worth showing.
             _RevealWebTrayMenu()
         case "execute-item":
+            cb := 0
             if msg.Has("id") && gWebTrayCallbacks.Has(msg["id"]) {
                 cb := gWebTrayCallbacks[msg["id"]]
-                _CloseWebTrayMenu()
+            }
+            ; An activation always dismisses, even if a concurrent menu rebuild
+            ; made this page's item id stale before its message arrived.
+            _CloseWebTrayMenu()
+            if IsObject(cb) {
                 try cb()
             }
         case "dismiss":
@@ -227,13 +269,16 @@ _OnWebTrayMessage(wv, args) {
 ; page survive, which is what makes the next right-click instant.
 _CloseWebTrayMenu() {
     global gWebTrayGui, gWebTrayShown, gWebTrayPending, gWebTrayPos
+    global gWebTrayFocusMisses
     SetTimer(_RevealWebTrayMenu, 0)
+    SetTimer(_WebTrayFocusTick, 0)
     if IsObject(gWebTrayGui) && gWebTrayGui.Hwnd {
         try WinMove(-30000, -30000, , , "ahk_id " gWebTrayGui.Hwnd)
     }
     gWebTrayShown := false
     gWebTrayPending := false
     gWebTrayPos := 0
+    gWebTrayFocusMisses := 0
 }
 
 _TrayItemsToJson(items) {
