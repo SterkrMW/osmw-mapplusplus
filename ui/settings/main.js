@@ -21,6 +21,12 @@ let capturingActionId = null;
 /** Addon save payloads collected from dynamic addon tabs. */
 const addonSettingsValues = {};
 
+/** UI-only state for clear save feedback and per-tab scroll restoration. */
+let dirty = false;
+let saving = false;
+let currentTab = '';
+const tabScroll = {};
+
 // ── AHK ↔ JS Messaging ────────────────────────────────────────
 
 /** Send a JSON message to AHK. */
@@ -75,6 +81,7 @@ function handleSettingsState(msg) {
     populateAddons();
     buildTabBar();
     activateTab(state.tabNames[0] || 'Launcher');
+    setDirty(false);
 }
 
 // ── Tab switching ──────────────────────────────────────────────
@@ -94,10 +101,14 @@ const TAB_ICONS = {
 
 function buildTabBar() {
     const bar = document.getElementById('tab-bar');
+    bar.setAttribute('role', 'tablist');
+    bar.setAttribute('aria-orientation', 'vertical');
     bar.innerHTML = '';
     for (const name of state.tabNames) {
         const btn = document.createElement('button');
         btn.className = 'tab-btn';
+        btn.type = 'button';
+        btn.setAttribute('role', 'tab');
         btn.dataset.tab = name;
         btn.title = name;
 
@@ -113,6 +124,15 @@ function buildTabBar() {
         btn.appendChild(icon);
         btn.appendChild(label);
         btn.addEventListener('click', () => activateTab(name));
+        btn.addEventListener('keydown', event => {
+            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+            event.preventDefault();
+            const tabs = [...bar.querySelectorAll('.tab-btn')];
+            const step = event.key === 'ArrowDown' ? 1 : -1;
+            const next = tabs[(tabs.indexOf(btn) + step + tabs.length) % tabs.length];
+            next.focus();
+            activateTab(next.dataset.tab);
+        });
         bar.appendChild(btn);
     }
 }
@@ -143,14 +163,22 @@ function activateTab(name) {
         cancelActiveCapture();
     }
 
+    const content = document.querySelector('.content-area');
+    if (currentTab) tabScroll[currentTab] = content.scrollTop;
+    currentTab = name;
+
     // Buttons
     document.querySelectorAll('.tab-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.tab === name);
+        const active = b.dataset.tab === name;
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-selected', active ? 'true' : 'false');
+        b.tabIndex = active ? 0 : -1;
     });
     // Panels
     document.querySelectorAll('.panel').forEach(p => {
         p.classList.toggle('active', p.dataset.tab === name);
     });
+    requestAnimationFrame(() => { content.scrollTop = tabScroll[name] || 0; });
 }
 
 // ── Launcher ───────────────────────────────────────────────────
@@ -209,6 +237,8 @@ function populateSelect(id, options, selectedIndex) {
 function handleBrowseResult(msg) {
     if (msg.path) {
         document.getElementById('gamePath').value = msg.path;
+        setDirty(true);
+        showToast('Game path selected', 'success');
     }
 }
 
@@ -224,8 +254,14 @@ function populateMinimap() {
     updateScaleLabel(state.minimap.scale);
     updateOpacityLabel(state.minimap.opacity);
 
-    scale.addEventListener('input', () => updateScaleLabel(scale.value));
-    opacity.addEventListener('input', () => updateOpacityLabel(opacity.value));
+    scale.addEventListener('input', () => {
+        updateScaleLabel(scale.value);
+        updateMinimapPreview();
+    });
+    opacity.addEventListener('input', () => {
+        updateOpacityLabel(opacity.value);
+        updateMinimapPreview();
+    });
 
     // Anchor
     const anchor = document.getElementById('minimapAnchor');
@@ -235,13 +271,25 @@ function populateMinimap() {
     document.getElementById('offsetX').value = state.minimap.offsetX;
     document.getElementById('offsetY').value = state.minimap.offsetY;
     document.getElementById('keepOpen').checked = !!state.minimap.keepOpen;
+    ['minimapAnchor', 'offsetX', 'offsetY'].forEach(id => {
+        document.getElementById(id).addEventListener('input', updateMinimapPreview);
+        document.getElementById(id).addEventListener('change', updateMinimapPreview);
+    });
 
     // Reset position button
     document.getElementById('btnResetPos').addEventListener('click', () => {
         document.getElementById('offsetX').value = 0;
         document.getElementById('offsetY').value = 0;
         document.getElementById('minimapAnchor').value = 'Center';
+        updateMinimapPreview();
+        setDirty(true);
+        const preview = document.getElementById('minimapPreview');
+        preview.classList.remove('just-reset');
+        void preview.offsetWidth;
+        preview.classList.add('just-reset');
     });
+
+    updateMinimapPreview();
 }
 
 function updateScaleLabel(val) {
@@ -250,10 +298,50 @@ function updateScaleLabel(val) {
     const w = Math.round(baseW * val / 100);
     const h = Math.round(baseH * val / 100);
     document.getElementById('scaleValue').textContent = `${val}%  (${w}×${h})`;
+    updateRangeFill(document.getElementById('minimapScale'));
 }
 
 function updateOpacityLabel(val) {
     document.getElementById('opacityValue').textContent = `${val}%`;
+    updateRangeFill(document.getElementById('minimapOpacity'));
+}
+
+function updateRangeFill(range) {
+    const min = Number(range.min) || 0;
+    const max = Number(range.max) || 100;
+    const pct = ((Number(range.value) - min) / Math.max(1, max - min)) * 100;
+    range.style.setProperty('--range-pct', `${pct}%`);
+}
+
+function updateMinimapPreview() {
+    const map = document.getElementById('previewMap');
+    const stage = document.getElementById('previewStage');
+    if (!map || !state) return;
+    const scale = Number(document.getElementById('minimapScale').value) || 100;
+    const opacity = Number(document.getElementById('minimapOpacity').value) || 100;
+    const anchor = document.getElementById('minimapAnchor').value || 'Center';
+    const offsetX = Number(document.getElementById('offsetX').value) || 0;
+    const offsetY = Number(document.getElementById('offsetY').value) || 0;
+    const baseW = Number(state.minimap.baseW) || 400;
+    const baseH = Number(state.minimap.baseH) || 300;
+    const clientW = Number(state.minimap.clientW) || 1024;
+    const clientH = Number(state.minimap.clientH) || 768;
+    const stageW = stage.clientWidth || 320;
+    const stageH = stage.clientHeight || 240;
+    const widthPct = (baseW * scale / 100) / clientW * 100;
+    map.style.width = `${Math.min(96, widthPct)}%`;
+    map.style.aspectRatio = `${baseW} / ${baseH}`;
+    map.style.opacity = String(opacity / 100);
+    map.style.setProperty('--preview-nudge-x', `${offsetX / clientW * stageW}px`);
+    map.style.setProperty('--preview-nudge-y', `${offsetY / clientH * stageH}px`);
+    map.dataset.anchor = anchor;
+    document.getElementById('previewFrameLabel').textContent =
+        `Game window · ${clientW} × ${clientH}`;
+    const labels = {
+        Center: 'Centred', TopLeft: 'Top-left', TopRight: 'Top-right',
+        BottomLeft: 'Bottom-left', BottomRight: 'Bottom-right'
+    };
+    document.getElementById('previewAnchorLabel').textContent = labels[anchor] || anchor;
 }
 
 // ── Hotkeys ────────────────────────────────────────────────────
@@ -370,6 +458,10 @@ function handleHotkeyCaptured(msg) {
             btn.textContent = msg.display || 'Not bound';
             btn.classList.toggle('is-unbound', !msg.chord);
             pendingHotkeys[msg.actionId] = msg.chord;
+            setDirty(true);
+            flashHotkeyRow(btn);
+            const action = state.hotkeys.actions.find(a => a.id === msg.actionId);
+            showToast(`${msg.display || 'Shortcut'} assigned${action ? ` to ${action.label}` : ''}`, 'success');
         } else {
             // Conflict — show brief error, revert text
             const action = state.hotkeys.actions.find(a => a.id === msg.actionId);
@@ -429,7 +521,9 @@ function unbindHotkey(actionId) {
         btn.textContent = 'Not bound';
         btn.classList.remove('capturing');
         btn.classList.add('is-unbound');
+        flashHotkeyRow(btn);
     }
+    setDirty(true);
 }
 
 function resetHotkey(actionId, defaultDisplay, defaultChord) {
@@ -440,7 +534,18 @@ function resetHotkey(actionId, defaultDisplay, defaultChord) {
         btn.textContent = defaultDisplay || 'Not bound';
         btn.classList.remove('capturing');
         btn.classList.toggle('is-unbound', !defaultChord);
+        flashHotkeyRow(btn);
     }
+    setDirty(true);
+}
+
+function flashHotkeyRow(button) {
+    const row = button && button.closest('.hotkey-row');
+    if (!row) return;
+    row.classList.remove('just-changed');
+    void row.offsetWidth;
+    row.classList.add('just-changed');
+    row.addEventListener('animationend', () => row.classList.remove('just-changed'), { once: true });
 }
 
 // ── Addon settings tabs ────────────────────────────────────────
@@ -643,6 +748,7 @@ function renderOrderedList(addonName, field) {
         const to = index + delta;
         if (to < 0 || to >= rows.length) return;
         [rows[index], rows[to]] = [rows[to], rows[index]];
+        setDirty(true);
         draw();
     }
 
@@ -752,6 +858,15 @@ document.getElementById('btnSave').addEventListener('click', collectAndSave);
 document.getElementById('btnCancel').addEventListener('click', () => sendToAhk('cancel'));
 
 function collectAndSave() {
+    if (saving || !dirty) return;
+    if (capturingActionId) cancelActiveCapture();
+    saving = true;
+    document.body.classList.add('is-saving');
+    const saveButton = document.getElementById('btnSave');
+    saveButton.disabled = true;
+    saveButton.textContent = 'Saving…';
+    setSaveState('Saving changes…', 'saving');
+
     // Launcher
     const launcher = {
         gamePath:           document.getElementById('gamePath').value,
@@ -801,14 +916,64 @@ function collectAndSave() {
 
 function handleSaveResult(msg) {
     if (msg.ok) {
+        saving = false;
+        setDirty(false);
+        document.body.classList.remove('is-saving');
+        document.body.classList.add('save-complete');
+        document.getElementById('btnSave').textContent = 'Saved ✓';
+        setSaveState('Settings saved', 'saved');
         showToast('Settings saved', 'success');
     } else {
+        saving = false;
+        document.body.classList.remove('is-saving');
+        document.getElementById('btnSave').textContent = 'Try again';
+        document.getElementById('btnSave').disabled = false;
+        setSaveState('Changes need attention', 'dirty');
         if (window.AccentTheme && state && state.appearance) {
             window.AccentTheme.apply(state.appearance.accentScheme);
         }
         showToast(msg.error || 'Save failed', 'error');
     }
 }
+
+function setDirty(next) {
+    dirty = !!next;
+    const button = document.getElementById('btnSave');
+    if (!saving) {
+        button.disabled = !dirty;
+        button.textContent = dirty ? 'Save changes' : 'Save changes';
+    }
+    setSaveState(dirty ? 'Unsaved changes' : 'No unsaved changes', dirty ? 'dirty' : '');
+}
+
+function setSaveState(text, tone = '') {
+    const el = document.getElementById('saveState');
+    el.className = `save-state${tone ? ` ${tone}` : ''}`;
+    el.lastChild.textContent = text;
+}
+
+function markControlChanged(event) {
+    if (!state || saving) return;
+    const control = event.target.closest('input, select, textarea');
+    if (!control || control.readOnly) return;
+    setDirty(true);
+    if (event.type === 'change' && control.classList.contains('toggle')) {
+        control.classList.remove('just-toggled');
+        void control.offsetWidth;
+        control.classList.add('just-toggled');
+        control.addEventListener('animationend', () => control.classList.remove('just-toggled'), { once: true });
+    }
+}
+
+document.addEventListener('input', markControlChanged);
+document.addEventListener('change', markControlChanged);
+
+document.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        collectAndSave();
+    }
+});
 
 // ── Toast ──────────────────────────────────────────────────────
 
@@ -820,4 +985,35 @@ function showToast(text, type = 'success') {
     toast.textContent = text;
     area.appendChild(toast);
     setTimeout(() => { if (area.contains(toast)) area.removeChild(toast); }, 3000);
+}
+
+// Local visual-regression fixture. WebView2 never enters this branch.
+const previewTab = new URLSearchParams(location.search).get('preview');
+if (previewTab !== null && !window.chrome?.webview) {
+    handleSettingsState({
+        type: 'settings-state',
+        tabNames: ['Launcher', 'Minimap', 'Appearance', 'Hotkeys', 'Map POIs', 'Addons'],
+        launcher: {
+            gamePath: 'C:\\Games\\MythWar\\mythwar.exe', gameArgs: '-windowed',
+            autoStart: true, launchOnStartup: false, multiClientCount: 4, multiClientDelay: 650,
+            monitorChoices: ['Display 1 · 1920 × 1080', 'Display 2 · 2560 × 1440'],
+            primaryMonitorChoice: 0, secondaryMonitorChoice: 1, layoutAvailable: true,
+            launchLayoutOptions: [{ value: '', label: 'Default layout' }, { value: 'Four box', label: 'Four box' }],
+            primaryLaunchLayout: 'Four box', secondaryLaunchLayout: ''
+        },
+        minimap: { scale: 115, opacity: 80, anchor: 'TopRight', offsetX: -12, offsetY: 18, keepOpen: true, baseW: 400, baseH: 300, clientW: 1024, clientH: 768 },
+        appearance: { accentScheme: 'amber' },
+        hotkeys: { actions: [
+            { id: 'toggle-map', label: 'Toggle minimap', category: 'Core', chord: '^m', display: 'Ctrl+M', defaultChord: '^m', defaultDisplay: 'Ctrl+M' },
+            { id: 'settings', label: 'Open settings', category: 'Core', chord: '^,', display: 'Ctrl+,', defaultChord: '^,', defaultDisplay: 'Ctrl+,' },
+            { id: 'layout', label: 'Apply default layout', category: 'Window Layout', chord: '!l', display: 'Alt+L', defaultChord: '!l', defaultDisplay: 'Alt+L' }
+        ] },
+        addonTabs: [{ label: 'Map POIs', addonName: 'Map POIs', fields: [
+            { type: 'info', text: 'Choose which points of interest appear on the minimap.' },
+            { type: 'checkbox', id: 'enabled', label: 'Show map points of interest', value: true },
+            { type: 'number', id: 'radius', label: 'Marker radius', value: 8, min: 2, max: 24 }
+        ] }],
+        addons: [{ name: 'Map POIs', enabled: true }, { name: 'Window Layout', enabled: true }, { name: 'Discord RPC', enabled: false }]
+    });
+    if (previewTab && state.tabNames.includes(previewTab)) activateTab(previewTab);
 }

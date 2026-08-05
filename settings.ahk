@@ -172,6 +172,8 @@ _Settings_SendState() {
             . ',"keepOpen":' (gMinimapKeepOpen ? "true" : "false")
             . ',"baseW":' OVERLAY_W
             . ',"baseH":' OVERLAY_H
+            . ',"clientW":1024'
+            . ',"clientH":768'
         . '}'
         . ',"appearance":{"accentScheme":' _JSON_Str(gAccentScheme) '}'
         . ',"hotkeys":{"actions":' hotkeysJson '}'
@@ -465,8 +467,11 @@ _Settings_HandleSave(msg) {
 
     ApplyAllHotkeys()
     RebuildTrayMenu()
-    _Settings_Close()
     _Settings_SendSaveResult(true)
+    ; Let the WebView acknowledge completion before closing. The settings are
+    ; already applied; this short handoff only makes the successful state
+    ; perceptible instead of destroying the window before JS receives it.
+    SetTimer(() => _Settings_Close(), -380)
     return true
 }
 
