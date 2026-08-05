@@ -27,10 +27,12 @@ global MAP_DIR := A_ScriptDir "\maps"
 ; display scale — scaling is applied when drawing (see MinimapDisplayW/H).
 global OVERLAY_W := 400
 global OVERLAY_H := 300
-; 1px gold (Gui background) + 1px black ring, then map — total inset per side = 2px.
+; 1px accent (Gui background) + 1px black ring, then map — total inset per side = 2px.
 global MINIMAP_BORDER_GOLD_PX := 1
 global MINIMAP_BORDER_BLACK_PX := 1
 global MINIMAP_MAP_INSET := MINIMAP_BORDER_GOLD_PX + MINIMAP_BORDER_BLACK_PX
+; Kept under the original name because the drawing code treats it as a mutable
+; current-accent value rather than a fixed gold constant.
 global MINIMAP_COLOR_GOLD := "9c7c10"
 ; Default source size only when calibration has no sourceW/H and image size cannot be read.
 global SOURCE_MAP_W := 400
@@ -88,6 +90,9 @@ global gSecondaryLaunchLayout := LAUNCH_LAYOUT_DEFAULT
 ; Interface mode ([UI] in config.ini). WebView2 preserves the polished tray,
 ; settings and radial client picker; native keeps the process Chromium-free.
 global gInterfaceMode := "webview"
+; Accent scheme ([UI] AccentScheme). Dark surfaces and semantic status colours
+; remain fixed; this only selects the shared highlight palette.
+global gAccentScheme := "amber"
 ; Settings window handle, for the single-instance guard.
 global gSettingsGui := 0
 ; Monitor overrides for the "primary"/"secondary" launch targets. 0 = auto:

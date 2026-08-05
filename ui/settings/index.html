@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>osMW Maps++ — Settings</title>
+    <script src="../common/theme.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -165,6 +166,50 @@
                             <input type="checkbox" id="keepOpen" class="toggle">
                             <span>Keep the minimap open when the game loses focus</span>
                         </label>
+                    </div>
+                </section>
+
+                <!-- ── Appearance ── -->
+                <section class="panel" data-tab="Appearance">
+                    <div class="panel-header">
+                        <h2>Appearance</h2>
+                        <div class="panel-desc">Choose the highlight colour used across Maps++. Backgrounds and status colours stay unchanged.</div>
+                    </div>
+
+                    <div class="setting-card">
+                        <fieldset class="scheme-fieldset">
+                            <legend class="field-label">Accent colour</legend>
+                            <div class="scheme-options">
+                                <label class="scheme-option scheme-amber">
+                                    <input type="radio" name="accentScheme" value="amber">
+                                    <span class="scheme-swatch" aria-hidden="true"></span>
+                                    <span class="scheme-copy">
+                                        <span class="scheme-name">Amber</span>
+                                        <span class="scheme-note">Default</span>
+                                    </span>
+                                    <span class="scheme-check" aria-hidden="true">&#10003;</span>
+                                </label>
+                                <label class="scheme-option scheme-blue">
+                                    <input type="radio" name="accentScheme" value="blue">
+                                    <span class="scheme-swatch" aria-hidden="true"></span>
+                                    <span class="scheme-copy">
+                                        <span class="scheme-name">Blue</span>
+                                        <span class="scheme-note">Cool</span>
+                                    </span>
+                                    <span class="scheme-check" aria-hidden="true">&#10003;</span>
+                                </label>
+                                <label class="scheme-option scheme-green">
+                                    <input type="radio" name="accentScheme" value="green">
+                                    <span class="scheme-swatch" aria-hidden="true"></span>
+                                    <span class="scheme-copy">
+                                        <span class="scheme-name">Green</span>
+                                        <span class="scheme-note">Fresh</span>
+                                    </span>
+                                    <span class="scheme-check" aria-hidden="true">&#10003;</span>
+                                </label>
+                            </div>
+                        </fieldset>
+                        <div class="panel-hint">Changes are previewed here. Save to apply the accent to every Maps++ panel.</div>
                     </div>
                 </section>
 

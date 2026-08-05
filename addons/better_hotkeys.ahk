@@ -640,7 +640,7 @@ _BH_ShowWeb() {
     g.OnEvent("Close", (*) => _BH_WebRequestClose())
     g.WebMessageReceived(_BH_OnWebMessage)
     g.DOMContentLoaded((*) => SetTimer(_BH_SendWebState, -50))
-    g.Navigate("ui/better_hotkeys/index.html")
+    g.Navigate(UiPageUrl("ui/better_hotkeys/index.html"))
     _BH_WebGui := g
     _BH_PanelMode := "web"
     _BH_WebDirty := false

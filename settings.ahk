@@ -63,7 +63,7 @@ _Settings_BuildWebView() {
     g.WebMessageReceived(_Settings_OnWebMessage)
 
     ; Navigate to the settings page. WebViewToo routes via ahk.localhost.
-    g.Navigate("ui/settings/index.html")
+    g.Navigate(UiPageUrl("ui/settings/index.html"))
 
     g.Show("w760 h560")
 }
@@ -110,7 +110,7 @@ _Settings_SendState() {
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
-    global gMinimapKeepOpen, OVERLAY_W, OVERLAY_H
+    global gMinimapKeepOpen, OVERLAY_W, OVERLAY_H, gAccentScheme
 
     ; Monitor choices
     monChoices := _Settings_MonitorChoices()
@@ -173,6 +173,7 @@ _Settings_SendState() {
             . ',"baseW":' OVERLAY_W
             . ',"baseH":' OVERLAY_H
         . '}'
+        . ',"appearance":{"accentScheme":' _JSON_Str(gAccentScheme) '}'
         . ',"hotkeys":{"actions":' hotkeysJson '}'
         . ',"addonTabs":' addonTabsJson
         . ',"addons":' addonsJson
@@ -183,7 +184,7 @@ _Settings_SendState() {
 
 _Settings_GetTabNames() {
     global gAddonHooks
-    tabNames := ["Launcher", "Minimap", "Hotkeys"]
+    tabNames := ["Launcher", "Minimap", "Appearance", "Hotkeys"]
     for _, am in gAddonHooks {
         if am.Has("OnSettingsWeb") {
             label := am.Has("settingsLabel") ? am["settingsLabel"]
@@ -349,7 +350,7 @@ _Settings_HandleSave(msg) {
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
-    global gMinimapKeepOpen, MINIMAP_ANCHORS
+    global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme
     global gAddonHooks, gHotkeyActions
 
     ; ── Launcher ──
@@ -392,6 +393,13 @@ _Settings_HandleSave(msg) {
         _Settings_SendSaveResult(false, "Minimap nudge X/Y must be whole numbers (negative is allowed).")
         return false
     }
+    appearance := msg.Has("appearance") ? msg["appearance"] : Map()
+    nextAccentScheme := NormalizeAccentScheme(
+        IsObject(appearance) && appearance.Has("accentScheme")
+            ? appearance["accentScheme"] : gAccentScheme)
+    previousAccentScheme := gAccentScheme
+    SetAccentScheme(nextAccentScheme)
+
     previousScale := gMinimapScale
     gMinimapScale := Integer(mm["scale"])
     gMinimapOpacity := Integer(mm["opacity"])
@@ -400,7 +408,7 @@ _Settings_HandleSave(msg) {
     gMinimapOffsetY := Integer(offY)
     gMinimapKeepOpen := mm["keepOpen"] ? true : false
     SaveMinimapConfig()
-    if (gMinimapScale != previousScale) {
+    if (gMinimapScale != previousScale || gAccentScheme != previousAccentScheme) {
         RebuildOverlayGui()
     } else {
         ApplyOverlayOpacity()

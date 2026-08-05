@@ -1021,7 +1021,7 @@ LoadLauncherConfig() {
     global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay, CONFIG_INI, PROCESS_EXE
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout, LAUNCH_LAYOUT_DEFAULT
-    global gInterfaceMode
+    global gInterfaceMode, gAccentScheme
 
     ; 1. Check for main.exe next to the script (same directory install).
     localExe := A_ScriptDir "\" PROCESS_EXE
@@ -1062,12 +1062,49 @@ LoadLauncherConfig() {
 
         uiMode := StrLower(Trim(IniRead(CONFIG_INI, "UI", "Mode", "webview")))
         gInterfaceMode := (uiMode = "native") ? "native" : "webview"
+        SetAccentScheme(IniRead(CONFIG_INI, "UI", "AccentScheme", "amber"), false)
     }
 
     ; 3. Still no path — ask the user to locate it.
     if (gGamePath = "") {
         PromptForGamePath()
     }
+}
+
+NormalizeAccentScheme(value) {
+    scheme := StrLower(Trim(String(value)))
+    return (scheme = "blue" || scheme = "green") ? scheme : "amber"
+}
+
+AccentSchemeMinimapColor(scheme) {
+    switch NormalizeAccentScheme(scheme) {
+        case "blue":
+            return "2d6fa6"
+        case "green":
+            return "27794e"
+        default:
+            return "9c7c10"
+    }
+}
+
+SetAccentScheme(scheme, persist := true) {
+    global gAccentScheme, MINIMAP_COLOR_GOLD, CONFIG_INI
+    normalized := NormalizeAccentScheme(scheme)
+    changed := normalized != gAccentScheme
+    gAccentScheme := normalized
+    MINIMAP_COLOR_GOLD := AccentSchemeMinimapColor(normalized)
+    if persist
+        IniWrite(normalized, CONFIG_INI, "UI", "AccentScheme")
+    return changed
+}
+
+; Appends the saved scheme before navigation so every WebView paints with the
+; correct tokens on its first frame. theme.js also mirrors it to localStorage,
+; allowing already-open panels to update when Settings saves a new choice.
+UiPageUrl(page) {
+    global gAccentScheme
+    separator := InStr(page, "?") ? "&" : "?"
+    return page separator "accent=" NormalizeAccentScheme(gAccentScheme)
 }
 
 IsWebViewInterface() {

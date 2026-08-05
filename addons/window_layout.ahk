@@ -282,7 +282,7 @@ _WindowLayout_PromptMainCharacter() {
     dlg.WebMessageReceived(_WindowLayout_OnPromptWebMsg)
     dlg.DOMContentLoaded((*) => SetTimer(_WindowLayout_SendPromptState, -50))
 
-    dlg.Navigate("ui/window_layout/prompt.html")
+    dlg.Navigate(UiPageUrl("ui/window_layout/prompt.html"))
     dlg.Show("w320 h200")
 }
 
@@ -1429,7 +1429,7 @@ _WindowLayout_ShowManagerWeb() {
     g.OnEvent("Close", (*) => _WindowLayout_WebClose())
     g.WebMessageReceived(_WindowLayout_OnManagerWebMsg)
     g.DOMContentLoaded((*) => SetTimer(_WindowLayout_SendState, -50))
-    g.Navigate("ui/window_layout/index.html")
+    g.Navigate(UiPageUrl("ui/window_layout/index.html"))
 
     _WindowLayout_WebGui := g
     ; Reopen on whatever the store considers first, so the stage is never blank

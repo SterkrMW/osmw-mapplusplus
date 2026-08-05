@@ -113,7 +113,7 @@ _EnsureWebTrayGui() {
     g.OnEvent("Close", (*) => _CloseWebTrayMenu())
     g.WebMessageReceived(_OnWebTrayMessage)
     g.DOMContentLoaded((*) => SetTimer(_PushTrayMenuState, -50))
-    g.Navigate("ui/tray/index.html")
+    g.Navigate(UiPageUrl("ui/tray/index.html"))
 
     g.Show("x-30000 y-30000 w" TRAY_MENU_W " h" TRAY_MENU_H " NoActivate")
 }
@@ -716,7 +716,7 @@ ShowOrToggleOverlay(mapName, mapPath) {
         gGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000")
         gGui.MarginX := 0
         gGui.MarginY := 0
-        ; Outer 1px gold shows as Gui background; black rect at (1,1) leaves that ring; map covers center.
+        ; Outer 1px accent shows as Gui background; black rect at (1,1) leaves that ring; map covers center.
         gGui.BackColor := MINIMAP_COLOR_GOLD
         borderBlack := gGui.AddText(
             "x1 y1 w" (totalW - 2) " h" (totalH - 2) " Background000000",

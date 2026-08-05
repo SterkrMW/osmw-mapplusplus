@@ -76,7 +76,7 @@
 .layout-item:hover { background: var(--surface-hover); }
 .layout-item.selected {
     background: var(--accent-glow);
-    border-color: rgba(229, 184, 59, 0.35);
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .layout-name {
@@ -195,8 +195,8 @@
     gap: 2px;
     padding: 2px;
     overflow: hidden;
-    background: rgba(229, 184, 59, 0.10);
-    border: 1px solid rgba(229, 184, 59, 0.45);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
     border-radius: var(--radius-sm);
     color: var(--text);
     font-size: 11px;
@@ -206,7 +206,7 @@
     touch-action: none;
     transition: background var(--transition), border-color var(--transition);
 }
-.slot:hover { background: rgba(229, 184, 59, 0.18); }
+.slot:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .slot.unbound {
     background: rgba(148, 153, 173, 0.08);
     border-style: dashed;

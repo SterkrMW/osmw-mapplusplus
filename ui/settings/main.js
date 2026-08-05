@@ -69,6 +69,7 @@ function handleSettingsState(msg) {
     state = msg;
     populateLauncher();
     populateMinimap();
+    populateAppearance();
     populateHotkeys();
     populateAddonTabs();
     populateAddons();
@@ -81,6 +82,7 @@ function handleSettingsState(msg) {
 const TAB_ICONS = {
     'Launcher': 'rocket_launch',
     'Minimap': 'map',
+    'Appearance': 'settings',
     'Hotkeys': 'keyboard',
     'Client Roster': 'groups',
     'Discord': 'forum',
@@ -114,6 +116,23 @@ function buildTabBar() {
         bar.appendChild(btn);
     }
 }
+
+// ── Appearance ────────────────────────────────────────────────
+
+function populateAppearance() {
+    const scheme = window.AccentTheme
+        ? window.AccentTheme.normalize(state.appearance && state.appearance.accentScheme)
+        : 'amber';
+    const option = document.querySelector(`input[name="accentScheme"][value="${scheme}"]`);
+    if (option) option.checked = true;
+    if (window.AccentTheme) window.AccentTheme.preview(scheme);
+}
+
+document.querySelectorAll('input[name="accentScheme"]').forEach(option => {
+    option.addEventListener('change', () => {
+        if (option.checked && window.AccentTheme) window.AccentTheme.preview(option.value);
+    });
+});
 
 function activateTab(name) {
     // Leaving the Hotkeys tab mid-capture would otherwise leave AHK's
@@ -761,6 +780,13 @@ function collectAndSave() {
         keepOpen: document.getElementById('keepOpen').checked,
     };
 
+    const selectedScheme = document.querySelector('input[name="accentScheme"]:checked');
+    const appearance = {
+        accentScheme: selectedScheme ? selectedScheme.value : 'amber',
+    };
+
+    if (window.AccentTheme) window.AccentTheme.apply(appearance.accentScheme);
+
     // Hotkeys
     const hotkeys = collectHotkeys();
 
@@ -770,13 +796,16 @@ function collectAndSave() {
         addons[cb.dataset.addonName] = cb.checked;
     });
 
-    sendToAhk('save', { launcher, minimap, hotkeys, addons, addonSettings: addonSettingsValues });
+    sendToAhk('save', { launcher, minimap, appearance, hotkeys, addons, addonSettings: addonSettingsValues });
 }
 
 function handleSaveResult(msg) {
     if (msg.ok) {
         showToast('Settings saved', 'success');
     } else {
+        if (window.AccentTheme && state && state.appearance) {
+            window.AccentTheme.apply(state.appearance.accentScheme);
+        }
         showToast(msg.error || 'Save failed', 'error');
     }
 }

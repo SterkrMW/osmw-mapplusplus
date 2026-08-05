@@ -356,7 +356,7 @@ _Pois_PromptForEntry(zone, x, y) {
         . ',"kinds":' kindsJson
         . ',"defaultKind":' _JSON_Str(_Pois_DefaultKind) '}'))
 
-    dlg.Navigate("ui/map_pois/add_poi.html")
+    dlg.Navigate(UiPageUrl("ui/map_pois/add_poi.html"))
     dlg.Show("w360 h330")
 
     OnWebMsg(wv, args) {
@@ -436,7 +436,7 @@ _Pois_ShowManageWindow() {
     g.OnEvent("Close", (*) => (_Pois_ManageGui := 0))
     g.WebMessageReceived(_Pois_OnManageWebMsg)
     g.DOMContentLoaded((*) => SetTimer(_Pois_SendManageState, -50))
-    g.Navigate("ui/map_pois/index.html")
+    g.Navigate(UiPageUrl("ui/map_pois/index.html"))
 
     g.Show("w500 h460")
 }

@@ -170,7 +170,7 @@ _Radial_EnsureGui(ring) {
     g.OnEvent("Close", (*) => RadialClose())
     g.WebMessageReceived(_Radial_MakeMessageHandler(ring.name))
     g.DOMContentLoaded(_Radial_MakeLoadHandler(ring.name))
-    g.Navigate(page)
+    g.Navigate(UiPageUrl(page))
 
     ring.gui := g
 

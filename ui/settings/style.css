@@ -217,6 +217,106 @@
     color: var(--text);
 }
 
+/* ── Accent scheme picker ──────────────────────────────────── */
+.scheme-fieldset {
+    border: 0;
+    min-width: 0;
+}
+
+.scheme-fieldset > .field-label {
+    margin-bottom: 10px;
+}
+
+.scheme-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+    gap: 10px;
+}
+
+.scheme-option {
+    position: relative;
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 18px;
+    align-items: center;
+    gap: 10px;
+    min-height: 58px;
+    padding: 10px 12px;
+    color: var(--text);
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background var(--transition), border-color var(--transition);
+}
+
+.scheme-option:hover {
+    background: var(--surface-hover);
+}
+
+.scheme-option:has(input:checked) {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 9%, var(--surface-alt));
+}
+
+.scheme-option:has(input:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.scheme-option input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.scheme-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+    box-shadow: inset 0 0 0 5px color-mix(in srgb, var(--bg) 25%, transparent);
+}
+
+.scheme-amber .scheme-swatch { color: #e5b83b; background: #e5b83b; }
+.scheme-blue .scheme-swatch  { color: oklch(72% 0.13 250); background: oklch(72% 0.13 250); }
+.scheme-green .scheme-swatch { color: oklch(75% 0.14 155); background: oklch(75% 0.14 155); }
+
+.scheme-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.scheme-name {
+    font-weight: 600;
+}
+
+.scheme-note {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.scheme-check {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    color: var(--accent-text);
+    background: var(--accent);
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+    opacity: 0;
+    transform: scale(0.75);
+    transition: opacity var(--transition), transform var(--transition);
+}
+
+.scheme-option:has(input:checked) .scheme-check {
+    opacity: 1;
+    transform: scale(1);
+}
+
 /* ── Ordered pick list ──────────────────────────────────────── */
 /* Checked rows sort to the top in their chosen order, so the list reads as
    the thing it configures rather than as a form. */

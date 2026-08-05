@@ -241,7 +241,7 @@ _ClientRoster_EnsureGui() {
     g.OnEvent("Close", (*) => _ClientRoster_UserHide())
     g.WebMessageReceived(_ClientRoster_OnWebMessage)
     g.DOMContentLoaded((*) => SetTimer(_ClientRoster_PushSnapshot, -50))
-    g.Navigate("ui/client_roster/index.html")
+    g.Navigate(UiPageUrl("ui/client_roster/index.html"))
 
     _ClientRoster_Gui := g
 }

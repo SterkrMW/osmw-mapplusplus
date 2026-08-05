@@ -44,7 +44,7 @@
 }
 
 :root {
-    /* Color Palette - Modern Charcoal Slate & Refined Warm Gold */
+    /* Base palette stays fixed; only the accent tokens are themeable. */
     --bg:            #121318;
     --bg-dark:       #0c0d10;
     --surface:       #181a20;
@@ -92,6 +92,20 @@
     --font-lg:       14px;
     --footer-height: 52px;
     --transition:    140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-accent="blue"] {
+    --border-focus:  oklch(72% 0.13 250);
+    --accent:        oklch(72% 0.13 250);
+    --accent-glow:   oklch(72% 0.13 250 / 0.15);
+    --accent-hover:  oklch(78% 0.12 250);
+}
+
+:root[data-accent="green"] {
+    --border-focus:  oklch(75% 0.14 155);
+    --accent:        oklch(75% 0.14 155);
+    --accent-glow:   oklch(75% 0.14 155 / 0.15);
+    --accent-hover:  oklch(81% 0.13 155);
 }
 
 *, *::before, *::after {
@@ -363,7 +377,7 @@ body {
     background: var(--surface-hover);
 }
 .table tbody tr.selected {
-    background: rgba(229, 184, 59, 0.1);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 /* ── Footer ─────────────────────────────────────────────────── */

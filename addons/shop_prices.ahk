@@ -1901,7 +1901,7 @@ _ShopPrices_ShowPanelWeb() {
     g.OnEvent("Close", (*) => _ShopPrices_WebRequestClose())
     g.WebMessageReceived(_ShopPrices_OnWebMsg)
     g.DOMContentLoaded((*) => SetTimer(_ShopPrices_SendState, -50))
-    g.Navigate("ui/shop_prices/index.html")
+    g.Navigate(UiPageUrl("ui/shop_prices/index.html"))
 
     _ShopPrices_WebGui := g
     _ShopPrices_PanelMode := "web"

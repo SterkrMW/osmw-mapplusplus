@@ -10,7 +10,7 @@ _Settings_BuildNative() {
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
-    global gMinimapKeepOpen, MINIMAP_ANCHORS
+    global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme
 
     contributors := []
     for _, am in gAddonHooks {
@@ -21,7 +21,7 @@ _Settings_BuildNative() {
         contributors.Push({ map: am, label: label })
     }
 
-    tabNames := ["Launcher", "Minimap", "Hotkeys"]
+    tabNames := ["Launcher", "Minimap", "Appearance", "Hotkeys"]
     for c in contributors
         tabNames.Push(c.label)
     tabNames.Push("Addons")
@@ -106,8 +106,17 @@ _Settings_BuildNative() {
         "Keep the minimap open when the game loses focus")
     keepOpenCb.Value := gMinimapKeepOpen ? 1 : 0
 
-    ; Hotkeys -----------------------------------------------------
+    ; Appearance --------------------------------------------------
     tab.UseTab(3)
+    g.Add("Text", "x" contentX " y" contentY " w590",
+        "Choose the highlight colour used across Maps++. Backgrounds and status colours stay unchanged.")
+    g.Add("Text", "x" contentX " y+28 w150", "Accent colour:")
+    accentSchemeValues := ["amber", "blue", "green"]
+    accentSchemeDdl := g.Add("DropDownList", "x178 yp-3 w220", ["Amber (default)", "Blue", "Green"])
+    accentSchemeDdl.Value := (gAccentScheme = "blue") ? 2 : ((gAccentScheme = "green") ? 3 : 1)
+
+    ; Hotkeys -----------------------------------------------------
+    tab.UseTab(4)
     g.Add("Text", "x" contentX " y" contentY " w590",
         "Select an action to change, unbind, or reset it. Escape cancels shortcut capture.")
     hotkeyLv := g.Add("ListView", "x" contentX " y82 w590 h340 -Multi Grid", ["Action", "Shortcut"])
@@ -137,7 +146,7 @@ _Settings_BuildNative() {
     ; Addon-contributed tabs -------------------------------------
     addonFieldGroups := Map()
     for i, c in contributors {
-        tab.UseTab(3 + i)
+        tab.UseTab(4 + i)
         addonName := c.map.Has("name") ? c.map["name"] : c.label
         fields := []
         try fields := c.map["OnSettingsWeb"]()
@@ -337,6 +346,9 @@ _Settings_BuildNative() {
                 "offsetX", Trim(offsetXEdit.Value),
                 "offsetY", Trim(offsetYEdit.Value),
                 "keepOpen", keepOpenCb.Value ? true : false
+            ),
+            "appearance", Map(
+                "accentScheme", accentSchemeValues[accentSchemeDdl.Value]
             ),
             "hotkeys", hotkeys,
             "addons", addonToggles,
