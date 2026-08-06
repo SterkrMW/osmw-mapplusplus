@@ -47,7 +47,10 @@ global _ShopPrices_PROCESS_ACCESS := 0x0008 | 0x0010 | 0x0020 | 0x0400
 ; Config-backed. ItemIdOffset lets a game patch be worked around from
 ; config.ini without a rebuild; 0 disables every id-dependent feature rather
 ; than reading garbage from a stale address.
-global _ShopPrices_ItemIdOverride := 0
+;
+; -1 means "no override set" — distinct from an explicit 0, which is a real
+; setting that switches the id-dependent features off.
+global _ShopPrices_ItemIdOverride := -1
 global _ShopPrices_ConfirmHigh    := true
 global _ShopPrices_WarnAbove      := 10000000
 global _ShopPrices_PresetClears   := false
@@ -184,7 +187,7 @@ _ShopPrices_OnSettingsWeb() {
 _ShopPrices_OnSettingsWebSave(values) {
     global _ShopPrices_ConfirmHigh, _ShopPrices_WarnAbove, _ShopPrices_PresetClears
     global _ShopPrices_IconBase, _ShopPrices_MAX_PRICE, _ShopPrices_ItemIdOverride
-    global gFallbackOffsets, CONFIG_INI
+    global CONFIG_INI
 
     _ShopPrices_ConfirmHigh := values.Has("confirmHigh") && values["confirmHigh"] ? true : false
     _ShopPrices_PresetClears := values.Has("presetClears") && values["presetClears"] ? true : false
@@ -205,8 +208,8 @@ _ShopPrices_OnSettingsWebSave(values) {
     if values.Has("itemIdOffset") {
         raw := Trim(String(values["itemIdOffset"]))
         if (raw = "") {
-            _ShopPrices_ItemIdOverride := 0
-            gFallbackOffsets["ShopItemIdBase"] := 0x2E2028
+            ; -1, not 0: 0 is a real setting that disables item ids.
+            _ShopPrices_ItemIdOverride := -1
             try IniDelete(CONFIG_INI, "ShopPrices", "ItemIdOffset")
         } else {
             val := _ShopPrices_ParseOffset(raw)
@@ -215,7 +218,6 @@ _ShopPrices_OnSettingsWebSave(values) {
                     "Character Vendor", "Icon!")
             } else {
                 _ShopPrices_ItemIdOverride := val
-                gFallbackOffsets["ShopItemIdBase"] := val
                 IniWrite(Format("0x{:X}", val), CONFIG_INI, "ShopPrices", "ItemIdOffset")
             }
         }
@@ -226,13 +228,13 @@ _ShopPrices_OnSettingsWebSave(values) {
 
 _ShopPrices_ItemIdOffsetText() {
     global _ShopPrices_ItemIdOverride
-    return _ShopPrices_ItemIdOverride ? Format("0x{:X}", _ShopPrices_ItemIdOverride) : ""
+    return (_ShopPrices_ItemIdOverride >= 0) ? Format("0x{:X}", _ShopPrices_ItemIdOverride) : ""
 }
 
 ; ── Config ───────────────────────────────────────────────────────
 
 _ShopPrices_LoadConfig() {
-    global CONFIG_INI, gFallbackOffsets
+    global CONFIG_INI
     global _ShopPrices_ItemIdOverride, _ShopPrices_ConfirmHigh, _ShopPrices_WarnAbove
     global _ShopPrices_PresetClears, _ShopPrices_IconBase
 
@@ -252,10 +254,11 @@ _ShopPrices_LoadConfig() {
     raw := Trim(IniRead(CONFIG_INI, "ShopPrices", "ItemIdOffset", ""))
     if (raw != "") {
         val := _ShopPrices_ParseOffset(raw)
-        if (val >= 0) {
+        ; Consumed by _ShopPrices_ItemIdBase, which applies it at the point of
+        ; use — writing it into the offset maps here would be undone by the next
+        ; EnsureResolvedOffsetsForBuild pass.
+        if (val >= 0)
             _ShopPrices_ItemIdOverride := val
-            gFallbackOffsets["ShopItemIdBase"] := val
-        }
     }
 }
 
@@ -292,9 +295,25 @@ _ShopPrices_PriceRva(slot) {
     return GetResolvedOffset("ShopPriceBase") + (slot - 1) * _ShopPrices_PRICE_STRIDE
 }
 
+; The item-id array base, honouring the config override.
+;
+; This must not go through GetResolvedOffset alone: that returns gResolvedOffsets
+; ahead of gFallbackOffsets, so a resolved signature beat the user's setting —
+; including when the signature had resolved to the WRONG address after a game
+; patch, which is the entire reason the setting exists. Writing the override
+; into gResolvedOffsets instead would not survive either, because
+; EnsureResolvedOffsetsForBuild replaces that whole map on each attach. So the
+; override is applied here, at the point of use, where nothing can overwrite it.
+_ShopPrices_ItemIdBase() {
+    global _ShopPrices_ItemIdOverride
+    if (_ShopPrices_ItemIdOverride >= 0)
+        return _ShopPrices_ItemIdOverride
+    return GetResolvedOffset("ShopItemIdBase")
+}
+
 _ShopPrices_ItemIdRva(slot) {
     global _ShopPrices_ITEM_STRIDE
-    return GetResolvedOffset("ShopItemIdBase") + (slot - 1) * _ShopPrices_ITEM_STRIDE
+    return _ShopPrices_ItemIdBase() + (slot - 1) * _ShopPrices_ITEM_STRIDE
 }
 
 _ShopPrices_CountRva() {
@@ -314,7 +333,7 @@ _ShopPrices_VendorOpenRva() {
 ; Everything id-dependent — thumbnails, empty-slot detection, the stale
 ; inventory guard — is gated on this; prices still work without it.
 _ShopPrices_IdsKnown() {
-    return GetResolvedOffset("ShopItemIdBase") > 0
+    return _ShopPrices_ItemIdBase() > 0
 }
 
 ; ── Pure helpers (shared by both frontends) ──────────────────────
@@ -503,7 +522,7 @@ _ShopPrices_ReadSlots(pid) {
     itemIds := []
     idsKnown := false
     if _ShopPrices_IdsKnown() {
-        idBuf := ReadClientBuffer(proc, GetResolvedOffset("ShopItemIdBase"),
+        idBuf := ReadClientBuffer(proc, _ShopPrices_ItemIdBase(),
             _ShopPrices_SLOT_COUNT * _ShopPrices_ITEM_STRIDE)
         if idBuf {
             Loop _ShopPrices_SLOT_COUNT
@@ -560,7 +579,13 @@ _ShopPrices_ShowSlotDump() {
         return
     }
 
-    pid := WinGetPID("ahk_id " hwnd)
+    pid := 0
+    ; The client can close between the lookup above and this call.
+    try pid := WinGetPID("ahk_id " hwnd)
+    if !pid {
+        TrayTip("That client closed before it could be read.", "Character Vendor", "Icon!")
+        return
+    }
     charName := CharacterNameFromWindow(hwnd)
     if (charName = "")
         charName := "PID " pid
@@ -572,7 +597,7 @@ _ShopPrices_ShowSlotDump() {
     }
 
     priceBase := GetResolvedOffset("ShopPriceBase")
-    idBase    := GetResolvedOffset("ShopItemIdBase")
+    idBase    := _ShopPrices_ItemIdBase()
 
     out := charName "`n`n"
         . "ShopPriceBase  " Format("0x{:06X}", priceBase) "  stride 4`n"
@@ -1285,6 +1310,9 @@ _ShopPresets_Save(preset) {
     id := (preset.HasProp("id") && IsInteger(preset.id) && preset.id >= 1) ? Integer(preset.id) : 0
     if (id = 0)
         id := _ShopPresets_NextId()
+    ; Same reasoning as _WLayouts_Save: the write-before-delete order here is
+    ; what keeps the file UTF-16, and preset names are user text.
+    EnsureIniUtf16(path)
     try {
         IniWrite(preset.name, path, "Index", String(id))
         try IniDelete(path, "Preset." id)
@@ -1640,11 +1668,25 @@ _ShopPrices_NativeClose() {
     return 1   ; already hidden above; skip the default action
 }
 
+; Rebuilding a DropDownList closes it if the user has it open, so this runs only
+; when the list it would produce has actually changed — it is called from the
+; once-a-second poll.
+global _ShopPrices_LastClientSig := ""
+
 _ShopPrices_NativeRefreshClients() {
     global _ShopPrices_NativeClientDdl, _ShopPrices_NativeClientPids, _ShopPrices_TargetPid
+    global _ShopPrices_LastClientSig
 
     if !IsObject(_ShopPrices_NativeClientDdl)
         return
+
+    sig := String(_ShopPrices_TargetPid)
+    for snap in GetClientSnapshots()
+        sig .= "`n" snap.pid "|" snap.charName "|" (snap.isActive ? 1 : 0)
+    if (sig = _ShopPrices_LastClientSig)
+        return
+    _ShopPrices_LastClientSig := sig
+
     labels := [], pids := [], chosen := 0
     for snap in GetClientSnapshots() {
         pids.Push(snap.pid)

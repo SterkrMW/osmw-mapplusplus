@@ -195,10 +195,33 @@ _ClientRoster_Show(manual := false) {
     _ClientRoster_EnsureGui()
     opts := "NoActivate AutoSize"
     if (_ClientRoster_X != "" && _ClientRoster_Y != "") {
-        opts := "x" _ClientRoster_X " y" _ClientRoster_Y " NoActivate AutoSize"
+        pt := _ClientRoster_ClampOnScreen(_ClientRoster_X, _ClientRoster_Y)
+        opts := "x" pt.x " y" pt.y " NoActivate AutoSize"
     }
     _ClientRoster_Gui.Show(opts)
     _ClientRoster_Visible := true
+}
+
+; A saved position is only meaningful against the display layout that produced
+; it. Unplug a monitor and the stored point can land off every screen — and in
+; WebView2 mode this window is -Caption +ToolWindow, so the user cannot drag it
+; back. Pulled onto whichever display is nearest instead.
+;
+; Leaves a point that is already visible exactly where it is, so the common case
+; is untouched. GAP keeps enough of the title area reachable to grab.
+_ClientRoster_ClampOnScreen(x, y) {
+    static GAP := 120
+    Loop MonitorGetCount() {
+        MonitorGetWorkArea(A_Index, &wl, &wt, &wr, &wb)
+        if (x >= wl && x <= wr - GAP && y >= wt && y <= wb - GAP)
+            return { x: x, y: y }
+    }
+    idx := GetMonitorIndexAtPoint(x, y)      ; falls back to the primary display
+    MonitorGetWorkArea(idx, &wl, &wt, &wr, &wb)
+    return {
+        x: Clamp(x, wl, Max(wl, wr - GAP)),
+        y: Clamp(y, wt, Max(wt, wb - GAP))
+    }
 }
 
 _ClientRoster_Hide() {

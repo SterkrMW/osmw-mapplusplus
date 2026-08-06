@@ -95,7 +95,12 @@ _QuickActions_BuildCatalog() {
         Map("id", "chatToggleAll",           "label", "Chat (others)", "icon", "chat",
             "needsGame", true),
         Map("id", "chatToggleSize",          "label", "Chat size",     "icon", "chat"),
+        ; Resolves its own target client (see _ShopPrices_ResolveOpenTarget), so
+        ; it does not need one focused. Icon matches the tray's Character Vendor
+        ; entry — TODO: `storefront` once the icon subset is next regenerated.
+        Map("id", "shopPricesOpen",          "label", "Vendor",        "icon", "inventory_2"),
         Map("id", "windowLayoutPrimary",     "label", "Layout",        "icon", "grid_view"),
+        Map("id", "windowLayoutSecondary",   "label", "Layout (2nd)",  "icon", "grid_view"),
         Map("id", "windowLayoutUndo",        "label", "Undo layout",   "icon", "refresh"),
         Map("id", "windowLayoutManage",      "label", "Layouts",       "icon", "format_list_bulleted"),
         Map("id", "clientRosterToggle",      "label", "Clients",       "icon", "group",

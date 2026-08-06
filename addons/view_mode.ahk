@@ -54,8 +54,10 @@ _ViewMode_ApplyToAll(mode) {
         offset := GetResolvedOffset("ViewMode")
         seenPid := Map()
         for hwnd in GetTopLevelGameWindows() {
-            pid := WinGetPID("ahk_id " hwnd)
-            if seenPid.Has(pid)
+            pid := 0
+            ; The window can close between the enumeration and this call.
+            try pid := WinGetPID("ahk_id " hwnd)
+            if (!pid || seenPid.Has(pid))
                 continue
             seenPid[pid] := true
 

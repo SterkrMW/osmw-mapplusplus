@@ -28,6 +28,12 @@ global _Pois_LabelMode := "autohide"
 ; across a reload rather than quietly coming back.
 global _Pois_LayerVisible := true
 global _Pois_DefaultKind := "npc"
+; Ceiling on how many POIs are drawn at once. The pool is two controls per POI
+; on the always-on-top overlay Gui and only ever grew, so a densely annotated
+; map put hundreds of statics on it. Well above any hand-authored map; the
+; overflow is reported once rather than silently dropped.
+global POI_MAX_DRAWN := 120
+global _Pois_OverflowNotified := ""
 ; Slots used by the last draw, so a hover change can toggle just those labels.
 global _Pois_UsedCount := 0
 
@@ -187,6 +193,20 @@ _Pois_ColorFor(kind) {
     return _Pois_COLORS.Has(kind) ? _Pois_COLORS[kind] : "FFFFFF"
 }
 
+; "|" is the field delimiter in a POI record, so a label containing one would
+; push `kind` out of parts[4]; a newline would split the ini line and the whole
+; POI would be dropped on the next load. Stripped on the way in rather than
+; escaped on every write, the same trade the layout and preset stores make.
+_Pois_SanitizeLabel(label) {
+    s := String(label)
+    for ch in ["|", "`r", "`n", "`t"]
+        s := StrReplace(s, ch, " ")
+    while InStr(s, "  ")
+        s := StrReplace(s, "  ", " ")
+    s := Trim(s)
+    return (StrLen(s) > 48) ? Trim(SubStr(s, 1, 48)) : s
+}
+
 ; ── Store ────────────────────────────────────────────────────────
 
 _Pois_Path() {
@@ -242,6 +262,9 @@ _Pois_Load(mapId) {
 _Pois_Save(mapId, list) {
     global _Pois_Cache
     path := _Pois_Path()
+    ; Before the IniDelete: on a fresh install that delete is what creates the
+    ; file, and it creates an ANSI one that silently mangles non-ASCII labels.
+    EnsureIniUtf16(path)
     try IniDelete(path, mapId)
     for i, poi in list {
         IniWrite(poi.x "|" poi.y "|" poi.label "|" poi.kind, path, mapId, String(i))
@@ -249,10 +272,18 @@ _Pois_Save(mapId, list) {
     _Pois_Cache.Delete(mapId)
 }
 
+; The one place a POI enters the store, so label and kind are made safe here
+; rather than at each frontend. Returns false when nothing usable was supplied.
 _Pois_Add(mapId, poi) {
+    poi.label := _Pois_SanitizeLabel(poi.label)
+    if (poi.label = "")
+        return false
+    if !_Pois_IsKind(poi.kind)
+        poi.kind := "npc"
     list := _Pois_Load(mapId).Clone()
     list.Push(poi)
     _Pois_Save(mapId, list)
+    return true
 }
 
 _Pois_DeleteAt(mapId, index) {
@@ -262,6 +293,16 @@ _Pois_DeleteAt(mapId, index) {
     }
     list.RemoveAt(index)
     _Pois_Save(mapId, list)
+}
+
+; Every other panel in the app gates its WebView2 frontend on the files it needs
+; actually being present (_ShopPrices_CanUseWebView, _BH_CanUseWebView,
+; _WindowLayout_CanUseWebView, _Settings_CanUseWebView) and falls back to the
+; native one. These two dialogs were the exception; both have a complete native
+; path, so there was no reason for them not to use it.
+_Pois_CanUseWebView(page) {
+    return FileExist(A_ScriptDir "\Lib\WebViewToo.ahk")
+        && FileExist(A_ScriptDir "\ui\map_pois\" page)
 }
 
 ; ── Capture ──────────────────────────────────────────────────────
@@ -289,11 +330,14 @@ _Pois_AddHere() {
         return
     }
     ; Stored raw; only the display is converted to in-game coordinates.
-    _Pois_Add(mapId, { x: rawPos.x, y: rawPos.y, label: entry.label, kind: entry.kind })
+    if !_Pois_Add(mapId, { x: rawPos.x, y: rawPos.y, label: entry.label, kind: entry.kind }) {
+        TrayTip("That label came through empty — the POI wasn't saved.", "Map POIs", "Iconx")
+        return
+    }
     _Pois_DefaultKind := entry.kind
     _Pois_SaveConfig()
     _Pois_Redraw()
-    TrayTip("Added '" entry.label "' (" entry.kind ")`n"
+    TrayTip("Added '" _Pois_SanitizeLabel(entry.label) "' (" entry.kind ")`n"
         . zone " at " GameCoordText(rawPos.x, rawPos.y), "Map POIs", "Iconi")
 }
 
@@ -302,7 +346,7 @@ _Pois_AddHere() {
 _Pois_PromptForEntry(zone, x, y) {
     global _Pois_KINDS, _Pois_DefaultKind
 
-    if IsNativeInterface() {
+    if (IsNativeInterface() || !_Pois_CanUseWebView("add_poi.html")) {
         result := 0
         dlg := Gui("+AlwaysOnTop -MinimizeBox", "Add POI")
         dlg.SetFont("s9", "Segoe UI")
@@ -339,6 +383,10 @@ _Pois_PromptForEntry(zone, x, y) {
     wvSettings := { DllPath: dllPath, DefaultWidth: 360, DefaultHeight: 330 }
 
     dlg := WebViewGui("-Caption +AlwaysOnTop -Resize", "Add POI",, wvSettings)
+    ; This function blocks in WinWaitClose below, so every way the window can go
+    ; away has to actually destroy it — including Alt+F4, which the page's own
+    ; cancel button never sees.
+    dlg.OnEvent("Close", (*) => dlg.Destroy())
 
     kindsJson := "["
     for i, k in _Pois_KINDS {
@@ -408,7 +456,7 @@ _Pois_ShowManageWindow() {
         _Pois_ManageGui := 0
     }
 
-    if IsNativeInterface() {
+    if (IsNativeInterface() || !_Pois_CanUseWebView("index.html")) {
         g := Gui("+AlwaysOnTop -MinimizeBox", "Map POIs — " ZoneDisplayName(mapId))
         g.SetFont("s9", "Segoe UI")
         _Pois_ManageGui := g
@@ -576,8 +624,11 @@ _Pois_HandleManageSubmitPoi(mapId, label, kind) {
         TrayTip("Could not read position — is the game client running?", "Map POIs", "Iconx")
         return
     }
-    _Pois_Add(mapId, { x: rawPos.x, y: rawPos.y, label: label, kind: kind })
-    _Pois_DefaultKind := kind
+    if !_Pois_Add(mapId, { x: rawPos.x, y: rawPos.y, label: label, kind: kind }) {
+        TrayTip("Give the POI a label.", "Map POIs", "Iconx")
+        return
+    }
+    _Pois_DefaultKind := _Pois_IsKind(kind) ? kind : "npc"
     _Pois_SaveConfig()
     _Pois_SendManageState()
     _Pois_Redraw()
@@ -660,7 +711,7 @@ _Pois_OnMapChange(mapName, prev) {
 }
 
 _Pois_Redraw(*) {
-    global gOverlayVisible, gGui, gCurrentMapName, MINIMAP_MAP_INSET
+    global gOverlayVisible, gGui, gCurrentMapName, MINIMAP_MAP_INSET, POI_MAX_DRAWN
     global _Pois_LayerVisible, _Pois_LabelMode, _Pois_Pool, _Pois_UsedCount
 
     if (!gOverlayVisible || !IsObject(gGui) || !gGui.Hwnd) {
@@ -670,8 +721,10 @@ _Pois_Redraw(*) {
         _Pois_HideAll()
         return
     }
-    list := _Pois_Load(MapIdFromName(gCurrentMapName))
-    _Pois_EnsurePool(list.Length)
+    mapId := MapIdFromName(gCurrentMapName)
+    list := _Pois_Load(mapId)
+    _Pois_EnsurePool(Min(list.Length, POI_MAX_DRAWN))
+    _Pois_WarnOverflowOnce(mapId, list.Length)
 
     scale := MinimapScaleFactor()
     ; A little smaller than the player marker so it never competes with it.
@@ -679,7 +732,9 @@ _Pois_Redraw(*) {
     showLabels := ShouldShowMarkerLabels(_Pois_LabelMode)
     used := 0
     for poi in list {
-        if (used >= _Pois_Pool.Length) {
+        ; The cap is stated here, not just implied by the pool size — a pool
+        ; grown before the cap existed is never shrunk.
+        if (used >= _Pois_Pool.Length || used >= POI_MAX_DRAWN) {
             break
         }
         pos := WorldToOverlayPixels(poi.x, poi.y, gCurrentMapName)
@@ -711,6 +766,18 @@ _Pois_Redraw(*) {
         _Pois_Pool[A_Index].dot.Visible := false
         _Pois_Pool[A_Index].label.Visible := false
     }
+}
+
+; Says so once per map when POIs are being left undrawn, rather than on every
+; redraw or not at all. The draw loop stops at the pool size, so the cap needs
+; no enforcement of its own here.
+_Pois_WarnOverflowOnce(mapId, total) {
+    global POI_MAX_DRAWN, _Pois_OverflowNotified
+    if (total <= POI_MAX_DRAWN || _Pois_OverflowNotified = mapId)
+        return
+    _Pois_OverflowNotified := mapId
+    TrayTip(ZoneDisplayName(mapId) " has " total " POIs — only the first "
+        . POI_MAX_DRAWN " are drawn.", "Map POIs", "Iconi")
 }
 
 ; Creates (or recreates) the control pool on the current overlay Gui. Same

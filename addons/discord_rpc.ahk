@@ -20,6 +20,9 @@ global _DiscordRpc_POLL_MS := 1500
 global _DiscordRpc_RECONNECT_MS := 15000
 global _DiscordRpc_CLEAR_STREAK_NEEDED := 3
 global _DiscordRpc_LastReconnectAttempt := 0
+; Longest we will ever wait for Discord to answer a frame. Nothing about
+; presence is worth stalling the app for — see _DiscordRpc_WaitForBytes.
+global _DiscordRpc_READ_TIMEOUT_MS := 300
 
 RegisterAddon(Map(
     "name",          "DiscordRpc",
@@ -102,8 +105,15 @@ _DiscordRpc_SaveConfig() {
     IniWrite(_DiscordRpc_Enabled ? "1" : "0", CONFIG_INI, "Discord", "Enabled")
 }
 
+; Switching the addon off in Settings > Addons only sets gDisabledAddons, which
+; FireAddonHook consults — but a SetTimer this addon started is not hook
+; dispatched and would keep publishing presence forever. Checking it here is
+; what stops that: _DiscordRpc_Tick turns its own timer off the moment this
+; goes false.
 _DiscordRpc_IsReady() {
-    global _DiscordRpc_Enabled
+    global _DiscordRpc_Enabled, gDisabledAddons
+    if (gDisabledAddons.Has("DiscordRpc") && gDisabledAddons["DiscordRpc"])
+        return false
     return _DiscordRpc_Enabled
 }
 
@@ -120,6 +130,9 @@ _DiscordRpc_Start() {
 _DiscordRpc_Tick() {
     global _DiscordRpc_Connected, _DiscordRpc_LastReconnectAttempt, _DiscordRpc_RECONNECT_MS
     if !_DiscordRpc_IsReady() {
+        ; Covers being switched off at the addon level, which has no settings
+        ; save to run the teardown — tear down here so presence doesn't linger.
+        _DiscordRpc_ClearAndDisconnect()
         SetTimer(_DiscordRpc_Tick, 0)
         return
     }
@@ -334,11 +347,38 @@ _DiscordRpc_SendFrame(opcode, jsonPayload) {
     return true
 }
 
+; AHK is single-threaded, so a blocking ReadFile on this pipe stops the whole
+; app — minimap, hotkeys, tray — for as long as Discord takes to answer. A
+; Discord that is starting up, wedged, or has accepted the pipe without replying
+; would hang Maps++ indefinitely, once every _DiscordRpc_POLL_MS.
+;
+; So nothing is ever read until PeekNamedPipe says the bytes are already there.
+; "" means "no usable response", which both callers already treat as a failed
+; exchange: _DiscordRpc_UpdatePresence disconnects and the next tick reconnects
+; after _DiscordRpc_RECONNECT_MS.
+_DiscordRpc_WaitForBytes(want) {
+    global _DiscordRpc_PipeHandle, _DiscordRpc_READ_TIMEOUT_MS
+    deadline := A_TickCount + _DiscordRpc_READ_TIMEOUT_MS
+    loop {
+        avail := 0
+        if !DllCall("PeekNamedPipe", "Ptr", _DiscordRpc_PipeHandle,
+            "Ptr", 0, "UInt", 0, "Ptr", 0, "UInt*", &avail, "Ptr", 0)
+            return false          ; pipe is broken — let the caller disconnect
+        if (avail >= want)
+            return true
+        if (A_TickCount >= deadline)
+            return false
+        Sleep 15
+    }
+}
+
 _DiscordRpc_ReadFrame() {
     global _DiscordRpc_PipeHandle
     if !_DiscordRpc_PipeHandle
         return ""
 
+    if !_DiscordRpc_WaitForBytes(8)
+        return ""
     header := Buffer(8, 0)
     read := 0
     if !DllCall("ReadFile", "Ptr", _DiscordRpc_PipeHandle, "Ptr", header.Ptr, "UInt", 8, "UInt*", &read, "Ptr", 0)
@@ -349,6 +389,8 @@ _DiscordRpc_ReadFrame() {
     if (payloadLen < 1 || payloadLen > 65536)
         return ""
 
+    if !_DiscordRpc_WaitForBytes(payloadLen)
+        return ""
     payload := Buffer(payloadLen, 0)
     if !DllCall("ReadFile", "Ptr", _DiscordRpc_PipeHandle, "Ptr", payload.Ptr, "UInt", payloadLen, "UInt*", &read, "Ptr", 0)
         || read != payloadLen

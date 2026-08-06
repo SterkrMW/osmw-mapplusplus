@@ -15,6 +15,11 @@ global _PartyMarkers_LabelMode := "autohide"
 global _PartyMarkers_LayerVisible := true
 ; Slots used by the last draw, so a hover change can toggle just those labels.
 global _PartyMarkers_UsedCount := 0
+; pid → colour index. Colour used to come from the draw position, so an alt
+; zoning out or entering battle renumbered everyone behind it and the whole
+; layer changed colour mid-session — the one thing that made it readable at a
+; glance. Assigned on first sight and kept for as long as that client is around.
+global _PartyMarkers_ColorByPid := Map()
 ; Control pool: AHK can't destroy individual controls, so they are created once
 ; per overlay Gui and then shown/hidden/moved.
 global _PartyMarkers_Pool := []
@@ -151,6 +156,13 @@ _PartyMarkers_OnSnapshot(snapshots) {
     global MINIMAP_MAP_INSET, _PartyMarkers_Pool, _PartyMarkers_LabelMode, _PartyMarkers_UsedCount
     global _PartyMarkers_LayerVisible
 
+    ; Reaped before the draw guards below, so the colour map doesn't accumulate
+    ; dead pids across a long session with the overlay closed.
+    livePids := Map()
+    for snap in snapshots
+        livePids[snap.pid] := true
+    _PartyMarkers_ForgetGonePids(livePids)
+
     if (!gOverlayVisible || !IsObject(gGui) || !gGui.Hwnd) {
         return
     }
@@ -196,7 +208,7 @@ _PartyMarkers_OnSnapshot(snapshots) {
         ; controls start life hidden; on some redraw paths Windows otherwise
         ; paints the label but leaves the newly-shown static's background
         ; transparent, making the party dot appear to be missing.
-        entry.dot.Opt("+Background" _PartyMarkers_ColorFor(used))
+        entry.dot.Opt("+Background" _PartyMarkers_ColorForPid(snap.pid))
         entry.dot.Move(px + MINIMAP_MAP_INSET, py + MINIMAP_MAP_INSET, size, size)
         entry.dot.Visible := true
         entry.dot.Redraw()
@@ -221,6 +233,38 @@ _PartyMarkers_OnSnapshot(snapshots) {
 _PartyMarkers_ColorFor(index) {
     global _PartyMarkers_COLORS
     return _PartyMarkers_COLORS[Mod(index - 1, _PartyMarkers_COLORS.Length) + 1]
+}
+
+; The colour for a client, stable for as long as it keeps running. New clients
+; take the lowest index nobody currently holds, so colours stay distinct rather
+; than merely stable.
+_PartyMarkers_ColorForPid(pid) {
+    global _PartyMarkers_ColorByPid, _PartyMarkers_COLORS
+    if _PartyMarkers_ColorByPid.Has(pid)
+        return _PartyMarkers_ColorFor(_PartyMarkers_ColorByPid[pid])
+
+    taken := Map()
+    for _, idx in _PartyMarkers_ColorByPid
+        taken[idx] := true
+    chosen := _PartyMarkers_ColorByPid.Count + 1
+    Loop _PartyMarkers_COLORS.Length {
+        if !taken.Has(A_Index) {
+            chosen := A_Index
+            break
+        }
+    }
+    _PartyMarkers_ColorByPid[pid] := chosen
+    return _PartyMarkers_ColorFor(chosen)
+}
+
+; Drops clients that are no longer running, so their colours become available
+; again. Called with the pids the current poll actually saw.
+_PartyMarkers_ForgetGonePids(livePids) {
+    global _PartyMarkers_ColorByPid
+    for pid, _ in _PartyMarkers_ColorByPid.Clone() {
+        if !livePids.Has(pid)
+            _PartyMarkers_ColorByPid.Delete(pid)
+    }
 }
 
 ; Creates (or recreates) the control pool on the current overlay Gui.

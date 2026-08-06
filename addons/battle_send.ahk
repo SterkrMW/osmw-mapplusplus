@@ -10,9 +10,12 @@ RegisterAddon(Map(
     "OnTrayMenu", _BattleSend_OnTrayMenu
 ))
 
+; The name says "send" for historical reasons only — nothing is sent. The battle
+; action is written straight into each fighting client's memory below, so the
+; label describes the effect rather than a keystroke that never happens.
 RegisterHotkeyAction(Map(
     "id", "battleSend",
-    "label", "Send Alt+Q to fighting clients",
+    "label", "Trigger battle action on fighting clients",
     "category", "Battle",
     "default", "+!q",
     "addon", "BattleSend",
@@ -21,14 +24,22 @@ RegisterHotkeyAction(Map(
 ))
 
 _BattleSend_OnTrayMenu(trayGroups) {
-    trayGroups["quickActions"].Add("Send Alt+Q to Fighting`t" GetHotkeyDisplay("battleSend"), (*) => _BattleSend_SendToFighting())
+    trayGroups["quickActions"].Add("Battle Action on Fighting`t" GetHotkeyDisplay("battleSend"), (*) => _BattleSend_SendToFighting())
 }
 
+; One pass per *process*: a client can contribute more than one top-level hwnd,
+; and opening/writing it twice is wasted work at best.
 _BattleSend_SendToFighting() {
     buf := Buffer(4, 0)
     NumPut("Int", 9, buf, 0)
-    for hwnd in WinGetList(GAME_WIN_FILTER) {
-        pid := WinGetPID("ahk_id " hwnd)
+    seen := Map()
+    for hwnd in GetTopLevelGameWindows() {
+        pid := 0
+        ; The window can close between the enumeration and this call.
+        try pid := WinGetPID("ahk_id " hwnd)
+        if (!pid || seen.Has(pid))
+            continue
+        seen[pid] := true
         handle := DllCall("OpenProcess",
             "UInt", _BattleSend_PROCESS_ACCESS,
             "Int", 0, "UInt", pid, "Ptr")

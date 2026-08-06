@@ -57,9 +57,16 @@ global _BH_CLASS_SKILLS := Map(
 ; Pet offsets and actor fields are registered now so adding pet skill discovery
 ; later does not require a new persistence or execution model. The first editor
 ; intentionally authors player bindings only.
-RegisterAddonOffset("BetterHotkeysPlayerAction", 0x30B5F8)
+;
+; The two *action* fields are the same addresses battle_send uses, so they share
+; its names rather than carrying a second alias each. Two names for one address
+; meant the scanner resolved it twice and the two addons could end up writing to
+; different places after a game patch. RegisterAddonOffset ignores a repeat
+; registration, so both files declaring them is what keeps every variant working
+; — battle.txt and full.txt ship both addons, lite.txt ships neither.
+RegisterAddonOffset("BattleAction", 0x30B5F8)
+RegisterAddonOffset("PetBattleAction", 0x3029C4)
 RegisterAddonOffset("BetterHotkeysPlayerSkill", 0x30B604)
-RegisterAddonOffset("BetterHotkeysPetAction", 0x3029C4)
 RegisterAddonOffset("BetterHotkeysPetSkill", 0x3029D0)
 
 RegisterAddon(Map(
@@ -162,6 +169,10 @@ _BH_SaveProfiles(profiles) {
     oldRaw := FileExist(path) ? Trim(IniRead(path, "Meta", "Count", "0")) : "0"
     oldCount := IsInteger(oldRaw) ? Min(Max(Integer(oldRaw), 0), 64) : 0
     clearCount := Max(oldCount, checked.profiles.Length)
+    ; Before the IniDelete loop: on a first save that loop is what creates the
+    ; file, and an ANSI file would mangle every non-ASCII character name written
+    ; through it afterwards.
+    EnsureIniUtf16(path)
     try {
         Loop clearCount
             try IniDelete(path, "Profile." A_Index)
@@ -368,10 +379,12 @@ _BH_FindProfile(name) {
     return 0
 }
 
+; The action fields are shared with battle_send under its names; only the skill
+; fields are this addon's own. See the RegisterAddonOffset block at the top.
 _BH_ActionOffsets(actor) {
     if (actor = "pet")
-        return {skill: "BetterHotkeysPetSkill", action: "BetterHotkeysPetAction"}
-    return {skill: "BetterHotkeysPlayerSkill", action: "BetterHotkeysPlayerAction"}
+        return {skill: "BetterHotkeysPetSkill", action: "PetBattleAction"}
+    return {skill: "BetterHotkeysPlayerSkill", action: "BattleAction"}
 }
 
 _BH_Dispatch(chord) {
@@ -521,13 +534,35 @@ _BH_OpenEditor() {
         _BH_ShowWeb()
 }
 
+; The native editor rebuilds its ListViews from scratch, which resets the
+; selection and closes an open dropdown — doing that unconditionally once a
+; second fought the user mid-edit. Only the live Online/Active column can change
+; between polls, so the rebuild is skipped unless that column actually would.
+global _BH_LastLiveSig := ""
+
 _BH_OnSnapshot(snapshots) {
-    global _BH_PanelMode, _BH_CaptureTarget
-    if (_BH_PanelMode = "web")
+    global _BH_PanelMode, _BH_CaptureTarget, _BH_LastLiveSig
+    if (_BH_PanelMode = "web") {
         _BH_WebPost(_BH_LiveStateJson())
-    else if (_BH_PanelMode = "native"
-        && !(IsObject(_BH_CaptureTarget) && _BH_CaptureTarget["mode"] = "native"))
-        _BH_NativeRefreshProfiles()
+        return
+    }
+    if (_BH_PanelMode != "native")
+        return
+    if (IsObject(_BH_CaptureTarget) && _BH_CaptureTarget["mode"] = "native")
+        return
+    sig := _BH_LiveSignature()
+    if (sig = _BH_LastLiveSig)
+        return
+    _BH_LastLiveSig := sig
+    _BH_NativeRefreshProfiles()
+}
+
+; Everything the native profile list renders from the live poll, as one string.
+_BH_LiveSignature() {
+    sig := ""
+    for snap in GetClientSnapshots()
+        sig .= snap.charName "|" snap.classId "|" (snap.isActive ? 1 : 0) "`n"
+    return sig
 }
 
 _BH_LiveStateJson() {
@@ -772,11 +807,14 @@ global _BH_NativeDirty := false
 global _BH_NativeRefreshing := false
 
 _BH_ShowNative() {
-    global _BH_PanelMode, _BH_NativeGui, _BH_NativeDraft, _BH_NativeDirty
+    global _BH_PanelMode, _BH_NativeGui, _BH_NativeDraft, _BH_NativeDirty, _BH_LastLiveSig
     _BH_NativeEnsureGui()
     _BH_NativeDraft := _BH_CloneProfiles()
     _BH_NativeDirty := false
     _BH_PanelMode := "native"
+    ; The refresh below brings the list up to date; record what it reflects so
+    ; the first poll doesn't immediately rebuild it again.
+    _BH_LastLiveSig := _BH_LiveSignature()
     _BH_NativeRefreshProfiles()
     _BH_NativeGui.Show("w900 h560 Center")
 }
@@ -994,6 +1032,17 @@ _BH_NativeChangeClass() {
     newClass := _BH_NativeClass.Value - 1
     if (newClass = profile["classId"])
         return
+    ; Skills are class-specific, so the bindings cannot survive the change. That
+    ; is a destructive edit reachable by a stray scroll over the dropdown, so it
+    ; is confirmed — and refused cleanly, with the dropdown put back.
+    if (profile["bindings"].Length > 0) {
+        if !_BH_Ask("Changing class clears all " profile["bindings"].Length
+            . " binding(s) on '" profile["name"] "', because skills are class-specific."
+            . "`n`nChange the class anyway?") {
+            _BH_NativeRefreshBindings()      ; restores the dropdown selection
+            return
+        }
+    }
     profile["classId"] := newClass
     profile["bindings"] := []
     _BH_NativeBindingIndex := 0

@@ -333,9 +333,11 @@ real inventory.
 
 | Hotkey | Action |
 |--------|--------|
-| **Not bound** | For every client **currently in battle** with a pending action, queue **Alt+Q** (action 9) for both character and pet |
+| **Not bound** | For every client **currently in battle** with a pending action, set battle action 9 for both character and pet |
 
-Use this to confirm or send the same battle command across all fighting characters at once.
+Use this to confirm or repeat the same battle command across all fighting characters at once.
+Nothing is typed into the clients — the action value is written straight into each one, so it
+works on every fighting client at once regardless of which window has focus.
 
 ### Better Hotkeys (Full / Battle)
 
@@ -390,7 +392,8 @@ still sitting at a login prompt.
 | **Ctrl+Alt+A** | Open / close the Quick Actions ring |
 
 The same ring as the client picker, but the spokes are shortcuts instead of characters: view
-mode, battle send, inventory, chat, window layout, POIs, settings. Press the hotkey and the ring
+mode, battle send, inventory, chat, window layout (primary or secondary display), POIs, the
+Character Vendor pricing panel, and settings. Press the hotkey and the ring
 appears **at your cursor** — move onto a spoke and left-click to fire it. Right-click, **Esc**,
 a click in the gaps, or the hotkey again all dismiss it, and a click in the gaps does *not* also
 reach the game.
@@ -442,6 +445,13 @@ coordinates are raw X ÷ 16 and Y ÷ 8, applied for display only:
 2=705|386|Rift Plains portal|portal
 ```
 
+`|` separates the fields, so a label you type containing one has it replaced with a space, and
+labels are capped at 48 characters. Accented and non-Latin labels are stored as you typed them.
+
+A map with more than **120** POIs draws only the first 120, and says so once when you enter it —
+each one is a control on the overlay window, and there is a point past which the overlay pays
+for markers nobody can pick out anyway.
+
 **Tray → Map POIs** has the rest: **Manage POIs…** (list, delete for the current map) and
 **Export This Map's POIs**, which writes every POI in the server repo's NPC entry format —
 the same shape the **Generate NPC entry** action produces for a single position — into `npc_generated.txt` and
@@ -468,6 +478,10 @@ Every *other* client running on the same map as you appears
 as a coloured dot, labelled with the character name, alongside your own standard marker. Alts
 that are loading, in battle, or in a different zone are not drawn (their position would be
 stale).
+
+Each client keeps the **same colour** for as long as it is running, so you can learn which dot
+is which. An alt zoning out or dropping into a battle does not renumber the others; the colour
+is only released once that client closes.
 
 Name labels are shown while you play and **hide while the mouse is over the minimap**, so the
 map underneath stays readable when you look at it directly. **Settings → Party Markers → Show
@@ -507,6 +521,7 @@ KeepOpenOnFocusLoss=0
 DefaultLayout=Grid2x2
 MainCharacter=YourCharName
 TargetMonitor=0
+MainCharacterAsked=1
 
 [Hotkeys]
 toggleMinimap=Tab
@@ -565,11 +580,12 @@ BetterHotkeys=1
 | `DefaultLayout` | Layout used by the primary/secondary **Apply default layout** actions — a preset name, or the name of one of your custom layouts |
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |
+| `MainCharacterAsked` | `1` once the first-run "which is your main character?" prompt has been shown. Set whether you answered or dismissed it, so it is only ever asked once — clear it to be asked again |
 | `ConfirmHigh` | `1` = ask for confirmation before applying a large vendor price |
 | `WarnAbove` | The price at which that confirmation kicks in |
 | `PresetClears` | `1` = loading a shop preset also clears prices on slots the preset doesn’t mention. Off by default, so presets only add |
 | `IconBase` | Whether the client’s item id is `0`- or `1`-based, which decides how thumbnails are matched. Set it from **Settings → Character Vendor** after comparing one known item |
-| `ItemIdOffset` | Override for the inventory item-id address, e.g. `0x2E2028`. Only needed if a game update moves it; blank uses the built-in value, `0` turns thumbnails off |
+| `ItemIdOffset` | Override for the inventory item-id address, e.g. `0x2E2028`. Only needed if a game update moves it; blank uses the built-in value (or whatever signature calibration resolves), `0` turns thumbnails off. When set, it wins over signature calibration — which is the point, since the case it exists for is calibration landing on the wrong address |
 | `[Hotkeys]` | One entry per rebindable action, in AutoHotkey chord syntax (`^`=Ctrl, `!`=Alt, `+`=Shift). A blank value means **Not bound**; rebind or unbind from **Settings → Hotkeys** |
 | `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
 

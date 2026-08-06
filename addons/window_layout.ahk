@@ -3,6 +3,10 @@
 global _WindowLayout_DefaultLayout := "Grid2x2"
 global _WindowLayout_MainCharacter  := ""
 global _WindowLayout_TargetMonitor  := 0  ; 0 = primary
+; Set once the first-run main-character prompt has actually been shown and
+; answered or dismissed, so declining it is remembered instead of re-asked on
+; every launch. Persisted alongside the rest of the addon's config.
+global _WindowLayout_MainCharacterAsked := false
 
 ; The built-in layouts. Custom (user-authored) layouts live in layouts.ini and
 ; are resolved by name too, so a custom layout may not reuse one of these names.
@@ -91,9 +95,14 @@ _WindowLayout_OnInit() {
     SetTimer(_WindowLayout_PromptMainCharacterIfUnset, -4000)
 }
 
+; Asked once. Dismissing the prompt used to record nothing, so a user who didn't
+; want it was asked again on every single launch, forever. Switching the addon
+; off between the OnInit and this timer firing must not bring it back either.
 _WindowLayout_PromptMainCharacterIfUnset() {
-    global _WindowLayout_MainCharacter
-    if (_WindowLayout_MainCharacter = "")
+    global _WindowLayout_MainCharacter, _WindowLayout_MainCharacterAsked, gDisabledAddons
+    if (gDisabledAddons.Has("WindowLayout") && gDisabledAddons["WindowLayout"])
+        return
+    if (_WindowLayout_MainCharacter = "" && !_WindowLayout_MainCharacterAsked)
         _WindowLayout_PromptMainCharacter()
 }
 
@@ -199,10 +208,17 @@ _WindowLayout_ArrayHas(arr, needle) {
 }
 
 _WindowLayout_LoadConfig() {
-    global _WindowLayout_DefaultLayout, _WindowLayout_MainCharacter, _WindowLayout_TargetMonitor, CONFIG_INI
+    global _WindowLayout_DefaultLayout, _WindowLayout_MainCharacter, _WindowLayout_TargetMonitor
+    global _WindowLayout_MainCharacterAsked, CONFIG_INI
     _WindowLayout_DefaultLayout := Trim(IniRead(CONFIG_INI, "WindowLayout", "DefaultLayout", "Grid2x2"))
     _WindowLayout_MainCharacter := Trim(IniRead(CONFIG_INI, "WindowLayout", "MainCharacter", ""))
-    _WindowLayout_TargetMonitor := Integer(IniRead(CONFIG_INI, "WindowLayout", "TargetMonitor", 0))
+    ; A bare Integer() throws on a hand-edited value, and this runs inside OnInit
+    ; where FireAddonHook swallows the exception — the rest of the config would
+    ; silently never load. Guarded like every other read in this file.
+    rawMon := Trim(IniRead(CONFIG_INI, "WindowLayout", "TargetMonitor", "0"))
+    _WindowLayout_TargetMonitor := (IsInteger(rawMon) && Integer(rawMon) >= 0) ? Integer(rawMon) : 0
+    _WindowLayout_MainCharacterAsked :=
+        (Trim(IniRead(CONFIG_INI, "WindowLayout", "MainCharacterAsked", "0")) = "1")
 }
 
 ; Core launcher settings use a dynamic lookup so builds without this addon still
@@ -214,10 +230,12 @@ _WindowLayout_GetDefaultLayoutName() {
 }
 
 _WindowLayout_SaveConfig() {
-    global _WindowLayout_DefaultLayout, _WindowLayout_MainCharacter, _WindowLayout_TargetMonitor, CONFIG_INI
+    global _WindowLayout_DefaultLayout, _WindowLayout_MainCharacter, _WindowLayout_TargetMonitor
+    global _WindowLayout_MainCharacterAsked, CONFIG_INI
     IniWrite(_WindowLayout_DefaultLayout, CONFIG_INI, "WindowLayout", "DefaultLayout")
     IniWrite(_WindowLayout_MainCharacter, CONFIG_INI, "WindowLayout", "MainCharacter")
     IniWrite(_WindowLayout_TargetMonitor, CONFIG_INI, "WindowLayout", "TargetMonitor")
+    IniWrite(_WindowLayout_MainCharacterAsked ? "1" : "0", CONFIG_INI, "WindowLayout", "MainCharacterAsked")
 }
 
 _WindowLayout_PromptMainCharacter() {
@@ -321,10 +339,13 @@ _WindowLayout_OnPromptWebMsg(wv, args) {
 
 _WindowLayout_ClosePrompt(chosen := "") {
     global _WindowLayout_MainCharacter, _WindowLayout_PromptGui, _WindowLayout_PromptNamesJson
-    if (chosen != "") {
+    global _WindowLayout_MainCharacterAsked
+    ; Recorded on cancel as much as on OK — being asked and saying no is an
+    ; answer, and the point is not to ask again.
+    _WindowLayout_MainCharacterAsked := true
+    if (chosen != "")
         _WindowLayout_MainCharacter := chosen
-        _WindowLayout_SaveConfig()
-    }
+    _WindowLayout_SaveConfig()
     if IsObject(_WindowLayout_PromptGui)
         try _WindowLayout_PromptGui.Destroy()
     _WindowLayout_PromptGui := 0
@@ -373,8 +394,15 @@ _WindowLayout_ApplyPreset(layoutName, monitorIdx := unset, *) {
         return
     }
 
-    ; Use the first window's size to compute positions — never resize.
-    WinGetPos(, , &winW, &winH, "ahk_id " ordered[1])
+    ; Use the first window's size to compute positions — never resize. It can
+    ; close between the filter above and here, so this is not assumed to work.
+    try {
+        WinGetPos(, , &winW, &winH, "ahk_id " ordered[1])
+    } catch {
+        TrayTip("A client closed while the layout was being applied — try again.",
+            "Window Layout", "Icon!")
+        return
+    }
     slots := _WindowLayout_ComputeSlots(layoutName, winW, winH, monIdx)
     if (slots.Length = 0)
         return
@@ -776,6 +804,10 @@ _WLayouts_Save(layout) {
     if (id = 0)
         id := _WLayouts_NextId()
 
+    ; This store happens to IniWrite before it IniDeletes, which creates the file
+    ; correctly — but that is incidental to the statement order below, and layout
+    ; slots carry character names. Stated rather than relied on.
+    EnsureIniUtf16(path)
     try {
         IniWrite(layout.name, path, "Index", String(id))
         try IniDelete(path, "Layout." id)

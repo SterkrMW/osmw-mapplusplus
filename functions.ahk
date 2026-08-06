@@ -2239,6 +2239,27 @@ ResolveWritableIniPath(filename) {
     return fallbackPath
 }
 
+; Makes sure an ini exists as UTF-16LE before anything writes to it.
+;
+; Windows' profile API decides a file's encoding once, from what is already on
+; disk, and AHK only gets that right when IniWrite is what creates the file. A
+; store whose first call is IniDelete — deleting a section it is about to
+; rewrite — instead gets an empty ANSI file, and from then on every IniWrite
+; through it drops anything outside the system codepage: a character name or POI
+; label in Chinese became "??" permanently, on a Western-locale machine, at the
+; moment the file was created.
+;
+; Call this before the first mutation in any save path. It is a no-op once the
+; file exists, so it costs one FileExist on the paths that were already fine.
+EnsureIniUtf16(path) {
+    if FileExist(path)
+        return
+    try {
+        f := FileOpen(path, "w", "UTF-16")   ; writes the BOM
+        f.Close()
+    }
+}
+
 IsPathWritable(path) {
     try {
         f := FileOpen(path, "a")
@@ -2543,8 +2564,15 @@ CalibrateSignaturesNow() {
 ; After this, CalibrateSignaturesNow() and EnsureResolvedOffsetsForBuild()
 ; will scan/cache the offset alongside core app offsets, and
 ; GetResolvedOffset(name) returns the live-resolved value or the fallback.
+; Registering the same name twice is expected: two addons can legitimately share
+; an address (see BattleAction, used by both battle_send and better_hotkeys), and
+; each must register it so every variant that ships either one resolves it. The
+; first registration wins — a duplicate would otherwise be scanned twice and
+; listed twice in the Verify Signatures report.
 RegisterAddonOffset(name, fallbackRva) {
     global SIGNATURE_NAMES, gFallbackOffsets
+    if gFallbackOffsets.Has(name)
+        return
     SIGNATURE_NAMES.Push(name)
     gFallbackOffsets[name] := fallbackRva
 }

@@ -748,6 +748,7 @@ _JSON_ParseString(str, &pos) {
                 case "r": result .= "`r"
                 case "t": result .= "`t"
                 case "b": result .= "`b"
+                case "u": result .= _JSON_ParseUnicodeEscape(str, &pos)
                 default: result .= esc
             }
         } else {
@@ -756,6 +757,45 @@ _JSON_ParseString(str, &pos) {
         }
     }
     return result
+}
+
+; \uXXXX, called with `pos` on the first hex digit and leaving it just past the
+; last one consumed.
+;
+; Without this the escape fell through to the switch's `default` and a "é"
+; landed in the string as a literal "u00e9" — every non-ASCII character coming
+; back from a WebView2 panel was silently mangled. Two addons worked around it
+; by refusing to accept names from JS at all (see the comments in shop_prices
+; and window_layout); map_pois did not, and corrupted POI labels.
+;
+; JS emits astral characters as a surrogate pair, so a high surrogate followed
+; by "\uDCxx" is rejoined into the one code point Chr() expects.
+_JSON_ParseUnicodeEscape(str, &pos) {
+    hi := _JSON_ParseHex4(str, &pos)
+    if (hi < 0)
+        return "u"                      ; malformed — keep the old literal behaviour
+    if (hi < 0xD800 || hi > 0xDBFF)
+        return (hi >= 0xDC00 && hi <= 0xDFFF) ? Chr(0xFFFD) : Chr(hi)
+
+    ; High surrogate: only consume the low half if it is really there.
+    if (SubStr(str, pos, 2) != "\u")
+        return Chr(0xFFFD)
+    after := pos + 2
+    lo := _JSON_ParseHex4(str, &after)
+    if (lo < 0xDC00 || lo > 0xDFFF)
+        return Chr(0xFFFD)
+    pos := after
+    return Chr(0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00))
+}
+
+; Four hex digits at `pos` as an integer, advancing past them. -1 when the text
+; is not four hex digits, in which case `pos` is left alone.
+_JSON_ParseHex4(str, &pos) {
+    digits := SubStr(str, pos, 4)
+    if (StrLen(digits) < 4 || !RegExMatch(digits, "^[0-9A-Fa-f]{4}$"))
+        return -1
+    pos += 4
+    return Integer("0x" digits)
 }
 
 _JSON_ParseNumber(str, &pos) {
