@@ -103,9 +103,9 @@ body {
 }
 
 .avatar-initials {
-    font-size: 24px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
+    font-size: 1.5rem;
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-label);
     color: var(--text-muted);
     text-transform: uppercase;
 }
@@ -140,8 +140,8 @@ body {
 }
 
 .spoke-icon {
-    font-size: 30px;
-    line-height: 1;
+    font-size: 1.875rem;
+    line-height: var(--leading-none);
 }
 
 .spoke-btn.is-hover .icon-frame {
@@ -181,9 +181,9 @@ body {
     border-radius: 999px;
     background: var(--bg-dark);
     border: 1px solid var(--border);
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1.5;
+    font-size: var(--text-caption);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-copy);
     color: var(--text);
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
     transition: border-color var(--transition), color var(--transition);
@@ -258,20 +258,20 @@ body {
 }
 
 .hub-num {
-    font-size: 22px;
-    font-weight: 700;
+    font-size: 1.375rem;
+    font-weight: var(--weight-bold);
     color: var(--text);
-    line-height: 1;
+    line-height: var(--leading-none);
 }
 
 .hub-icon {
-    font-size: 22px;
+    font-size: 1.375rem;
 }
 
 .hub-sub {
-    font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.3px;
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-label);
     color: var(--text-muted);
 }
 
@@ -282,5 +282,5 @@ body {
 /* A word rather than a count ("No clients", "Quick") needs to drop a size to
    fit the disc. */
 .hub.is-wordy .hub-num {
-    font-size: 13px;
+    font-size: var(--text-ui);
 }

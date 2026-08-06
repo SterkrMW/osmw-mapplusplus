@@ -23,11 +23,11 @@
 
 .rail-title {
     padding: 10px 12px 8px;
-    font-size: var(--font-sm);
-    font-weight: 600;
+    font-size: var(--text-secondary);
+    font-weight: var(--weight-semibold);
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: var(--tracking-label);
 }
 
 .rail-scroll {
@@ -46,8 +46,8 @@
 
 .rail-empty {
     padding: 4px 4px 10px;
-    font-size: var(--font-sm);
-    line-height: 1.5;
+    font-size: var(--text-secondary);
+    line-height: var(--leading-copy);
     color: var(--text-dim);
 }
 .rail-empty strong { color: var(--text-muted); }
@@ -83,21 +83,21 @@
 
 .layout-name {
     flex: 1 1 100%;
-    font-weight: 500;
+    font-weight: var(--weight-medium);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .layout-meta {
-    font-size: 11px;
+    font-size: var(--text-caption);
     color: var(--text-dim);
 }
 .layout-item.offline .layout-meta { color: var(--warning); }
 
 .default-dot {
     color: var(--accent);
-    font-size: 11px;
-    line-height: 1;
+    font-size: var(--text-caption);
+    line-height: var(--leading-none);
 }
 
 /* ── Toolbar ────────────────────────────────────────────────── */
@@ -117,7 +117,7 @@
     border-bottom: 1px solid var(--border);
     background: var(--surface);
 }
-.tb-icon { font-size: 14px; }
+.tb-icon { font-size: 0.875rem; }
 .tb-sep {
     width: 1px;
     height: 18px;
@@ -129,12 +129,12 @@
     gap: 6px;
 }
 .tb-label {
-    font-size: var(--font-sm);
+    font-size: var(--text-secondary);
     color: var(--text-muted);
 }
 .select-sm, .input-sm {
     height: 26px;
-    font-size: var(--font-sm);
+    font-size: var(--text-secondary);
     padding: 0 8px;
 }
 #monitorSelect { max-width: 230px; }
@@ -158,13 +158,13 @@
     justify-content: space-between;
     gap: 12px;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--text-caption);
     font-variant-numeric: tabular-nums;
 }
 .stage-context strong {
     overflow: hidden;
     color: var(--text);
-    font-size: var(--font-sm);
+    font-size: var(--text-secondary);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -198,11 +198,11 @@
 }
 
 .stage-hint {
-    font-size: var(--font-sm);
+    font-size: var(--text-secondary);
     color: var(--text-dim);
     text-align: center;
     max-width: 460px;
-    line-height: 1.5;
+    line-height: var(--leading-copy);
 }
 
 /* ── Slot boxes ─────────────────────────────────────────────── */
@@ -219,8 +219,8 @@
     border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
     border-radius: var(--radius-sm);
     color: var(--text);
-    font-size: 11px;
-    line-height: 1.2;
+    font-size: var(--text-caption);
+    line-height: var(--leading-tight);
     text-align: center;
     cursor: grab;
     touch-action: none;
@@ -258,9 +258,9 @@
 }
 
 .slot-index {
-    font-weight: 700;
+    font-weight: var(--weight-bold);
     color: var(--accent);
-    font-size: 12px;
+    font-size: var(--text-secondary);
 }
 .slot.unbound .slot-index { color: var(--text-dim); }
 .slot-name {
@@ -269,7 +269,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.slot-flag { font-size: 10px; color: var(--text-dim); }
+.slot-flag { font-size: var(--text-caption); color: var(--text-dim); }
 
 /* ── Alignment guides ───────────────────────────────────────── */
 .guide {
@@ -297,18 +297,18 @@
 .xy-pair .field { min-width: 0; }
 .slot-form .input, .slot-form .select { width: 100%; min-width: 0; }
 .field-note {
-    font-size: 11px;
+    font-size: var(--text-caption);
     color: var(--text-dim);
-    line-height: 1.4;
+    line-height: var(--leading-ui);
 }
 .check-row {
     display: flex;
     align-items: flex-start;
     gap: 7px;
-    font-size: var(--font-sm);
+    font-size: var(--text-secondary);
     color: var(--text-muted);
     cursor: pointer;
-    line-height: 1.35;
+    line-height: var(--leading-ui);
 }
 .check-row input { margin-top: 2px; accent-color: var(--accent); }
 .align-group {
@@ -325,8 +325,8 @@
     height: 28px;
     color: var(--text-muted);
     font: inherit;
-    font-size: 11px;
-    font-weight: 700;
+    font-size: var(--text-caption);
+    font-weight: var(--weight-bold);
     background: var(--bg-dark);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -349,7 +349,7 @@
     min-width: 0;
 }
 .status {
-    font-size: var(--font-sm);
+    font-size: var(--text-secondary);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -388,7 +388,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 10px 10px 10px 16px;
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     background: var(--bg-dark);
     border-bottom: 1px solid var(--border);
 }

@@ -15,7 +15,8 @@
     padding: 40px 16px;
     text-align: center;
     color: var(--text-muted);
-    font-size: var(--font-sm);
+    font-size: var(--text-secondary);
+    line-height: var(--leading-copy);
 }
 
 .footer-left {
@@ -54,8 +55,8 @@
     padding: 10px 14px;
     background: var(--surface-alt);
     border-bottom: 1px solid var(--border);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--text-ui);
+    font-weight: var(--weight-semibold);
     color: var(--accent);
 }
 .modal-body {
