@@ -100,6 +100,11 @@ function adoptShopState(msg) {
 function adoptGridState(msg) {
     state.slots = msg.slots || [];
     state.dirty = !!msg.dirty;
+    // Inventory can change while the panel is open. Never leave a now-empty
+    // slot selected after a fresh snapshot arrives.
+    for (const i of [...sel]) {
+        if (!slotHasItemFileId(i)) sel.delete(i);
+    }
     buildGrid();
     renderGrid();
     renderCounts(msg.listed || 0, msg.liveListed);
@@ -170,6 +175,20 @@ function iconSrc(id) {
     const n = id - state.iconBase;
     if (n < 0) return null;
     return `../items/${String(n).padStart(3, '0')}.${n + 1}.png`;
+}
+
+function slotState(i) {
+    return state.slots.find((slot) => slot.i === i) || null;
+}
+
+// A price is only meaningful when the inventory record has a confirmed file
+// ID. Match AHK's authoritative empty-slot sentinel check here. File ID 0 is
+// legitimate when IconBase is 0; the live empty record uses 0xFFFF.
+function slotHasItemFileId(i) {
+    const slot = slotState(i);
+    if (!state.idsKnown || !slot) return false;
+    const id = Number(slot.itemId);
+    return Number.isInteger(id) && id !== -1 && id !== 0xFFFF;
 }
 
 /* ── Grid ────────────────────────────────────────────────────── */
@@ -259,14 +278,19 @@ function renderSlot(i, focused) {
         setBand(cell, s.band || 0);
     }
 
+    const hasItem = slotHasItemFileId(i);
     const empty = state.idsKnown && s.empty;
+    input.disabled = !hasItem;
+    input.title = hasItem ? '' : (state.idsKnown
+        ? 'Empty inventory slot — only slots containing an item can be priced.'
+        : 'Item file IDs are unavailable — verify the slot mapping first.');
     cell.classList.toggle('slot-empty', empty);
     cell.classList.toggle('slot-dirty', s.price !== s.live);
     cell.classList.toggle('slot-selected', sel.has(i));
 
     const img = cell.querySelector('.slot-icon');
     const ph = cell.querySelector('.slot-ph');
-    const src = (!state.idsKnown || empty) ? null : iconSrc(s.itemId);
+    const src = hasItem ? iconSrc(s.itemId) : null;
     if (src) {
         if (img.getAttribute('src') !== src) {
             img.hidden = false;
@@ -288,6 +312,9 @@ function renderSlot(i, focused) {
 
 function renderSelection() {
     const grid = $('slotGrid');
+    for (const i of [...sel]) {
+        if (!slotHasItemFileId(i)) sel.delete(i);
+    }
     for (let i = 1; i <= state.slotCount; i++) {
         const cell = grid.querySelector(`.slot[data-slot="${i}"]`);
         if (!cell) continue;
@@ -306,12 +333,15 @@ function renderSelection() {
 
 function selectOnly(i) {
     sel.clear();
-    sel.add(i);
-    anchor = i;
+    if (slotHasItemFileId(i)) {
+        sel.add(i);
+        anchor = i;
+    }
     renderSelection();
 }
 
 function toggle(i) {
+    if (!slotHasItemFileId(i)) return;
     if (sel.has(i)) sel.delete(i); else sel.add(i);
     anchor = i;
     renderSelection();
@@ -321,12 +351,17 @@ function selectRange(from, to, additive) {
     if (!additive) sel.clear();
     const lo = Math.min(from, to);
     const hi = Math.max(from, to);
-    for (let i = lo; i <= hi; i++) sel.add(i);
+    for (let i = lo; i <= hi; i++) {
+        if (slotHasItemFileId(i)) sel.add(i);
+    }
     renderSelection();
 }
 
 function selectAll() {
-    for (let i = 1; i <= state.slotCount; i++) sel.add(i);
+    sel.clear();
+    for (let i = 1; i <= state.slotCount; i++) {
+        if (slotHasItemFileId(i)) sel.add(i);
+    }
     renderSelection();
 }
 
@@ -384,7 +419,8 @@ function selectNone() {
         $('slotGrid').querySelectorAll('.slot').forEach((cell) => {
             const r = cell.getBoundingClientRect();
             if (r.right >= lo.x && r.left <= hi.x && r.bottom >= lo.y && r.top <= hi.y) {
-                sel.add(Number(cell.dataset.slot));
+                const i = Number(cell.dataset.slot);
+                if (slotHasItemFileId(i)) sel.add(i);
             }
         });
         renderSelection();
@@ -484,7 +520,13 @@ $('slotGrid').addEventListener('keydown', (e) => {
 });
 
 function commitSlot(el) {
-    sendToAhk('set-price', { slot: Number(el.dataset.slot), text: el.value });
+    const i = Number(el.dataset.slot);
+    if (!slotHasItemFileId(i)) {
+        renderSlot(i, null);
+        setStatus('Only inventory slots containing an item can be priced.', 'warn');
+        return;
+    }
+    sendToAhk('set-price', { slot: i, text: el.value });
 }
 
 $('bulkPrice').addEventListener('input', (e) => {
@@ -729,7 +771,8 @@ window.addEventListener('DOMContentLoaded', () => {
 sendToAhk('init-request');
 
 // Local visual-regression fixture. WebView2 never enters this branch.
-if (new URLSearchParams(location.search).has('preview') && !window.chrome?.webview) {
+const previewMode = new URLSearchParams(location.search).get('preview');
+if (previewMode !== null && !window.chrome?.webview) {
     onAhkMessage({ data: {
         type: 'shop-state', slotCount: 24, cols: 6, maxPrice: 99999999,
         idsKnown: true, iconBase: 0,
@@ -744,7 +787,7 @@ if (new URLSearchParams(location.search).has('preview') && !window.chrome?.webvi
         type: 'grid-state', dirty: true, listed: 20, liveListed: 18,
         slots: prices.map((price, index) => ({
             i: index + 1,
-            itemId: index + 1,
+            itemId: index >= 22 ? 0xFFFF : index + 1,
             price,
             live: index === 2 ? 800000 : (index === 9 ? 8500000 : price),
             band: bandFor(price),
@@ -756,4 +799,7 @@ if (new URLSearchParams(location.search).has('preview') && !window.chrome?.webvi
         { id: 1, name: 'Fast restock', slots: 18, savedBy: 'Ardent' },
         { id: 2, name: 'Weekend market', slots: 20, savedBy: 'Eir' }
     ] } });
+    // Regression fixture: Ctrl+A/Select All must omit slots 23 and 24 because
+    // their item file IDs are the live client's 0xFFFF empty-slot sentinel.
+    if (previewMode === 'select-all') selectAll();
 }

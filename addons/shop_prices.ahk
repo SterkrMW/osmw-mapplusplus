@@ -421,10 +421,48 @@ _ShopPrices_CountListed(prices) {
     return n
 }
 
-; The empty-slot sentinel is assumed to be 0 and must be confirmed against a
-; known-empty slot via Verify Slot Mapping before it is relied on.
+; The live client stores 0xFFFF in the file-id field for an empty inventory
+; record. Zero is a legitimate file ID when IconBase is 0; unavailable reads
+; are kept separate by idsKnown=false and must not make file ID 0 look empty.
 _ShopPrices_IsEmptySlot(itemId) {
-    return !IsInteger(itemId) || Integer(itemId) = 0 || Integer(itemId) = -1
+    if !IsInteger(itemId)
+        return true
+    itemId := Integer(itemId)
+    return itemId = -1 || itemId = 0xFFFF
+}
+
+; A positive price is only valid when the inventory read supplied a real file
+; ID for that slot. Keep this rule here as the authoritative backend guard;
+; the web and native panels also disable the invalid actions for usability.
+_ShopPrices_SlotHasItem(itemIds, idsKnown, slot) {
+    if (!idsKnown || !IsObject(itemIds) || !IsInteger(slot)
+        || slot < 1 || slot > itemIds.Length)
+        return false
+    return !_ShopPrices_IsEmptySlot(itemIds[slot])
+}
+
+_ShopPrices_DraftSlotHasItem(slot) {
+    global _ShopPrices_LiveIds, _ShopPrices_IdsAvail
+    return _ShopPrices_SlotHasItem(_ShopPrices_LiveIds, _ShopPrices_IdsAvail, slot)
+}
+
+_ShopPrices_ValidatePricedItems(prices, itemIds, idsKnown := true) {
+    global _ShopPrices_SLOT_COUNT
+
+    if !idsKnown
+        return { ok: false, reason: "Item file IDs are unavailable — verify the slot mapping first." }
+    if (!IsObject(prices) || !IsObject(itemIds)
+        || prices.Length != _ShopPrices_SLOT_COUNT || itemIds.Length != _ShopPrices_SLOT_COUNT) {
+        return { ok: false, reason: "The inventory grid is incomplete — refresh and try again." }
+    }
+    Loop _ShopPrices_SLOT_COUNT {
+        if (IsInteger(prices[A_Index]) && Integer(prices[A_Index]) > 0
+            && _ShopPrices_IsEmptySlot(itemIds[A_Index])) {
+            return { ok: false, reason: "Slot " A_Index
+                . " has a price but no item file ID. Refresh and price only slots containing an item." }
+        }
+    }
+    return { ok: true, reason: "" }
 }
 
 ; ── Read layer ───────────────────────────────────────────────────
@@ -705,9 +743,22 @@ _ShopPrices_MergeExternal(state) {
         oldLive  := _ShopPrices_Live[A_Index]
         wasDirty := (_ShopPrices_Draft[A_Index] != oldLive)
         idChanged := canCompareIds && (_ShopPrices_LiveIds[A_Index] != state.itemIds[A_Index])
+        emptyNow := state.idsKnown && _ShopPrices_IsEmptySlot(state.itemIds[A_Index])
 
         if (newPrice != oldLive || idChanged)
             changed := true
+
+        ; Empty slots can never retain or adopt a positive draft price. This
+        ; also repairs the draft when an item is removed during live refresh.
+        if emptyNow {
+            if (_ShopPrices_Draft[A_Index] != 0) {
+                if wasDirty
+                    dropped.Push(A_Index)
+                _ShopPrices_Draft[A_Index] := 0
+                changed := true
+            }
+            continue
+        }
 
         if (wasDirty && idChanged) {
             _ShopPrices_Draft[A_Index] := newPrice
@@ -744,7 +795,10 @@ _ShopPrices_DraftSet(slot, value) {
         return false
     if (_ShopPrices_Draft.Length < slot)
         return false
-    _ShopPrices_Draft[slot] := Integer(value)
+    value := Integer(value)
+    if (value > 0 && !_ShopPrices_DraftSlotHasItem(slot))
+        return false
+    _ShopPrices_Draft[slot] := value
     _ShopPrices_Rev++
     return true
 }
@@ -759,8 +813,16 @@ _ShopPrices_DraftSetMany(slots, value) {
 }
 
 _ShopPrices_DraftReset() {
-    global _ShopPrices_Draft, _ShopPrices_Live, _ShopPrices_Rev
+    global _ShopPrices_Draft, _ShopPrices_Live, _ShopPrices_LiveIds
+    global _ShopPrices_IdsAvail, _ShopPrices_SLOT_COUNT, _ShopPrices_Rev
     _ShopPrices_Draft := _ShopPrices_Live.Clone()
+    if _ShopPrices_IdsAvail {
+        Loop _ShopPrices_SLOT_COUNT {
+            if (_ShopPrices_IsEmptySlot(_ShopPrices_LiveIds[A_Index])
+                && _ShopPrices_Draft[A_Index] != 0)
+                _ShopPrices_Draft[A_Index] := 0
+        }
+    }
     _ShopPrices_Rev++
 }
 
@@ -793,10 +855,12 @@ _ShopPrices_DirtyCount() {
 ; guard badge. The stale-inventory check needs a fresh read and lives in
 ; _ShopPrices_ApplyPrices instead. Returns "" or the reason to show the user.
 _ShopPrices_CheckWritable() {
-    global _ShopPrices_TargetPid, GAME_STATE_READY
+    global _ShopPrices_TargetPid, _ShopPrices_IdsAvail, GAME_STATE_READY
 
     if !_ShopPrices_TargetPid
         return "No game client is selected."
+    if !_ShopPrices_IdsAvail
+        return "Item file IDs are unavailable — verify the slot mapping first."
 
     snap := _ShopPrices_TargetSnapshot()
     if !IsObject(snap) {
@@ -858,8 +922,12 @@ _ShopPrices_CloseWrite(w) {
 ; earlier and spans 104 to pick up the vendor-open flag, whereas the write
 ; starts at the price base and spans 100. The flag belongs to the client and is
 ; never written.
-_ShopPrices_WriteSlots(w, prices) {
+_ShopPrices_WriteSlots(w, prices, itemIds) {
     global _ShopPrices_SLOT_COUNT, _ShopPrices_PRICE_STRIDE
+
+    validation := _ShopPrices_ValidatePricedItems(prices, itemIds, true)
+    if !validation.ok
+        return { ok: false, written: 0, reason: validation.reason }
 
     span := _ShopPrices_SLOT_COUNT * _ShopPrices_PRICE_STRIDE + 4
     buf := Buffer(span, 0)
@@ -912,6 +980,10 @@ _ShopPrices_ApplyPrices() {
         before := _ShopPrices_ReadSlots(pid)
         if !before.ok
             return { ok: false, reason: before.reason, listed: 0, mismatches: [] }
+        if !before.idsKnown {
+            return { ok: false, listed: 0, mismatches: [],
+                reason: "Item file IDs could not be read — no prices were changed." }
+        }
         ; Re-checked off the pre-read rather than trusting the guard from a
         ; second ago, which narrows the window in which the vendor could have
         ; been opened between the two.
@@ -933,7 +1005,7 @@ _ShopPrices_ApplyPrices() {
         if !w.ok
             return { ok: false, reason: w.reason, listed: 0, mismatches: [] }
 
-        res := _ShopPrices_WriteSlots(w, prices)
+        res := _ShopPrices_WriteSlots(w, prices, before.itemIds)
         if !res.ok
             return { ok: false, reason: res.reason, listed: 0, mismatches: [] }
 
@@ -1197,6 +1269,8 @@ _ShopPrices_PresetFromDraft(name) {
         price := (_ShopPrices_Draft.Length >= A_Index) ? _ShopPrices_Draft[A_Index] : 0
         if (!IsInteger(price) || price <= 0)
             continue
+        if !_ShopPrices_DraftSlotHasItem(A_Index)
+            continue
         itemId := (_ShopPrices_IdsAvail && _ShopPrices_LiveIds.Length >= A_Index)
             ? _ShopPrices_LiveIds[A_Index] : 0
         preset.entries[A_Index] := {price: price, itemId: itemId}
@@ -1282,6 +1356,11 @@ _ShopPrices_DiffPreset(id) {
     preset := _ShopPresets_Load(id)
     if !IsObject(preset)
         return { ok: false, reason: "That preset no longer exists.", rows: [] }
+    if !_ShopPrices_IdsAvail {
+        return { ok: false,
+            reason: "Item file IDs are unavailable — verify the slot mapping before applying a preset.",
+            rows: [] }
+    }
 
     rows := [], warnCount := 0, noopCount := 0
     Loop _ShopPrices_SLOT_COUNT {
@@ -1689,14 +1768,21 @@ _ShopPrices_NativeSelectedSlots() {
 }
 
 _ShopPrices_NativeSelectAll() {
-    global _ShopPrices_NativeList
-    if IsObject(_ShopPrices_NativeList)
-        _ShopPrices_NativeList.Modify(0, "Select")
+    global _ShopPrices_NativeList, _ShopPrices_SLOT_COUNT
+    if !IsObject(_ShopPrices_NativeList)
+        return
+    _ShopPrices_NativeList.Modify(0, "-Select")
+    Loop _ShopPrices_SLOT_COUNT {
+        if _ShopPrices_DraftSlotHasItem(A_Index)
+            _ShopPrices_NativeList.Modify(A_Index, "Select")
+    }
 }
 
 _ShopPrices_NativeOnRowDouble(lv, row) {
     global _ShopPrices_NativePriceEdit, _ShopPrices_Draft
     if (row < 1 || row > _ShopPrices_Draft.Length)
+        return
+    if !_ShopPrices_DraftSlotHasItem(row)
         return
     if IsObject(_ShopPrices_NativePriceEdit)
         _ShopPrices_NativePriceEdit.Value := _ShopPrices_FormatPrice(_ShopPrices_Draft[row])
@@ -1715,10 +1801,15 @@ _ShopPrices_NativeSetOnSelected() {
         _ShopPrices_Say(parsed.reason, "Icon!")
         return
     }
-    _ShopPrices_DraftSetMany(slots, parsed.value)
+    n := _ShopPrices_DraftSetMany(slots, parsed.value)
     ; Echo the canonical form back so the user sees what was actually taken.
     _ShopPrices_NativePriceEdit.Value := _ShopPrices_FormatPrice(parsed.value)
     _ShopPrices_NativeRefresh()
+    if (parsed.value > 0 && n < slots.Length) {
+        skipped := slots.Length - n
+        _ShopPrices_Say("Skipped " skipped " empty slot" (skipped = 1 ? "" : "s")
+            . " with no item file ID.", "Icon!")
+    }
 }
 
 _ShopPrices_NativeClearSelected() {
@@ -2187,7 +2278,12 @@ _ShopPrices_WebSetPrice(msg) {
         _ShopPrices_SendSlot(slot)          ; echo the unchanged value back
         return
     }
-    _ShopPrices_DraftSet(slot, parsed.value)
+    if !_ShopPrices_DraftSet(slot, parsed.value) {
+        if (parsed.value > 0)
+            _ShopPrices_WebToast("warn", "Slot " slot " has no item file ID, so it cannot be priced.")
+        _ShopPrices_SendSlot(slot)
+        return
+    }
     _ShopPrices_SendSlot(slot)
 }
 
@@ -2200,6 +2296,12 @@ _ShopPrices_WebBulkSet(msg) {
     }
     n := _ShopPrices_DraftSetMany(slots, parsed.value)
     _ShopPrices_SendGrid()
+    if (parsed.value > 0 && n < slots.Length) {
+        skipped := slots.Length - n
+        _ShopPrices_WebToast("warn", "Skipped " skipped " empty slot"
+            . (skipped = 1 ? "" : "s") . " with no item file ID.")
+        return
+    }
     _ShopPrices_WebToast("info", "Set " _ShopPrices_FormatPrice(parsed.value)
         . " on " n " slot" (n = 1 ? "" : "s") ".")
 }
