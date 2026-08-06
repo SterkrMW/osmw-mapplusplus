@@ -18,7 +18,7 @@
 .sidebar {
     width: 190px;
     background: var(--bg-dark);
-    border-right: 1px solid var(--border);
+    border-right: 1px solid var(--border-strong);
     display: flex;
     flex-direction: column;
     padding: 12px 8px;
@@ -52,7 +52,7 @@
     font-weight: var(--weight-medium);
     color: var(--text-muted);
     background: transparent;
-    border: none;
+    border: 1px solid transparent;
     border-radius: var(--radius);
     cursor: pointer;
     white-space: nowrap;
@@ -64,21 +64,23 @@
 .tab-btn:hover {
     color: var(--text);
     background: var(--surface-hover);
+    border-color: var(--border);
 }
 .tab-btn.active {
-    color: var(--accent);
-    background: var(--surface);
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+    border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
     font-weight: var(--weight-semibold);
 }
 .tab-btn.active::before {
     content: '';
     position: absolute;
-    left: 0;
-    top: 6px;
-    bottom: 6px;
-    width: 3px;
+    right: 9px;
+    top: 50%;
+    width: 6px;
+    height: 6px;
     background: var(--accent);
-    border-radius: 0 2px 2px 0;
+    transform: translateY(-50%) rotate(45deg);
 }
 
 .tab-icon {
@@ -103,6 +105,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
+.tab-btn.active .tab-label { padding-right: 12px; }
 
 /* ── Content Area & Panels ──────────────────────────────────── */
 .content-area {
@@ -133,6 +136,8 @@
 
 .panel-header {
     margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-strong);
 }
 .panel-header h2 {
     font-size: var(--text-body);

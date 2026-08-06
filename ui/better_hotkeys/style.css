@@ -39,7 +39,7 @@ select { color-scheme: dark; }
     gap: var(--space-md);
     padding: var(--space-lg) var(--space-md);
     background: var(--surface-alt);
-    border-right: 1px solid var(--border);
+    border-right: 1px solid var(--border-strong);
 }
 
 .rail-heading,
@@ -144,8 +144,8 @@ h3 { font-size: var(--text-body); line-height: var(--leading-tight); }
 
 .profile-item:hover { background: var(--surface-hover); }
 .profile-item[aria-current="true"] {
-    background: var(--accent-glow);
-    border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+    border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
 }
 
 .profile-item img,

@@ -18,8 +18,8 @@
     min-height: 0;
     background: var(--surface-alt);
 }
-.rail-left  { border-right: 1px solid var(--border); }
-.rail-right { border-left: 1px solid var(--border); }
+.rail-left  { border-right: 1px solid var(--border-strong); }
+.rail-right { border-left: 1px solid var(--border-strong); }
 
 .rail-title {
     padding: 10px 12px 8px;
@@ -77,8 +77,8 @@
 }
 .layout-item:hover { background: var(--surface-hover); }
 .layout-item.selected {
-    background: var(--accent-glow);
-    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+    border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
 }
 
 .layout-name {
@@ -239,7 +239,8 @@
 }
 .slot.selected {
     border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent), 0 4px 14px rgba(0, 0, 0, 0.45);
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    box-shadow: 0 0 0 1px var(--accent), 0 8px 24px oklch(6% 0.01 260 / 0.55);
     z-index: 3;
 }
 .slot.dragging {

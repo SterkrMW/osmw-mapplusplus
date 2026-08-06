@@ -45,28 +45,30 @@
 
 :root {
     /* Base palette stays fixed; only the accent tokens are themeable. */
-    --bg:            #121318;
-    --bg-dark:       #0c0d10;
-    --surface:       #181a20;
-    --surface-hover: #22252e;
-    --surface-alt:   #15171d;
-    --border:        #262934;
-    --border-subtle: rgba(255, 255, 255, 0.07);
-    --border-focus:  #e5b83b;
+    --bg:             oklch(16% 0.012 260);
+    --bg-dark:        oklch(11.5% 0.010 260);
+    --surface:        oklch(20.5% 0.014 260);
+    --surface-raised: oklch(23% 0.016 260);
+    --surface-hover:  oklch(26% 0.018 260);
+    --surface-alt:    oklch(18.5% 0.012 260);
+    --border:         oklch(31% 0.022 260);
+    --border-strong:  oklch(39% 0.032 260);
+    --border-subtle:  oklch(96% 0.010 260 / 0.07);
+    --border-focus:   oklch(80% 0.155 84);
 
-    --accent:        #e5b83b;       /* Refined Amber Gold */
-    --accent-glow:   rgba(229, 184, 59, 0.15);
-    --accent-hover:  #f0c446;
-    --accent-text:   #0e0f13;
+    --accent:         oklch(80% 0.155 84); /* Amber instrument marker */
+    --accent-glow:    oklch(80% 0.155 84 / 0.16);
+    --accent-hover:   oklch(86% 0.150 84);
+    --accent-text:    oklch(15% 0.018 260);
 
-    --text:          #ececf1;
-    --text-muted:    #9499ad;
-    --text-dim:      #5c6075;
+    --text:           oklch(95% 0.010 260);
+    --text-muted:     oklch(72% 0.028 260);
+    --text-dim:       oklch(54% 0.024 260);
 
-    --danger:        #ef4444;
-    --success:       #22c55e;
-    --warning:       #f59e0b;
-    --info:          #3b82f6;
+    --danger:         oklch(65% 0.210 25);
+    --success:        oklch(73% 0.185 150);
+    --warning:        oklch(78% 0.160 75);
+    --info:           oklch(70% 0.140 250);
 
     /* Map POI kind colors (ui/map_pois) */
     --poi-npc:       #60a5fa;
@@ -176,8 +178,11 @@ body {
     justify-content: space-between;
     height: 38px;
     padding: 0 8px 0 14px;
-    background: var(--bg-dark);
-    border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg,
+        color-mix(in srgb, var(--accent) 9%, var(--bg-dark)),
+        var(--bg-dark) 38%);
+    border-bottom: 1px solid var(--border-strong);
+    box-shadow: inset 0 2px 0 var(--accent);
     flex-shrink: 0;
     user-select: none;
     -webkit-user-select: none;
@@ -188,20 +193,27 @@ body {
 .title-bar-drag {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 9px;
     font-size: var(--text-ui);
     font-weight: var(--weight-semibold);
     letter-spacing: var(--tracking-tight);
 }
 
 .title-bar-icon {
-    font-size: 1rem;
-    color: var(--accent);
+    display: inline-grid;
+    width: 20px;
+    height: 20px;
+    place-items: center;
+    color: var(--accent-text);
+    font-size: 0.875rem;
+    background: var(--accent);
+    border-radius: 3px;
+    box-shadow: 0 1px 0 color-mix(in srgb, var(--accent) 40%, var(--bg-dark));
 }
 
 .title-bar-title {
     color: var(--text);
-    font-weight: var(--weight-semibold);
+    font-weight: var(--weight-bold);
 }
 
 .title-bar-controls {
@@ -231,7 +243,7 @@ body {
 }
 .title-btn-close:hover {
     background: var(--danger);
-    color: #ffffff;
+    color: var(--text);
 }
 
 /* ── Common UI Controls ─────────────────────────────────────── */
@@ -241,7 +253,7 @@ body {
     font-size: var(--text-ui);
     font-family: inherit;
     color: var(--text);
-    background: var(--surface-alt);
+    background: var(--bg-dark);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     outline: none;
@@ -256,11 +268,11 @@ body {
     padding: 6px 10px;
 }
 .input:hover, .select:hover {
-    border-color: rgba(255, 255, 255, 0.15);
+    border-color: var(--border-strong);
 }
 .input:focus, .select:focus {
     border-color: var(--border-focus);
-    box-shadow: 0 0 0 1px var(--border-focus);
+    box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 .input[type="number"],
@@ -289,17 +301,18 @@ body {
     font-family: inherit;
     font-weight: var(--weight-medium);
     color: var(--text);
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius);
     cursor: pointer;
-    transition: all var(--transition);
+    transition: color var(--transition), background var(--transition), border-color var(--transition), transform var(--transition), box-shadow var(--transition);
     white-space: nowrap;
 }
 .btn:hover {
     background: var(--surface-hover);
-    border-color: rgba(255, 255, 255, 0.15);
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
     color: var(--text);
+    transform: translateY(-1px);
 }
 .btn:active {
     transform: translateY(1px);
@@ -315,15 +328,17 @@ body {
     background: var(--accent);
     border-color: var(--accent);
     font-weight: var(--weight-semibold);
+    box-shadow: 0 2px 0 color-mix(in srgb, var(--accent) 34%, var(--bg-dark));
 }
 .btn-primary:hover {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
     color: var(--accent-text);
+    box-shadow: 0 3px 0 color-mix(in srgb, var(--accent) 30%, var(--bg-dark));
 }
 
 .btn-danger {
-    color: #ffffff;
+    color: var(--text);
     background: var(--danger);
     border-color: var(--danger);
 }
@@ -381,7 +396,8 @@ body {
     color: var(--text-muted);
     font-size: var(--text-secondary);
     font-weight: var(--weight-semibold);
-    letter-spacing: 0.01em;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
     text-align: left;
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);
@@ -410,7 +426,7 @@ body {
     background: var(--surface-hover);
 }
 .table tbody tr.selected {
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 /* ── Footer ─────────────────────────────────────────────────── */
@@ -421,7 +437,7 @@ body {
     height: var(--footer-height);
     padding: 0 16px;
     background: var(--bg-dark);
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--border-strong);
     flex-shrink: 0;
 }
 
