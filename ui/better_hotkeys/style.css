@@ -207,11 +207,7 @@ h3 { font-size: var(--text-body); line-height: var(--leading-tight); }
     min-width: 0;
     min-height: 0;
     overflow-y: auto;
-    background:
-        linear-gradient(var(--border-subtle) 1px, transparent 1px),
-        linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px),
-        var(--bg);
-    background-size: 32px 32px;
+    background: var(--bg);
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
 }

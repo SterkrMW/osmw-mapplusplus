@@ -191,8 +191,7 @@ body {
 
 .spoke-btn.is-hover .spoke-name {
     border-color: var(--accent);
-    color: var(--accent-text);
-    background: var(--accent);
+    color: var(--accent);
 }
 
 /* ── Centre hub ──────────────────────────────────────────────── */

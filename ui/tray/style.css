@@ -30,7 +30,7 @@ body {
     background: var(--surface-raised);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-lg);
-    box-shadow: 0 14px 36px oklch(6% 0.01 260 / 0.72), 0 0 0 1px oklch(6% 0.01 260 / 0.55);
+    box-shadow: 0 14px 36px oklch(6% 0.01 260 / 0.72);
     padding: 4px;
     width: 100%;
     height: 100%;

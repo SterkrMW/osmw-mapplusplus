@@ -240,7 +240,6 @@
 .slot.selected {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-    box-shadow: 0 0 0 1px var(--accent), 0 8px 24px oklch(6% 0.01 260 / 0.55);
     z-index: 3;
 }
 .slot.dragging {

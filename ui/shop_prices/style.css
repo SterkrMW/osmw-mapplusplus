@@ -160,7 +160,6 @@
 .slot-selected {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 9%, var(--surface));
-    box-shadow: inset 0 0 0 1px var(--accent-glow), 0 6px 16px oklch(6% 0.01 260 / 0.32);
 }
 
 /* A quiet authored-state marker that does not compete with selection. */
