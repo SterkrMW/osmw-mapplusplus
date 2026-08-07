@@ -54,6 +54,7 @@ function onAhkMessage(event) {
 
 const messageHandlers = {
     'settings-state':      handleSettingsState,
+    'update-check-result': onUpdateCheckResult,
     'browse-result':       handleBrowseResult,
     'hotkey-captured':     handleHotkeyCaptured,
     'hotkey-capture-cancelled': handleHotkeyCaptureCancelled,
@@ -193,12 +194,26 @@ function populateLauncher() {
     const versionEl = document.getElementById('appVersion');
     if (versionEl) versionEl.textContent = state.appVersion || '';
 
-    // The update toggle only exists when this build has somewhere to check.
+    // The update controls only exist when this build has somewhere to check.
+    // "Check now" is deliberately independent of the startup-check toggle:
+    // turning off automatic checks should not take away the manual one.
+    const available = !!state.launcher.versionCheckAvailable;
     const vcField = document.getElementById('versionCheckField');
     const vcInput = document.getElementById('versionCheck');
     if (vcField && vcInput) {
-        vcField.hidden = !state.launcher.versionCheckAvailable;
+        vcField.hidden = !available;
         vcInput.checked = !!state.launcher.versionCheck;
+    }
+    const vcRow = document.getElementById('updateCheckRow');
+    if (vcRow) vcRow.hidden = !available;
+
+    // Carry over an update this session already found, so reopening Settings
+    // does not look like it forgot.
+    if (state.launcher.updateVersion) {
+        setUpdateStatus('update', `${state.launcher.updateVersion} is available`
+            + (state.launcher.updateNotes ? ' — ' + state.launcher.updateNotes : ''));
+        const get = document.getElementById('btnGetUpdate');
+        if (get) get.hidden = false;
     }
     document.getElementById('multiClientCount').value = state.launcher.multiClientCount || 5;
     document.getElementById('multiClientDelay').value = state.launcher.multiClientDelay || 0;
@@ -220,6 +235,48 @@ function populateLauncher() {
     document.getElementById('btnBrowse').addEventListener('click', () => {
         sendToAhk('browse-game-path');
     });
+
+    // Manual update check. The button is disabled while the request is in
+    // flight — it is bounded by a timeout AHK-side, but a button that can be
+    // mashed into three concurrent checks is still wrong.
+    document.getElementById('btnCheckUpdate').addEventListener('click', () => {
+        const btn = document.getElementById('btnCheckUpdate');
+        btn.disabled = true;
+        setUpdateStatus('', 'Checking…');
+        document.getElementById('btnGetUpdate').hidden = true;
+        sendToAhk('check-update');
+    });
+
+    document.getElementById('btnGetUpdate').addEventListener('click', () => {
+        sendToAhk('open-update-page');
+    });
+}
+
+function setUpdateStatus(kind, text) {
+    const el = document.getElementById('updateStatus');
+    if (!el) return;
+    el.className = 'update-status' + (kind ? ' is-' + kind : '');
+    el.textContent = text;
+}
+
+function onUpdateCheckResult(msg) {
+    const btn = document.getElementById('btnCheckUpdate');
+    if (btn) btn.disabled = false;
+    const get = document.getElementById('btnGetUpdate');
+
+    if (msg.status === 'update') {
+        setUpdateStatus('update',
+            `${msg.version} is available${msg.notes ? ' — ' + msg.notes : ''}`);
+        if (get) get.hidden = false;
+        return;
+    }
+    if (get) get.hidden = true;
+    if (msg.status === 'current') {
+        setUpdateStatus('current', `You are up to date (${msg.current}).`);
+    } else {
+        // "failed" and "disabled" both land here; reason explains which.
+        setUpdateStatus('error', msg.reason || 'The check could not be completed.');
+    }
 }
 
 function populateValueSelect(id, options, selectedValue) {

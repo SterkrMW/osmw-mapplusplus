@@ -160,10 +160,15 @@ one is kept as `mapsplusplus.log.1`; nothing else is retained.
 
 ### Update notifications
 
-**Settings → Launcher → Check for a newer Maps++ on startup** (on by default) makes a single request
-to `osmw.net` a few seconds after launch. If a newer version exists you get one notification, and
-the tray menu gains a **Get the update** entry that opens the download page; **About Maps++…** shows
-it too. If you are up to date, nothing happens at all.
+**Settings → Launcher → Check now** checks whenever you ask, and tells you the answer either way —
+up to date, a newer version with a **Get the update** button, or why the check could not be
+completed. It works even with automatic checking switched off.
+
+**Check for a newer Maps++ on startup** (on by default) does the same thing once, a few seconds
+after launch, but only speaks up when there is something to report. If a newer version exists you
+get one notification, the tray menu gains a **Get the update** entry, and **About Maps++…** shows it.
+That tray entry lasts for the session only — after a restart it returns once the next check
+completes, which is what the **Check now** button is for.
 
 It never downloads or installs anything — it reads a version number and tells you. Maps++ makes no
 other network requests, sends nothing about you or your characters (no identifiers, no query string,

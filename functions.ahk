@@ -2415,9 +2415,50 @@ CheckForUpdateAsync() {
     SetTimer(_DoVersionCheck, -8000)
 }
 
+; The startup check: silent unless there is genuinely something to say.
 _DoVersionCheck() {
+    res := FetchUpdateStatus()
+    if (res.status != "update")
+        return
+    ; The tray gains a "Get the update" entry. Note this only lasts for the
+    ; session — every restart clears it until the next check completes, which
+    ; is why Settings has a "Check now" button that works at any time.
+    SetTimer(RebuildTrayMenu, -1)
+    TrayTip("Maps++ " res.version " is available — you have " APP_VERSION "."
+        . (res.notes != "" ? "`n" res.notes : "")
+        . "`nSettings → Launcher → Check now, or the tray menu",
+        "Update available", "Iconi")
+}
+
+; The user-initiated check, from Settings. Unlike the startup one this always
+; produces an answer — "couldn't reach the server" is information when someone
+; pressed a button, and silence would just look broken.
+;
+; Returns the same {status, version, notes, reason} as FetchUpdateStatus.
+CheckForUpdatesNow() {
+    res := FetchUpdateStatus(true)
+    if (res.status = "update")
+        SetTimer(RebuildTrayMenu, -1)
+    return res
+}
+
+; Does the request, parse and comparison, and records the result in the update
+; globals. Returns {status, version, notes, reason} where status is:
+;   "update"   a newer version exists
+;   "current"  up to date
+;   "failed"   could not fetch or could not understand the answer
+;   "disabled" no update location is configured in this build
+;
+; `force` ignores the user's startup-check preference — it is only ever true for
+; an explicit button press, which is consent by definition.
+FetchUpdateStatus(force := false) {
     global VERSION_CHECK_URL, VERSION_CHECK_TIMEOUT_MS, APP_VERSION
-    global gUpdateVersion, gUpdateNotes
+    global gUpdateVersion, gUpdateNotes, gVersionCheckEnabled
+
+    if (VERSION_CHECK_URL = "")
+        return { status: "disabled", version: "", notes: "", reason: "No update location is configured in this build." }
+    if (!force && !gVersionCheckEnabled)
+        return { status: "disabled", version: "", notes: "", reason: "The update check is switched off." }
 
     body := ""
     try {
@@ -2433,36 +2474,33 @@ _DoVersionCheck() {
         req.WaitForResponse(VERSION_CHECK_TIMEOUT_MS // 1000)
         if (req.Status != 200) {
             LogInfo("VersionCheck", "HTTP " req.Status "; ignored.")
-            return
+            return { status: "failed", version: "", notes: "",
+                     reason: "The server answered with HTTP " req.Status "." }
         }
         body := Trim(req.ResponseText, " `t`r`n")
     } catch as err {
         ; Offline, DNS down, TLS failure, no route — all the same to us.
         LogInfo("VersionCheck", "Skipped: " err.Message)
-        return
+        return { status: "failed", version: "", notes: "",
+                 reason: "Could not reach the update server." }
     }
 
     parsed := _ParseVersionManifest(body)
     if !parsed.ok {
         LogWarn("VersionCheck", "Unusable response; ignored. (" parsed.reason ")")
-        return
+        return { status: "failed", version: "", notes: "",
+                 reason: "The server's answer could not be understood." }
     }
     if (CompareVersions(parsed.version, APP_VERSION) <= 0) {
         LogInfo("VersionCheck", "Up to date (latest " parsed.version ").")
-        return
+        return { status: "current", version: parsed.version, notes: parsed.notes, reason: "" }
     }
 
     gUpdateVersion := parsed.version
     gUpdateNotes := parsed.notes
     LogInfo("VersionCheck", "Newer version available: " parsed.version
         . (parsed.notes != "" ? " — " parsed.notes : ""))
-    ; The tray gains a "Get the update" entry, so the notification is not the
-    ; only chance the user has to act on this.
-    SetTimer(RebuildTrayMenu, -1)
-    TrayTip("Maps++ " parsed.version " is available — you have " APP_VERSION "."
-        . (parsed.notes != "" ? "`n" parsed.notes : "")
-        . "`nTray menu → Get the update",
-        "Update available", "Iconi")
+    return { status: "update", version: parsed.version, notes: parsed.notes, reason: "" }
 }
 
 ; {ok, version, notes, reason}. Accepts the JSON manifest documented in
@@ -2522,9 +2560,13 @@ OpenUpdatePage() {
     }
 }
 
-; -1 / 0 / 1 for a < b, a = b, a > b. Compares dotted numeric parts, then treats
-; a build with a pre-release suffix ("0.9.0-beta.1") as older than the same
-; version without one, per the usual semver rule.
+; -1 / 0 / 1 for a < b, a = b, a > b, following semver precedence: dotted
+; numeric core first, then the pre-release suffix.
+;
+; The pre-release comparison is not optional detail — during a beta it is the
+; ONLY thing that differs between releases. Comparing just the core would make
+; 0.9.0-beta.2 look identical to 0.9.0-beta.1, so no beta user would ever be
+; told about a new beta.
 CompareVersions(a, b) {
     aCore := _VersionCore(a), bCore := _VersionCore(b)
     ; StrSplit("") returns an EMPTY array in v2, not [""], so indexing [1] here
@@ -2537,17 +2579,61 @@ CompareVersions(a, b) {
         if (av != bv)
             return (av > bv) ? 1 : -1
     }
-    aPre := InStr(a, "-") ? 1 : 0
-    bPre := InStr(b, "-") ? 1 : 0
-    if (aPre != bPre)
-        return aPre ? -1 : 1     ; a pre-release loses to the same core version
+    return _ComparePreRelease(_VersionPre(a), _VersionPre(b))
+}
+
+; Semver pre-release precedence, for two versions whose cores already match.
+; "" (no suffix) outranks any pre-release: 1.0.0 is newer than 1.0.0-beta.1.
+_ComparePreRelease(a, b) {
+    if (a = b)
+        return 0
+    if (a = "")
+        return 1            ; a is the real release
+    if (b = "")
+        return -1
+    aIds := StrSplit(a, "."), bIds := StrSplit(b, ".")
+    Loop Max(aIds.Length, bIds.Length) {
+        ; Ran out of identifiers first = lower precedence (beta < beta.1).
+        if (A_Index > aIds.Length)
+            return -1
+        if (A_Index > bIds.Length)
+            return 1
+        ai := aIds[A_Index], bi := bIds[A_Index]
+        aNum := IsInteger(ai), bNum := IsInteger(bi)
+        if (aNum && bNum) {
+            ; Numeric, so beta.10 beats beta.9 rather than losing to it.
+            av := Integer(ai), bv := Integer(bi)
+            if (av != bv)
+                return (av > bv) ? 1 : -1
+        } else if (aNum != bNum) {
+            return aNum ? -1 : 1        ; numeric identifiers rank below text
+        } else {
+            c := StrCompare(ai, bi, true)
+            if (c != 0)
+                return (c > 0) ? 1 : -1
+        }
+    }
     return 0
 }
 
-; The numeric part of a version, i.e. everything before a pre-release suffix.
+; The numeric part of a version: everything before a pre-release suffix, with
+; any build metadata ("+abc") dropped — semver ignores it for precedence.
 _VersionCore(v) {
-    v := Trim(String(v))
+    v := _VersionNoBuild(v)
     p := InStr(v, "-")
+    return p ? SubStr(v, 1, p - 1) : v
+}
+
+; The pre-release suffix without its leading "-", or "" when there is none.
+_VersionPre(v) {
+    v := _VersionNoBuild(v)
+    p := InStr(v, "-")
+    return p ? SubStr(v, p + 1) : ""
+}
+
+_VersionNoBuild(v) {
+    v := Trim(String(v))
+    p := InStr(v, "+")
     return p ? SubStr(v, 1, p - 1) : v
 }
 

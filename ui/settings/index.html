@@ -68,13 +68,19 @@
                         </label>
 
                         <!-- Hidden entirely when no update URL is configured, so
-                             the build never offers a switch that does nothing. -->
+                             the build never offers controls that do nothing. -->
                         <label class="field field-check" id="versionCheckField" hidden>
                             <input type="checkbox" id="versionCheck" class="toggle">
                             <span>Check for a newer Maps++ on startup
                                 <small class="field-hint">Asks once, reports only. Never downloads or installs.</small>
                             </span>
                         </label>
+
+                        <div class="field update-row" id="updateCheckRow" hidden>
+                            <button type="button" class="btn" id="btnCheckUpdate">Check now</button>
+                            <button type="button" class="btn btn-primary" id="btnGetUpdate" hidden>Get the update</button>
+                            <span class="update-status" id="updateStatus"></span>
+                        </div>
                     </div>
 
                     <div class="setting-card">

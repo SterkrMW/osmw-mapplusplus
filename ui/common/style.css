@@ -221,6 +221,27 @@ body {
     margin-left: 0.5em;
 }
 
+/* Manual update check: the buttons and the answer sit on one line, with the
+   status text taking whatever room is left. */
+.update-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.update-status {
+    color: var(--text-muted);
+    font-size: 0.9em;
+    min-width: 0;
+}
+
+/* The three answers a check can give. Colour is a second signal here, never the
+   only one — the text says which it is on its own. */
+.update-status.is-current { color: var(--success); }
+.update-status.is-update  { color: var(--accent); }
+.update-status.is-error   { color: var(--warning); }
+
 /* Secondary line under a checkbox label, for the caveat a setting needs but
    that would make the label itself unreadable. */
 .field-hint {

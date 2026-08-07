@@ -95,6 +95,10 @@ _Settings_OnWebMessage(wv, args) {
             _Settings_Close()
         case "browse-game-path":
             _Settings_HandleBrowse()
+        case "check-update":
+            _Settings_HandleCheckUpdate()
+        case "open-update-page":
+            OpenUpdatePage()
         case "start-hotkey-capture":
             _Settings_HandleStartCapture(msg)
         case "cancel-hotkey-capture":
@@ -112,6 +116,7 @@ _Settings_SendState() {
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, OVERLAY_W, OVERLAY_H, gAccentScheme
     global APP_VERSION, gVersionCheckEnabled, VERSION_CHECK_URL
+    global gUpdateVersion, gUpdateNotes
 
     ; Monitor choices
     monChoices := _Settings_MonitorChoices()
@@ -153,6 +158,9 @@ _Settings_SendState() {
         . ',"launcher":{'
             . '"versionCheck":' (gVersionCheckEnabled ? "true" : "false")
             . ',"versionCheckAvailable":' (VERSION_CHECK_URL != "" ? "true" : "false")
+            ; So reopening Settings still shows an update this session found.
+            . ',"updateVersion":' _JSON_Str(gUpdateVersion)
+            . ',"updateNotes":' _JSON_Str(gUpdateNotes)
             . ',"gamePath":' _JSON_Str(gGamePath)
             . ',"gameArgs":' _JSON_Str(gGameArgs)
             . ',"autoStart":' (IsRunOnStartupEnabled() ? "true" : "false")
@@ -497,6 +505,23 @@ _Settings_SendSaveResult(ok, error := "") {
 }
 
 ; ── Browse handler ───────────────────────────────────────────
+
+; The manual update check. Runs regardless of the startup-check preference —
+; pressing the button is consent — and always answers, including on failure,
+; because a button that sometimes does nothing visible looks broken.
+;
+; The request is bounded by VERSION_CHECK_TIMEOUT_MS, so the brief block here is
+; capped at a few seconds; the page disables its button meanwhile.
+_Settings_HandleCheckUpdate() {
+    global APP_VERSION
+    res := CheckForUpdatesNow()
+    _Settings_PostMessage('{"type":"update-check-result"'
+        . ',"status":' _JSON_Str(res.status)
+        . ',"version":' _JSON_Str(res.version)
+        . ',"notes":' _JSON_Str(res.notes)
+        . ',"reason":' _JSON_Str(res.reason)
+        . ',"current":' _JSON_Str(APP_VERSION) '}')
+}
 
 _Settings_HandleBrowse() {
     global PROCESS_EXE
