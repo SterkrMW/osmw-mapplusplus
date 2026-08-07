@@ -188,6 +188,18 @@ function populateLauncher() {
     document.getElementById('gameArgs').value = state.launcher.gameArgs || '';
     document.getElementById('autoStart').checked = !!state.launcher.autoStart;
     document.getElementById('launchOnStartup').checked = !!state.launcher.launchOnStartup;
+
+    // Version, so a screenshot of this window identifies the build.
+    const versionEl = document.getElementById('appVersion');
+    if (versionEl) versionEl.textContent = state.appVersion || '';
+
+    // The update toggle only exists when this build has somewhere to check.
+    const vcField = document.getElementById('versionCheckField');
+    const vcInput = document.getElementById('versionCheck');
+    if (vcField && vcInput) {
+        vcField.hidden = !state.launcher.versionCheckAvailable;
+        vcInput.checked = !!state.launcher.versionCheck;
+    }
     document.getElementById('multiClientCount').value = state.launcher.multiClientCount || 5;
     document.getElementById('multiClientDelay').value = state.launcher.multiClientDelay || 0;
 
@@ -873,6 +885,7 @@ function collectAndSave() {
         gameArgs:           document.getElementById('gameArgs').value,
         autoStart:          document.getElementById('autoStart').checked,
         launchOnStartup:    document.getElementById('launchOnStartup').checked,
+        versionCheck:       document.getElementById('versionCheck').checked,
         multiClientCount:   parseInt(document.getElementById('multiClientCount').value, 10) || 5,
         multiClientDelay:   parseInt(document.getElementById('multiClientDelay').value, 10) || 0,
         primaryMonitor:     parseInt(document.getElementById('primaryMonitor').value, 10),

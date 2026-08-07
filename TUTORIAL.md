@@ -115,6 +115,8 @@ Right-click the tray icon for the main menu:
 | **Interface** | Switch between Native (low memory) and WebView2 (enhanced); Maps++ reloads automatically |
 | **Settings…** | Open the settings window (game path, launcher, monitors, Window Layout, addons) |
 | **Reload** | Restart Maps++ (picks up config changes) |
+| **Debug** | Diagnostics and memory-signature tools — see below |
+| **About Maps++…** | Version, interface mode and how many addons are active |
 | **Exit** | Quit the app |
 
 All configuration now lives in **Settings…** (or **Ctrl+Alt+,**): game path and arguments,
@@ -137,6 +139,32 @@ Quick Actions as a popup menu. Your selection is remembered in `config.ini`.
 > **Run on Windows start-up** is a per-user setting (no admin needed). When enabled, Maps++
 > registers itself to launch at login; disabling removes that entry. You can also remove it
 > from **Task Manager → Startup apps** — the checkbox reflects the real state either way.
+
+### Reporting a problem
+
+**Tray → Debug → Copy Diagnostics** puts everything needed to investigate an issue on your
+clipboard, ready to paste into a bug report: the version you are running, which memory offsets
+resolved and how, your display layout, which addons are on or off, the clients that were running,
+and the recent log. It also saves a copy next to the log file. Please include it — without the
+version and offset information, most reports cannot be acted on.
+
+**Tray → Debug → Open Log Folder** opens the folder containing `mapsplusplus.log`. Maps++ writes
+one line per event there — startup, errors, and anything an addon reported — so a problem that
+happened five minutes ago is still recoverable. The log is capped at about 1 MB and the previous
+one is kept as `mapsplusplus.log.1`; nothing else is retained.
+
+> **If an addon keeps failing, Maps++ turns it off.** Rather than notifying you once a second
+> forever, a repeatedly-failing addon is disabled for the rest of the session and named in one
+> notification. This is not saved — restarting Maps++ gives it another chance. Every failure is in
+> the log regardless of whether you saw a notification.
+
+### Update notifications
+
+If this build has an update location configured, **Settings → Launcher** offers **Check for a newer
+Maps++ on startup**. It makes a single request shortly after launch and, if a newer version exists,
+says so once. It never downloads or installs anything, and it makes no other network requests. If
+the option is not shown, this build has no update location and Maps++ does not use the network at
+all. Failures are silent by design.
 
 ---
 
@@ -581,6 +609,7 @@ BetterHotkeys=1
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |
 | `MainCharacterAsked` | `1` once the first-run "which is your main character?" prompt has been shown. Set whether you answered or dismissed it, so it is only ever asked once — clear it to be asked again |
+| `VersionCheck` | `0` disables the startup update check. Has no effect on builds with no update location configured, which never touch the network |
 | `ConfirmHigh` | `1` = ask for confirmation before applying a large vendor price |
 | `WarnAbove` | The price at which that confirmation kicks in |
 | `PresetClears` | `1` = loading a shop preset also clears prices on slots the preset doesn’t mention. Off by default, so presets only add |

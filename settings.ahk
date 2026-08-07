@@ -111,6 +111,7 @@ _Settings_SendState() {
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, OVERLAY_W, OVERLAY_H, gAccentScheme
+    global APP_VERSION, gVersionCheckEnabled, VERSION_CHECK_URL
 
     ; Monitor choices
     monChoices := _Settings_MonitorChoices()
@@ -147,9 +148,12 @@ _Settings_SendState() {
     tabNamesJson .= "]"
 
     json := '{"type":"settings-state"'
+        . ',"appVersion":' _JSON_Str(APP_VERSION)
         . ',"tabNames":' tabNamesJson
         . ',"launcher":{'
-            . '"gamePath":' _JSON_Str(gGamePath)
+            . '"versionCheck":' (gVersionCheckEnabled ? "true" : "false")
+            . ',"versionCheckAvailable":' (VERSION_CHECK_URL != "" ? "true" : "false")
+            . ',"gamePath":' _JSON_Str(gGamePath)
             . ',"gameArgs":' _JSON_Str(gGameArgs)
             . ',"autoStart":' (IsRunOnStartupEnabled() ? "true" : "false")
             . ',"launchOnStartup":' (gLaunchOnStartup ? "true" : "false")
@@ -353,7 +357,7 @@ _Settings_HandleSave(msg) {
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme
-    global gAddonHooks, gHotkeyActions
+    global gAddonHooks, gHotkeyActions, gVersionCheckEnabled
 
     ; ── Launcher ──
     launcher := msg["launcher"]
@@ -384,6 +388,10 @@ _Settings_HandleSave(msg) {
             launcher.Has("secondaryLaunchLayout") ? launcher["secondaryLaunchLayout"] : gSecondaryLaunchLayout,
             launchLayouts)
     }
+    ; Absent key = an older page that doesn't render the toggle; keep the
+    ; current value rather than silently switching the check off.
+    if launcher.Has("versionCheck")
+        gVersionCheckEnabled := launcher["versionCheck"] ? true : false
     SaveLauncherConfig()
     SetRunOnStartup(launcher["autoStart"] ? true : false)
 

@@ -1,6 +1,10 @@
 #Requires AutoHotkey v2.0
 
 ; === Constants ===
+; The one place the version is written. main.ahk carries a matching
+; ;@Ahk2Exe-SetVersion literal so the compiled exe's file properties agree, and
+; build.ps1 fails the build if the two ever drift apart.
+global APP_VERSION := "0.9.0-beta.1"
 global PROCESS_EXE := "main.exe"
 global GAME_WIN_FILTER := "ahk_exe " PROCESS_EXE
 ; RVAs from main.exe — do not use fixed absolute addresses (bases differ per process / ASLR).
@@ -175,3 +179,27 @@ global gAddonHooks := []
 global gDisabledAddons := Map()   ; addon name → true when disabled
 global ADDONS_DIR := A_ScriptDir "\addons"
 global ADDONS_INCLUDE_FILE := A_ScriptDir "\_addons.ahk"
+
+; === Diagnostics ===
+; Path resolved lazily — Log() is reachable from anywhere, including before the
+; launcher config has loaded, so it must not do disk work at include time.
+global gLogPath := ""
+global LOG_MAX_BYTES := 1048576   ; rotate to a single .1 file past this
+global gLogFailed := false        ; a log that can't be written stops trying
+; Per (addon, hook) failure tracking for FireAddonHook. An addon that throws on
+; a 1 Hz hook must not spam the user, and must not throw forever unnoticed.
+global gAddonFailCounts := Map()  ; "Addon|Hook" → consecutive failures
+global gAddonFailLastTip := Map() ; "Addon|Hook" → tick of the last TrayTip
+global ADDON_FAIL_TIP_MS := 30000        ; at most one notification per key
+global ADDON_FAIL_QUARANTINE := 10       ; consecutive failures before disabling
+; Session-only quarantine, deliberately not persisted to config.ini — a restart
+; gives a disabled-by-error addon another chance.
+global gQuarantinedAddons := Map()
+
+; === Version check ===
+; Passive only: fetches a plain-text version string and says a newer build
+; exists. Never downloads, never installs. Empty URL = the check is inert, which
+; is the shipping default until a location is decided.
+global VERSION_CHECK_URL := ""
+global VERSION_CHECK_TIMEOUT_MS := 5000
+global gVersionCheckEnabled := true

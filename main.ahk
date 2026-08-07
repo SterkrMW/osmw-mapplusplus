@@ -3,6 +3,8 @@
 ;@Ahk2Exe-SetDescription Maps++
 ;@Ahk2Exe-SetProductName Maps++
 ;@Ahk2Exe-SetCompanyName osMW
+; Must match APP_VERSION in variables.ahk — build.ps1 fails the build if it does not.
+;@Ahk2Exe-SetVersion 0.9.0-beta.1
 #SingleInstance Force
 #Warn
 
@@ -21,9 +23,17 @@ InitAppNotificationRegistration()
 
 ; ── Launcher startup ─────────────────────────────────────────────
 
+; Before any config work: LoadLauncherConfig can block on the game-path prompt
+; (or fail outright), and a session that never gets past it still needs to have
+; identified itself in the log.
+LogInfo("Startup", "Maps++ " APP_VERSION (A_IsCompiled ? " (compiled)" : " (source)")
+    . " — AHK " A_AhkVersion ", " (A_PtrSize = 8 ? "64-bit" : "32-bit"))
+
 LoadLauncherConfig()
 LoadMinimapConfig()
 LoadNpcNextId()
+LogInfo("Startup", "Config loaded — interface " gInterfaceMode
+    . ", " gAddonHooks.Length " addon(s) registered")
 if !A_IsCompiled
     GenerateAddonIncludes()
 LoadAddonEnabledStates()
@@ -38,6 +48,7 @@ SetTimer(UpdateMapState, 200)
 SetTimer(CloseOverlayIfFocusLeftGame, 200)
 SetTimer(UpdateClientSnapshots, CLIENT_SNAPSHOT_INTERVAL)
 RegisterOverlayMouseHandlers()
+CheckForUpdateAsync()
 OnExit((*) => (ReleaseCachedProcessHandle(), ReleaseAllClientProcesses()))
 
 ; Auto-launch a game instance on startup / re-launch.
@@ -398,6 +409,12 @@ _IconForLabel(lbl) {
     if (InStr(lbl, "Party Markers — ") = 1)
         return "shield"
     switch lbl {
+        ; `info` and `folder` are not in the subsetted font and would render as
+        ; permanent tofu, so these borrow the closest names that are.
+        ; TODO: `info` / `folder` once the icon subset is next regenerated.
+        case "About Maps++…": return "search"
+        case "Copy Diagnostics": return "bug_report"
+        case "Open Log Folder": return "format_list_bulleted"
         case "Launch (Primary)", "Launch (Secondary)": return "rocket_launch"
         case "Send Enter Until Ready": return "keyboard"
         case "Better Hotkeys…": return "keyboard"
@@ -471,9 +488,13 @@ RebuildTrayMenu() {
     trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
     debugMenu := Menu()
     debugMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
+    debugMenu.Add("Copy Diagnostics", (*) => CopyDiagnosticsReport())
+    debugMenu.Add("Open Log Folder", (*) => OpenLogFolder())
+    debugMenu.Add()
     debugMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
     debugMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
     trayMenu.Add("Debug", debugMenu)
+    trayMenu.Add("About Maps++…", (*) => ShowAboutDialog())
     trayMenu.Add()
     trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
     trayMenu.Default := "Launch (Primary)`t" GetHotkeyDisplay("launchPrimary")
@@ -595,6 +616,42 @@ UpdateMapState() {
         gPic.Value := mapPath
         gCurrentMapName := mapName
         gCurrentMapPath := mapPath
+    }
+}
+
+ShowAboutDialog() {
+    global APP_VERSION, gInterfaceMode, gAddonHooks, gDisabledAddons
+    active := 0
+    for _, am in gAddonHooks {
+        name := am.Has("name") ? am["name"] : ""
+        if !(name != "" && gDisabledAddons.Has(name) && gDisabledAddons[name])
+            active++
+    }
+    MsgBox("osMW Maps++`n`n"
+        . "Version " APP_VERSION (A_IsCompiled ? "" : "  (running from source)") "`n"
+        . "AutoHotkey " A_AhkVersion "`n"
+        . "Interface: " (gInterfaceMode = "webview" ? "WebView2 (enhanced)" : "Native (low memory)") "`n"
+        . active " of " gAddonHooks.Length " addons active`n`n"
+        . "Reporting a problem? Tray → Debug → Copy Diagnostics`n"
+        . "collects everything needed, ready to paste.",
+        "About Maps++", "Iconi")
+}
+
+OpenLogFolder() {
+    path := LogPath()
+    SplitPath(path, , &dir)
+    if !DirExist(dir) {
+        TrayTip("No log folder yet — nothing has been logged.", "Maps++", "Iconi")
+        return
+    }
+    ; Select the file when it exists so the user does not have to hunt for it.
+    try {
+        if FileExist(path)
+            Run('explorer.exe /select,"' path '"')
+        else
+            Run('explorer.exe "' dir '"')
+    } catch as err {
+        TrayTip("Could not open " dir "`n" err.Message, "Maps++", "Iconx")
     }
 }
 

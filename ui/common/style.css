@@ -212,6 +212,25 @@ body {
     font-weight: var(--weight-bold);
 }
 
+/* Build identifier beside the window title. Deliberately quiet — it is there so
+   a screenshot identifies the build, not as something to read. */
+.title-bar-version {
+    color: var(--text-dim);
+    font-size: 0.85em;
+    font-variant-numeric: tabular-nums;
+    margin-left: 0.5em;
+}
+
+/* Secondary line under a checkbox label, for the caveat a setting needs but
+   that would make the label itself unreadable. */
+.field-hint {
+    display: block;
+    color: var(--text-dim);
+    font-size: 0.85em;
+    line-height: 1.35;
+    margin-top: 0.15em;
+}
+
 .title-bar-controls {
     display: flex;
     align-items: center;

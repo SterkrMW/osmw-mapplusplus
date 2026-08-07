@@ -51,6 +51,34 @@ $UiDir         = Join-Path $RepoRoot 'ui'
 $LibDir        = Join-Path $RepoRoot 'Lib'
 $AvatarDir     = Join-Path $RepoRoot 'avatars'
 
+# The version lives in variables.ahk; main.ahk carries a matching
+# ;@Ahk2Exe-SetVersion literal so the compiled exe's file properties agree.
+# Ahk2Exe cannot read the constant, so the two are checked against each other
+# here — a silent drift would ship an exe whose properties disagree with what
+# the app reports about itself, which is exactly what breaks bug triage.
+function Get-AppVersion {
+    $varsPath = Join-Path $RepoRoot 'variables.ahk'
+    $mainPath = Join-Path $RepoRoot 'main.ahk'
+
+    $varsText = Get-Content -LiteralPath $varsPath -Raw
+    if ($varsText -notmatch '(?m)^\s*global\s+APP_VERSION\s*:=\s*"([^"]+)"') {
+        throw "APP_VERSION not found in variables.ahk."
+    }
+    $version = $Matches[1]
+
+    $mainText = Get-Content -LiteralPath $mainPath -Raw
+    if ($mainText -notmatch '(?m)^\s*;@Ahk2Exe-SetVersion\s+(\S+)\s*$') {
+        throw "No ;@Ahk2Exe-SetVersion directive found in main.ahk."
+    }
+    $directive = $Matches[1]
+
+    if ($directive -ne $version) {
+        throw ("Version mismatch: variables.ahk APP_VERSION is '$version' but " +
+               "main.ahk ;@Ahk2Exe-SetVersion is '$directive'. Update both.")
+    }
+    return $version
+}
+
 function Resolve-Ahk2Exe {
     param([string] $Override)
 
@@ -124,11 +152,12 @@ function Build-Variant {
     param(
         [string] $Name,
         [string] $ManifestPath,
-        [string] $Compiler
+        [string] $Compiler,
+        [string] $Version
     )
 
     Write-Host ""
-    Write-Host "=== Building variant: $Name ===" -ForegroundColor Cyan
+    Write-Host "=== Building variant: $Name (v$Version) ===" -ForegroundColor Cyan
 
     $addons = Read-Manifest -Path $ManifestPath
     Test-Manifest -VariantName $Name -Addons $addons
@@ -196,6 +225,7 @@ function Build-Variant {
         # Drop a small README naming the variant + its addons.
         $readme = @()
         $readme += "mapsplusplus.exe -- variant: $Name"
+        $readme += "Version: $Version"
         $readme += "Built: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
         $readme += ""
         $readme += "Bundled addons:"
@@ -224,7 +254,9 @@ if (-not (Test-Path -LiteralPath $VariantsDir)) {
     throw "variants\ folder not found at $VariantsDir"
 }
 
+$appVersion = Get-AppVersion
 $compiler = Resolve-Ahk2Exe -Override $Ahk2ExePath
+Write-Host "Maps++ version: $appVersion" -ForegroundColor DarkGray
 Write-Host "Using compiler: $compiler" -ForegroundColor DarkGray
 
 if ($Clean -and (Test-Path -LiteralPath $ReleasesDir)) {
@@ -234,7 +266,7 @@ if ($Clean -and (Test-Path -LiteralPath $ReleasesDir)) {
 
 if ($Variant) {
     $manifest = Join-Path $VariantsDir "$Variant.txt"
-    Build-Variant -Name $Variant -ManifestPath $manifest -Compiler $compiler
+    Build-Variant -Name $Variant -ManifestPath $manifest -Compiler $compiler -Version $appVersion
 } else {
     $manifests = Get-ChildItem -LiteralPath $VariantsDir -Filter '*.txt' -File
     if ($manifests.Count -eq 0) {
@@ -242,7 +274,7 @@ if ($Variant) {
     }
     foreach ($m in $manifests) {
         $name = [System.IO.Path]::GetFileNameWithoutExtension($m.Name)
-        Build-Variant -Name $name -ManifestPath $m.FullName -Compiler $compiler
+        Build-Variant -Name $name -ManifestPath $m.FullName -Compiler $compiler -Version $appVersion
     }
 }
 

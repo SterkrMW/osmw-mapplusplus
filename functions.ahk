@@ -1021,7 +1021,7 @@ LoadLauncherConfig() {
     global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay, CONFIG_INI, PROCESS_EXE
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout, LAUNCH_LAYOUT_DEFAULT
-    global gInterfaceMode, gAccentScheme
+    global gInterfaceMode, gAccentScheme, gVersionCheckEnabled
 
     ; 1. Check for main.exe next to the script (same directory install).
     localExe := A_ScriptDir "\" PROCESS_EXE
@@ -1059,6 +1059,9 @@ LoadLauncherConfig() {
             gSecondaryMonitorOverride := Integer(secMon)
         gPrimaryLaunchLayout := Trim(IniRead(CONFIG_INI, "Launcher", "PrimaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
         gSecondaryLaunchLayout := Trim(IniRead(CONFIG_INI, "Launcher", "SecondaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
+
+        gVersionCheckEnabled :=
+            (Trim(IniRead(CONFIG_INI, "Launcher", "VersionCheck", "1")) != "0")
 
         uiMode := StrLower(Trim(IniRead(CONFIG_INI, "UI", "Mode", "webview")))
         gInterfaceMode := (uiMode = "native") ? "native" : "webview"
@@ -1454,7 +1457,8 @@ LaunchConfiguredClients(monitorWhich := "primary", count := 0) {
 SaveLauncherConfig() {
     global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride, CONFIG_INI
-    global gPrimaryLaunchLayout, gSecondaryLaunchLayout
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout, gVersionCheckEnabled
+    IniWrite(gVersionCheckEnabled ? "1" : "0", CONFIG_INI, "Launcher", "VersionCheck")
     IniWrite(gGamePath, CONFIG_INI, "Launcher", "GamePath")
     IniWrite(gGameArgs, CONFIG_INI, "Launcher", "GameArgs")
     IniWrite(gLaunchOnStartup ? "1" : "0", CONFIG_INI, "Launcher", "LaunchOnStartup")
@@ -2239,6 +2243,240 @@ ResolveWritableIniPath(filename) {
     return fallbackPath
 }
 
+; ── Logging ──────────────────────────────────────────────────────
+;
+; Errors used to go to a TrayTip and nowhere else, so anything that happened
+; while the user was in a fight — or that happened once at startup — was gone by
+; the time they came to report it. One line per entry, plain text, next to the
+; exe (or in %AppData%, by exactly the same rule as the inis).
+
+LogPath() {
+    global gLogPath
+    if (gLogPath = "")
+        gLogPath := ResolveWritableIniPath("mapsplusplus.log")
+    return gLogPath
+}
+
+; level is "INFO" | "WARN" | "ERROR". source names the subsystem or addon.
+Log(level, source, message) {
+    global gLogFailed, LOG_MAX_BYTES
+    if gLogFailed
+        return
+    try {
+        path := LogPath()
+        ; Rotate before writing so the cap is a cap, not a target.
+        if (FileExist(path) && FileGetSize(path) > LOG_MAX_BYTES) {
+            try FileDelete(path ".1")
+            try FileMove(path, path ".1")
+        }
+        line := FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss")
+            . "  " Format("{:-5}", level)
+            . "  [" source "]  " _LogOneLine(message) "`n"
+        FileAppend(line, path, "UTF-8")
+    } catch {
+        ; A log that cannot be written must never become the thing that breaks
+        ; the app. Give up quietly for the rest of the session.
+        gLogFailed := true
+    }
+}
+
+LogInfo(source, message) => Log("INFO", source, message)
+LogWarn(source, message) => Log("WARN", source, message)
+LogError(source, message) => Log("ERROR", source, message)
+
+; Keeps one entry on one line so the file stays greppable.
+_LogOneLine(s) {
+    s := StrReplace(StrReplace(String(s), "`r", " "), "`n", " | ")
+    return Trim(s)
+}
+
+; The last `count` lines, for the diagnostics report.
+LogTail(count := 40) {
+    try {
+        path := LogPath()
+        if !FileExist(path)
+            return "(log is empty)"
+        lines := StrSplit(Trim(FileRead(path, "UTF-8"), "`r`n"), "`n", "`r")
+        out := ""
+        start := Max(1, lines.Length - count + 1)
+        Loop lines.Length - start + 1
+            out .= lines[start + A_Index - 1] "`n"
+        return RTrim(out, "`n")
+    } catch as err {
+        return "(could not read the log: " err.Message ")"
+    }
+}
+
+; ── Diagnostics report ───────────────────────────────────────────
+;
+; Everything a bug report needs, in one paste. The point is that "it doesn't
+; work" from a beta tester becomes something that can be acted on without a
+; round trip: which build, which offsets resolved and how, which addons are on,
+; and what the log has been saying.
+
+BuildDiagnosticsReport() {
+    global APP_VERSION, gInterfaceMode, gResolvedBuildStamp, SIGNATURE_NAMES
+    global gAddonHooks, gDisabledAddons, gQuarantinedAddons
+
+    out := "osMW Maps++ diagnostics`n"
+        . "========================`n"
+        . "Version   : " APP_VERSION (A_IsCompiled ? " (compiled)" : " (source)") "`n"
+        . "Generated : " FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss") "`n"
+        . "AutoHotkey: " A_AhkVersion "  " (A_PtrSize = 8 ? "64-bit" : "32-bit") "`n"
+        . "OS        : " A_OSVersion "`n"
+        . "Interface : " gInterfaceMode "`n"
+        . "Script dir: " A_ScriptDir "`n"
+        . "Log       : " LogPath() "`n"
+
+    ; The addon set is what actually distinguishes one variant from another, and
+    ; it says more than a variant name would — it also shows what is switched off.
+    out .= "`nAddons`n------`n"
+    if (gAddonHooks.Length = 0) {
+        out .= "  (none loaded)`n"
+    }
+    for _, am in gAddonHooks {
+        name := am.Has("name") ? am["name"] : "<unnamed>"
+        state := "on"
+        if (gDisabledAddons.Has(name) && gDisabledAddons[name]) {
+            state := gQuarantinedAddons.Has(name)
+                ? "QUARANTINED (failed in " gQuarantinedAddons[name] ")"
+                : "off"
+        }
+        out .= "  " Format("{:-16}", name) " " state "`n"
+    }
+
+    out .= "`nMemory offsets`n--------------`n"
+        . "Build stamp: " (gResolvedBuildStamp ? Format("0x{:08X}", gResolvedBuildStamp) : "<unresolved>") "`n"
+    for _, name in SIGNATURE_NAMES {
+        rva := GetResolvedOffset(name)
+        out .= "  " Format("{:-28}", name) " " Format("0x{:08X}", rva)
+            . "  (" OffsetSourceLabel(name) ")`n"
+    }
+
+    out .= "`nDisplays`n--------`n"
+    Loop MonitorGetCount() {
+        MonitorGet(A_Index, &l, &t, &r, &b)
+        MonitorGetWorkArea(A_Index, &wl, &wt, &wr, &wb)
+        out .= "  " A_Index ": " (r - l) "x" (b - t) " at " l "," t
+            . "  work " (wr - wl) "x" (wb - wt)
+            . (A_Index = MonitorGetPrimary() ? "  (primary)" : "") "`n"
+    }
+
+    out .= "`nClients`n-------`n"
+    UpdateClientSnapshots()
+    snapshots := GetClientSnapshots()
+    if (snapshots.Length = 0) {
+        out .= "  (no game clients running)`n"
+    }
+    for _, snap in snapshots {
+        out .= "  " Format("{:-16}", (snap.charName = "" ? "PID " snap.pid : snap.charName))
+            . " map " Format("{:-8}", (snap.mapId = "" ? "?" : snap.mapId))
+            . " class " Format("{:2}", snap.classId)
+            . " state " Format("{:3}", snap.gameState)
+            . (snap.inBattle ? "  in battle" : "")
+            . (snap.isActive ? "  (active)" : "") "`n"
+    }
+
+    out .= "`nRecent log`n----------`n" LogTail(40) "`n"
+    return out
+}
+
+; Copies the report and writes it beside the log, so the user has it either way
+; — a tester who cannot paste a clipboard can attach a file instead.
+CopyDiagnosticsReport() {
+    report := BuildDiagnosticsReport()
+    A_Clipboard := report
+    savedTo := ""
+    try {
+        savedTo := LogPath() ".diagnostics.txt"
+        try FileDelete(savedTo)
+        FileAppend(report, savedTo, "UTF-8")
+    } catch {
+        savedTo := ""
+    }
+    LogInfo("Diagnostics", "Report generated.")
+    TrayTip("Diagnostics copied to the clipboard."
+        . (savedTo != "" ? "`nAlso saved to " savedTo : ""),
+        "Maps++", "Iconi")
+}
+
+; ── Passive version check ────────────────────────────────────────
+;
+; One request, on a delay, off the startup path. It reports that a newer build
+; exists and nothing else: no download, no install, no second request. A game
+; companion that reads process memory has to be able to say exactly what it
+; talks to and why, so this stays boring on purpose — and silent on failure,
+; because a version check is never worth interrupting someone over.
+
+CheckForUpdateAsync() {
+    global VERSION_CHECK_URL, gVersionCheckEnabled
+    if (!gVersionCheckEnabled || VERSION_CHECK_URL = "")
+        return
+    SetTimer(_DoVersionCheck, -8000)
+}
+
+_DoVersionCheck() {
+    global VERSION_CHECK_URL, VERSION_CHECK_TIMEOUT_MS, APP_VERSION
+    latest := ""
+    try {
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        ; resolve / connect / send / receive, all bounded.
+        req.SetTimeouts(VERSION_CHECK_TIMEOUT_MS, VERSION_CHECK_TIMEOUT_MS,
+            VERSION_CHECK_TIMEOUT_MS, VERSION_CHECK_TIMEOUT_MS)
+        req.Open("GET", VERSION_CHECK_URL, true)
+        req.Send()
+        req.WaitForResponse(VERSION_CHECK_TIMEOUT_MS // 1000)
+        if (req.Status != 200)
+            return
+        latest := Trim(req.ResponseText, " `t`r`n")
+    } catch as err {
+        LogInfo("VersionCheck", "Skipped: " err.Message)
+        return
+    }
+    ; A response that isn't a version is a misconfigured or hijacked endpoint —
+    ; ignore it rather than showing the user whatever came back.
+    if (latest = "" || StrLen(latest) > 32 || !RegExMatch(latest, "^[0-9][0-9A-Za-z.\-+]*$")) {
+        LogWarn("VersionCheck", "Unusable response; ignored.")
+        return
+    }
+    if (CompareVersions(latest, APP_VERSION) <= 0) {
+        LogInfo("VersionCheck", "Up to date (latest " latest ").")
+        return
+    }
+    LogInfo("VersionCheck", "Newer version available: " latest)
+    TrayTip("Maps++ " latest " is available. You have " APP_VERSION ".",
+        "Update available", "Iconi")
+}
+
+; -1 / 0 / 1 for a < b, a = b, a > b. Compares dotted numeric parts, then treats
+; a build with a pre-release suffix ("0.9.0-beta.1") as older than the same
+; version without one, per the usual semver rule.
+CompareVersions(a, b) {
+    aCore := _VersionCore(a), bCore := _VersionCore(b)
+    ; StrSplit("") returns an EMPTY array in v2, not [""], so indexing [1] here
+    ; would throw on an empty version. The loop below reads past either array's
+    ; end as 0, which is also what makes "1.0" and "1.0.0" compare equal.
+    aParts := StrSplit(aCore, "."), bParts := StrSplit(bCore, ".")
+    Loop Max(aParts.Length, bParts.Length) {
+        av := (A_Index <= aParts.Length && IsInteger(aParts[A_Index])) ? Integer(aParts[A_Index]) : 0
+        bv := (A_Index <= bParts.Length && IsInteger(bParts[A_Index])) ? Integer(bParts[A_Index]) : 0
+        if (av != bv)
+            return (av > bv) ? 1 : -1
+    }
+    aPre := InStr(a, "-") ? 1 : 0
+    bPre := InStr(b, "-") ? 1 : 0
+    if (aPre != bPre)
+        return aPre ? -1 : 1     ; a pre-release loses to the same core version
+    return 0
+}
+
+; The numeric part of a version, i.e. everything before a pre-release suffix.
+_VersionCore(v) {
+    v := Trim(String(v))
+    p := InStr(v, "-")
+    return p ? SubStr(v, 1, p - 1) : v
+}
+
 ; Makes sure an ini exists as UTF-16LE before anything writes to it.
 ;
 ; Windows' profile API decides a file's encoding once, from what is already on
@@ -2599,10 +2837,61 @@ FireAddonHook(hookName, params*) {
             continue
         try {
             fn(params*)
+            _AddonHookSucceeded(addonName, hookName)
         } catch as err {
-            TrayTip(hookName ": " err.Message, "Addon Error [" addonName "]", "Iconx")
+            _AddonHookFailed(addonName, hookName, err)
         }
     }
+}
+
+; A hook that works again clears its streak, so an addon that fails
+; intermittently is never quarantined for failures spread over a session.
+_AddonHookSucceeded(addonName, hookName) {
+    global gAddonFailCounts
+    key := addonName "|" hookName
+    if gAddonFailCounts.Has(key)
+        gAddonFailCounts.Delete(key)
+}
+
+; Every failure is logged; the user hears about it at most once per
+; ADDON_FAIL_TIP_MS, and an addon that keeps throwing on the same hook is put
+; out of the dispatch loop for the rest of the session.
+;
+; The case this exists for: an addon throwing from OnSnapshot used to raise a
+; TrayTip once a second, forever, with no record of what actually went wrong and
+; no way for the user to stop it.
+_AddonHookFailed(addonName, hookName, err) {
+    global gAddonFailCounts, gAddonFailLastTip, gDisabledAddons, gQuarantinedAddons
+    global ADDON_FAIL_TIP_MS, ADDON_FAIL_QUARANTINE
+
+    key := addonName "|" hookName
+    count := (gAddonFailCounts.Has(key) ? gAddonFailCounts[key] : 0) + 1
+    gAddonFailCounts[key] := count
+
+    LogError(addonName, hookName " (failure " count "): " err.Message
+        . (err.HasProp("Line") ? "  line " err.Line : ""))
+
+    if (count >= ADDON_FAIL_QUARANTINE) {
+        ; Session-only: gDisabledAddons is what FireAddonHook already consults,
+        ; and deliberately no IniWrite — a restart gives the addon another go.
+        gDisabledAddons[addonName] := true
+        gQuarantinedAddons[addonName] := hookName
+        gAddonFailCounts.Delete(key)
+        LogError(addonName, "Quarantined for this session after " count
+            . " consecutive failures in " hookName ".")
+        TrayTip(addonName " kept failing in " hookName ", so it has been turned"
+            . " off for this session.`nDetails: " LogPath(),
+            "Addon Quarantined", "Iconx")
+        ; The tray reflects enabled state, so let it catch up.
+        SetTimer(RebuildTrayMenu, -1)
+        return
+    }
+
+    now := A_TickCount
+    if (gAddonFailLastTip.Has(key) && now - gAddonFailLastTip[key] < ADDON_FAIL_TIP_MS)
+        return
+    gAddonFailLastTip[key] := now
+    TrayTip(hookName ": " err.Message, "Addon Error [" addonName "]", "Iconx")
 }
 
 ; True when at least one *enabled* addon registers this hook. Lets producers
