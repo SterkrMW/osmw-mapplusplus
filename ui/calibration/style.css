@@ -1,0 +1,149 @@
+/* Map Calibration — panel-specific layout only.
+   Colours, buttons, cards and type all come from ../common/style.css. */
+
+.calib-body {
+    padding: 0.75rem 0.9rem 1.1rem;
+    overflow-y: auto;
+    height: calc(100vh - 38px);   /* .title-bar is 38px in common/style.css */
+}
+
+.calib-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.7rem 0.85rem;
+    margin-bottom: 0.7rem;
+}
+
+.calib-card h2 {
+    font-size: 0.82rem;
+    font-weight: var(--weight-bold);
+    letter-spacing: 0.02em;
+    color: var(--text);
+    margin: 0 0 0.45rem;
+}
+
+.calib-note {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    margin: 0.45rem 0 0;
+}
+
+.calib-steps {
+    margin: 0;
+    padding-left: 1.15rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    line-height: 1.65;
+}
+
+.calib-steps strong { color: var(--text); }
+
+kbd {
+    display: inline-block;
+    padding: 0.05em 0.35em;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: var(--surface-hover);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.85em;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Captured points: dim until they hold something, so progress is visible at a
+   glance without reading the values. */
+.calib-point {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding: 0.35rem 0;
+    border-top: 1px solid var(--border);
+    font-size: 0.82rem;
+}
+.calib-point:first-of-type { margin-top: 0.6rem; }
+
+.calib-point-tag {
+    flex: 0 0 4.2rem;
+    color: var(--text-dim);
+    font-weight: var(--weight-medium);
+}
+
+.calib-point-val {
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+.calib-point.is-set .calib-point-tag { color: var(--accent); }
+.calib-point.is-set .calib-point-val { color: var(--text); }
+
+.calib-status {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin-bottom: 0.6rem;
+}
+.calib-status.is-ready { color: var(--success); }
+
+.calib-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* Live check rows: label left, value right, numbers aligned. */
+.calib-kv {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.25rem 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+.calib-kv b {
+    color: var(--text);
+    font-weight: var(--weight-medium);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    word-break: break-word;
+}
+
+/* The single thing blocking calibration, at the top of the panel. */
+.calib-blocker {
+    border: 1px solid var(--warning);
+    border-left-width: 3px;
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    padding: 0.55rem 0.7rem;
+    margin-bottom: 0.7rem;
+}
+
+code {
+    background: var(--surface-hover);
+    border-radius: 3px;
+    padding: 0.05em 0.3em;
+    font-size: 0.9em;
+}
+
+.toast {
+    position: fixed;
+    left: 0.9rem;
+    right: 0.9rem;
+    bottom: 0.9rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    border-left-width: 3px;
+    background: var(--surface-raised);
+    color: var(--text);
+    font-size: 0.85rem;
+    line-height: 1.45;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.toast.is-info  { border-left-color: var(--accent); }
+.toast.is-error { border-left-color: var(--danger); }

@@ -94,6 +94,11 @@ _Pois_OnTrayMenu(trayGroups) {
     poiMenu.Add("Manage POIs…", (*) => _Pois_ShowManageWindow())
     poiMenu.Add()
     poiMenu.Add("Export This Map's POIs", (*) => _Pois_ExportCurrentMap())
+    poiMenu.Add()
+    ; A pack is for sharing with another player; the export above is for the
+    ; server repo. Different formats, different audiences, hence both.
+    poiMenu.Add("Export POI Pack…", (*) => _Pois_ExportPack())
+    poiMenu.Add("Import POI Pack…", (*) => _Pois_ImportPack())
     trayGroups["map"].Add("Map POIs", poiMenu)
 }
 
@@ -193,6 +198,36 @@ _Pois_ColorFor(kind) {
     return _Pois_COLORS.Has(kind) ? _Pois_COLORS[kind] : "FFFFFF"
 }
 
+; One record — "x|y|label|kind" — as a POI object, or 0 when it is not usable.
+; Shared by the live store and the pack reader so the two cannot disagree about
+; what a record means.
+;
+; Records we write always have exactly four fields, because labels are stripped
+; of "|" on the way in. A hand-edited or third-party file may not: the rule for
+; extra fields is that a trailing recognised kind wins, and everything between
+; the coordinates and it belongs to the label. Without that, "Grocer | Baker"
+; silently loses half its name and takes "Baker" as its type.
+_Pois_ParseRecord(value) {
+    parts := StrSplit(value, "|")
+    if (parts.Length < 3)
+        return 0
+    x := Trim(parts[1]), y := Trim(parts[2])
+    if (!IsInteger(x) || !IsInteger(y))
+        return 0
+
+    kind := "npc"
+    last := parts.Length
+    if (parts.Length >= 4 && _Pois_IsKind(Trim(parts[parts.Length]))) {
+        kind := Trim(parts[parts.Length])
+        last := parts.Length - 1
+    }
+    label := ""
+    loop last - 2
+        label .= (label = "" ? "" : " ") parts[A_Index + 2]
+
+    return { x: Integer(x), y: Integer(y), label: Trim(label), kind: kind }
+}
+
 ; "|" is the field delimiter in a POI record, so a label containing one would
 ; push `kind` out of parts[4]; a newline would split the ini line and the whole
 ; POI would be dropped on the next load. Stripped on the way in rather than
@@ -236,22 +271,9 @@ _Pois_Load(mapId) {
             }
             value := SubStr(line, InStr(line, "=") + 1)
             ; x|y|label|kind — "|" so labels may contain commas.
-            parts := StrSplit(value, "|")
-            if (parts.Length < 3) {
-                continue
-            }
-            x := Trim(parts[1])
-            y := Trim(parts[2])
-            if (!IsInteger(x) || !IsInteger(y)) {
-                continue
-            }
-            kind := (parts.Length >= 4) ? Trim(parts[4]) : "npc"
-            list.Push({
-                x: Integer(x),
-                y: Integer(y),
-                label: Trim(parts[3]),
-                kind: _Pois_IsKind(kind) ? kind : "npc"
-            })
+            poi := _Pois_ParseRecord(value)
+            if IsObject(poi)
+                list.Push(poi)
         }
     }
     _Pois_Cache[mapId] := list
@@ -668,6 +690,180 @@ _Pois_ExportCurrentMap() {
     ; The map id is named here on purpose — it's what the exported entries use.
     TrayTip("Exported " list.Length " POI(s) for " ZoneDisplayName(mapId) " (" mapId ")`n"
         . NPC_OUTPUT_FILE "`n(also copied to the clipboard)", "Map POIs", "Iconi")
+}
+
+; ── POI packs ────────────────────────────────────────────────────
+;
+; Export writes the server repo's NPC entry format, which is useful to the
+; server and useless to another player. A pack is the other half: pois.ini's own
+; sections, for every map at once, so a curated set can be handed to someone.
+;
+; Import MERGES. Replacing would make a shared pack destructive to whatever the
+; recipient had already marked, and there is no undo for that.
+
+_Pois_PackPath(forSave) {
+    title := forSave ? "Save POI pack" : "Open POI pack"
+    if forSave {
+        sel := FileSelect("S16", A_ScriptDir "\poi_pack.ini", title, "POI packs (*.ini)")
+    } else {
+        sel := FileSelect(3, A_ScriptDir, title, "POI packs (*.ini)")
+    }
+    if (sel = "")
+        return ""
+    if (forSave && !RegExMatch(sel, "i)\.ini$"))
+        sel .= ".ini"
+    return sel
+}
+
+; Every map's POIs, written in the same shape pois.ini uses so a pack is just a
+; pois.ini — readable, diffable, and mergeable by hand if someone wants to.
+_Pois_ExportPack() {
+    path := _Pois_PackPath(true)
+    if (path = "")
+        return
+    src := _Pois_Path()
+    if !FileExist(src) {
+        TrayTip("There are no POIs saved yet.", "Map POIs", "Iconi")
+        return
+    }
+
+    maps := 0, total := 0
+    try {
+        if FileExist(path)
+            FileDelete(path)
+        EnsureIniUtf16(path)
+        for mapId in _Pois_AllMapIds() {
+            list := _Pois_Load(mapId)
+            if (list.Length = 0)
+                continue
+            maps++
+            for i, poi in list {
+                IniWrite(poi.x "|" poi.y "|" poi.label "|" poi.kind, path, mapId, String(i))
+                total++
+            }
+        }
+    } catch as err {
+        TrayTip("Could not write the pack: " err.Message, "Map POIs", "Iconx")
+        return
+    }
+    if (total = 0) {
+        TrayTip("There are no POIs saved yet.", "Map POIs", "Iconi")
+        return
+    }
+    LogInfo("MapPois", "Exported pack: " total " POIs across " maps " maps -> " path)
+    TrayTip("Exported " total " POI(s) across " maps " map(s) to`n" path,
+        "Map POIs", "Iconi")
+}
+
+; Merges a pack in. A POI already present — same map, same position, same label
+; — is skipped rather than duplicated, so importing the same pack twice is a
+; no-op instead of doubling everything.
+_Pois_ImportPack() {
+    path := _Pois_PackPath(false)
+    if (path = "")
+        return
+    if !FileExist(path) {
+        TrayTip("That file no longer exists.", "Map POIs", "Iconx")
+        return
+    }
+
+    added := 0, skipped := 0, maps := 0, rejected := 0
+    for mapId in _Pois_PackMapIds(path) {
+        incoming := _Pois_ReadSection(path, mapId)
+        if (incoming.Length = 0)
+            continue
+        existing := _Pois_Load(mapId).Clone()
+        seen := Map()
+        for poi in existing
+            seen[_Pois_DedupeKey(poi)] := true
+
+        before := existing.Length
+        for poi in incoming {
+            ; An imported file is untrusted text: same sanitising as a POI typed
+            ; into the app, so a pack cannot smuggle a delimiter into the store.
+            poi.label := _Pois_SanitizeLabel(poi.label)
+            if (poi.label = "") {
+                rejected++
+                continue
+            }
+            if !_Pois_IsKind(poi.kind)
+                poi.kind := "npc"
+            key := _Pois_DedupeKey(poi)
+            if seen.Has(key) {
+                skipped++
+                continue
+            }
+            seen[key] := true
+            existing.Push(poi)
+            added++
+        }
+        if (existing.Length != before) {
+            _Pois_Save(mapId, existing)
+            maps++
+        }
+    }
+
+    if (added = 0 && skipped = 0 && rejected = 0) {
+        TrayTip("That file has no POIs in it.", "Map POIs", "Icon!")
+        return
+    }
+    LogInfo("MapPois", "Imported pack " path ": +" added ", " skipped " dupes, "
+        . rejected " rejected")
+    msg := "Added " added " POI(s) across " maps " map(s)."
+    if skipped
+        msg .= "`n" skipped " already present, left alone."
+    if rejected
+        msg .= "`n" rejected " had no usable label and were skipped."
+    TrayTip(msg, "Map POIs", "Iconi")
+    _Pois_Redraw()
+}
+
+; Identity for merge purposes: where it is, what it is called, on which map.
+; Position alone would reject two different NPCs standing together.
+_Pois_DedupeKey(poi) {
+    return poi.x "|" poi.y "|" StrLower(poi.label)
+}
+
+; Section names in the live store. IniRead with no section returns them all.
+_Pois_AllMapIds() {
+    return _Pois_SectionNames(_Pois_Path())
+}
+
+_Pois_PackMapIds(path) {
+    return _Pois_SectionNames(path)
+}
+
+_Pois_SectionNames(path) {
+    names := []
+    if !FileExist(path)
+        return names
+    try raw := IniRead(path)
+    catch
+        return names
+    loop parse, raw, "`n", "`r" {
+        s := Trim(A_LoopField)
+        if (s != "")
+            names.Push(s)
+    }
+    return names
+}
+
+; Parses one section of any pois.ini-shaped file. Same record format as
+; _Pois_Load, but pointed at an arbitrary path rather than the live store.
+_Pois_ReadSection(path, mapId) {
+    list := []
+    try section := IniRead(path, mapId)
+    catch
+        return list
+    loop parse, section, "`n", "`r" {
+        line := Trim(A_LoopField)
+        if (line = "" || !InStr(line, "="))
+            continue
+        poi := _Pois_ParseRecord(SubStr(line, InStr(line, "=") + 1))
+        if IsObject(poi)
+            list.Push(poi)
+    }
+    return list
 }
 
 ; ── Drawing ──────────────────────────────────────────────────────

@@ -46,6 +46,10 @@ When editing an offset or adding a new memory read, update the fallback constant
 
 The overlay (`gGui`, built in `main.ahk`'s `ShowOrToggleOverlay`) is a borderless always-on-top `+E0x08000000` (`WS_EX_NOACTIVATE`) window so it never steals game focus. `UpdateMapState()` runs on a 200ms timer, reads the current map name from memory, resolves it to an image in `maps\`, and auto-closes the overlay when the minimap becomes disallowed (`IsMinimapAllowed()`: battle, loading screen, unsupported/unreadable zone). Calibration (world position → overlay pixel) is per-map data in `maps\calibration.ini`, always in **base** (unscaled 400×300) map space — the user's `Scale` setting is applied only at draw time (`MinimapScaleFactor()`), so calibrating at any zoom level produces the same stored numbers.
 
+### Calibration panel
+
+`ShowCalibrationPanel()` (`main.ahk`, beside the calibration handlers) is a frontend over the existing two-point flow — `CaptureCalibrationPoint` and `ApplyCalibrationFromPoints` are unchanged. Capturing stays on `Ctrl+Alt+1`/`2` rather than becoming buttons **because the capture reads the cursor's position over the minimap**: a button would move the mouse off the point being captured. The panel renders live state pushed on a `CALIB_PUSH_MS` timer and sends back only `apply`/`reset`. `_Calib_State()` builds everything both frontends show, so the WebView2 page and the native fallback cannot drift.
+
 ### Radial menus
 
 `radial.ahk` is a core, addon-agnostic engine for the ring-of-buttons-at-the-cursor menus, rendered by the single WebView2 page in `ui\radial\`. Two rings ship on it: the client switcher (`addons\client_roster.ahk`) and Quick Actions (`addons\quick_actions.ahk`). An addon calls `RadialRegister(Map("name", ..., "getItems", fn, "onSelect", fn, ...))` in its `OnInit` and drives it with `RadialToggle/Open/Close/Refresh(name)`; it supplies items and decides what a click means, and owns nothing else.

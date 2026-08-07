@@ -417,6 +417,7 @@ _IconForLabel(lbl) {
         ; permanent tofu, so these borrow the closest names that are.
         ; TODO: `info` / `folder` once the icon subset is next regenerated.
         case "About Maps++…": return "search"
+        case "Calibrate This Map…": return "track_changes"
         case "Copy Diagnostics": return "bug_report"
         case "Open Log Folder": return "format_list_bulleted"
         case "Launch (Primary)", "Launch (Secondary)": return "rocket_launch"
@@ -484,6 +485,10 @@ RebuildTrayMenu() {
         trayMenu.Add("Quick Actions", quickActionsMenu)
     if _TrayMenuHasItems(clientsMenu)
         trayMenu.Add("Clients & Windows", clientsMenu)
+    ; Core, not an addon: the minimap needs calibration in every variant, and
+    ; lite ships the minimap. Added before the count check so the group always
+    ; has at least this entry.
+    mapMenu.Add("Calibrate This Map…", (*) => ShowCalibrationPanel())
     if _TrayMenuHasItems(mapMenu)
         trayMenu.Add("Map & Overlay", mapMenu)
 
@@ -874,6 +879,277 @@ ApplyCalibrationFromPoints() {
         . "Section copied to clipboard for reference.",
         "Calibration"
     )
+}
+
+; ── Calibration panel ────────────────────────────────────────────
+;
+; Calibration already worked; it was just invisible. The two-point capture is
+; Ctrl+Alt+1 / Ctrl+Alt+2 and nothing in the UI ever said so, which is why 28
+; maps ship calibrated and no user has ever added a 29th.
+;
+; This panel is a frontend over that same flow — CaptureCalibrationPoint and
+; ApplyCalibrationFromPoints are untouched. Capturing still happens by hotkey
+; rather than a button, and deliberately so: the capture reads the cursor's
+; position over the *minimap*, so a button that had to be clicked would move the
+; mouse off the very point being captured.
+;
+; It also verifies. The panel shows the player's position as this app would
+; display it, next to a reminder to compare it with the game's own HUD — the
+; check that would have caught the missing coordinate offsets immediately.
+
+global gCalibGui := 0
+global gCalibIsNative := false
+global CALIB_PUSH_MS := 250
+
+ShowCalibrationPanel() {
+    global gCalibGui, gCalibIsNative, CALIB_PUSH_MS
+
+    if (IsObject(gCalibGui) && gCalibGui.Hwnd) {
+        try WinActivate("ahk_id " gCalibGui.Hwnd)
+        return
+    }
+    if (IsNativeInterface() || !_Calib_CanUseWebView()) {
+        _Calib_ShowNative()
+        return
+    }
+
+    dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
+    wvSettings := { DllPath: A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll",
+                    DefaultWidth: 560, DefaultHeight: 640 }
+    g := WebViewGui("-Caption +AlwaysOnTop +Resize", "Maps++ — Map Calibration", , wvSettings)
+    g.OnEvent("Close", (*) => _Calib_Close())
+    g.WebMessageReceived(_Calib_OnWebMessage)
+    g.DOMContentLoaded((*) => SetTimer(_Calib_Push, -50))
+    g.Navigate(UiPageUrl("ui/calibration/index.html"))
+    gCalibGui := g
+    gCalibIsNative := false
+    g.Show("w560 h640 Center")
+    ; Live state: the captured points, the player's position and whatever the
+    ; cursor is over all change while the panel sits open.
+    SetTimer(_Calib_Push, CALIB_PUSH_MS)
+}
+
+_Calib_CanUseWebView() {
+    return FileExist(A_ScriptDir "\Lib\WebViewToo.ahk")
+        && FileExist(A_ScriptDir "\ui\calibration\index.html")
+}
+
+_Calib_Close() {
+    global gCalibGui, gCalibIsNative, gCalibNativeText
+    SetTimer(_Calib_Push, 0)
+    if IsObject(gCalibGui)
+        try gCalibGui.Destroy()
+    gCalibGui := 0
+    gCalibIsNative := false
+    gCalibNativeText := 0
+}
+
+; Everything the panel renders, gathered in one place so the native and web
+; frontends cannot drift.
+_Calib_State() {
+    global gResolvedMapName, gCurrentMapName, gOverlayVisible, gOverlayHover
+    global gCalibrationPoint1, gCalibrationPoint2, MAP_DIR
+
+    mapName := gResolvedMapName != "" ? gResolvedMapName : gCurrentMapName
+    imagePath := (mapName != "") ? ResolveMapPath(mapName) : ""
+    hasCal := (mapName != "") && (Type(LoadCalibrationFromIni(mapName)) = "Map")
+
+    pos := ReadRawPlayerPosition()
+    st := {
+        mapName: mapName,
+        hasImage: (imagePath != ""),
+        hasCalibration: hasCal,
+        overlayOpen: gOverlayVisible ? true : false,
+        hovering: gOverlayHover ? true : false,
+        posOk: pos.ok ? true : false,
+        rawX: pos.ok ? pos.x : 0,
+        rawY: pos.ok ? pos.y : 0,
+        gameText: pos.ok ? GameCoordText(pos.x, pos.y) : "",
+        p1: _Calib_PointInfo(gCalibrationPoint1, mapName),
+        p2: _Calib_PointInfo(gCalibrationPoint2, mapName),
+        calText: ""
+    }
+    if hasCal {
+        cal := GetCalibration(mapName)
+        st.calText := Format("multX {:.6f}  addX {:.2f}   multY {:.6f}  addY {:.2f}",
+            cal.multX, cal.addX, cal.multY, cal.addY)
+    }
+    ; Both points must belong to the map being calibrated, and two points on top
+    ; of each other cannot define a scale — ApplyCalibrationFromPoints refuses
+    ; that, so the panel refuses it first and says why.
+    st.canApply := false
+    st.blocker := ""
+    if (!st.p1.captured || !st.p2.captured) {
+        st.blocker := "Capture both points first."
+    } else if (st.p1.mapName != st.p2.mapName) {
+        st.blocker := "The two points are from different maps. Recapture both here."
+    } else if (st.p1.rawX = st.p2.rawX || st.p1.rawY = st.p2.rawY) {
+        st.blocker := "Both points share an X or Y position. Stand somewhere diagonally apart."
+    } else {
+        st.canApply := true
+    }
+    return st
+}
+
+_Calib_PointInfo(pt, mapName) {
+    if !IsObject(pt) {
+        return { captured: false, mapName: "", rawX: 0, rawY: 0, px: 0, py: 0, text: "" }
+    }
+    return {
+        captured: true,
+        mapName: pt.mapName,
+        rawX: pt.rawX, rawY: pt.rawY, px: pt.px, py: pt.py,
+        text: "raw " pt.rawX ", " pt.rawY "   ->   pixel " pt.px ", " pt.py
+            . (pt.mapName != mapName ? "   (from " pt.mapName ")" : "")
+    }
+}
+
+; The one timer target for both frontends, so neither can be left un-refreshed.
+_Calib_Push() {
+    global gCalibGui, gCalibIsNative
+    if !IsObject(gCalibGui)
+        return
+    if gCalibIsNative {
+        _Calib_PushNative()
+        return
+    }
+    st := _Calib_State()
+    try gCalibGui.PostWebMessageAsJson('{"type":"calib-state"'
+        . ',"mapName":' _JSON_Str(st.mapName)
+        . ',"hasImage":' (st.hasImage ? "true" : "false")
+        . ',"hasCalibration":' (st.hasCalibration ? "true" : "false")
+        . ',"overlayOpen":' (st.overlayOpen ? "true" : "false")
+        . ',"hovering":' (st.hovering ? "true" : "false")
+        . ',"posOk":' (st.posOk ? "true" : "false")
+        . ',"rawText":' _JSON_Str(st.posOk ? (st.rawX ", " st.rawY) : "")
+        . ',"gameText":' _JSON_Str(st.gameText)
+        . ',"calText":' _JSON_Str(st.calText)
+        . ',"p1":' _JSON_Str(st.p1.text)
+        . ',"p2":' _JSON_Str(st.p2.text)
+        . ',"canApply":' (st.canApply ? "true" : "false")
+        . ',"blocker":' _JSON_Str(st.blocker) '}')
+}
+
+_Calib_OnWebMessage(wv, args) {
+    msgStr := ""
+    try msgStr := args.TryGetWebMessageAsString()
+    if (msgStr = "")
+        try msgStr := args.WebMessageAsJson
+    if (msgStr = "")
+        return
+    msg := _JSON_Parse(msgStr)
+    if !IsObject(msg) || !msg.Has("type")
+        return
+
+    switch msg["type"] {
+        case "init-request":
+            _Calib_Push()
+        case "apply":
+            _Calib_Apply()
+        case "reset":
+            _Calib_ResetPoints()
+        case "open-maps-folder":
+            try Run('explorer.exe "' MAP_DIR '"')
+        case "close":
+            _Calib_Close()
+    }
+}
+
+_Calib_ResetPoints() {
+    global gCalibrationPoint1, gCalibrationPoint2
+    gCalibrationPoint1 := 0
+    gCalibrationPoint2 := 0
+    _Calib_Push()
+}
+
+; Applies and then immediately proves the result, rather than trusting it: the
+; player's own position is projected through the new calibration and inverted
+; back, so a calibration that does not round-trip is visible at once.
+_Calib_Apply() {
+    global gCalibGui, gCalibIsNative
+    st := _Calib_State()
+    if !st.canApply {
+        _Calib_Toast("error", st.blocker)
+        return
+    }
+    ApplyCalibrationFromPoints()
+    _Calib_ResetPoints()
+
+    verdict := "Saved."
+    pos := ReadRawPlayerPosition()
+    if (pos.ok && st.mapName != "") {
+        px := WorldToOverlayPixels(pos.x, pos.y, st.mapName)
+        back := OverlayPixelsToWorld(px.x, px.y, st.mapName)
+        if back.ok {
+            verdict .= " Your position now reads as " GameCoordText(back.x, back.y)
+                . " — compare that with the game's own coordinates."
+        }
+    }
+    LogInfo("Calibration", "Saved calibration for " st.mapName)
+    _Calib_Toast("info", verdict)
+    _Calib_Push()
+}
+
+_Calib_Toast(level, text) {
+    global gCalibGui, gCalibIsNative
+    if (IsObject(gCalibGui) && !gCalibIsNative) {
+        try gCalibGui.PostWebMessageAsJson('{"type":"toast","level":' _JSON_Str(level)
+            . ',"text":' _JSON_Str(text) '}')
+        return
+    }
+    TrayTip(text, "Map Calibration", level = "error" ? "Iconx" : "Iconi")
+}
+
+; ── Calibration panel (native) ───────────────────────────────────
+; Same information, plain controls. Refreshed on the same timer.
+
+global gCalibNativeText := 0
+
+_Calib_ShowNative() {
+    global gCalibGui, gCalibIsNative, gCalibNativeText, CALIB_PUSH_MS
+    g := Gui("+AlwaysOnTop -MaximizeBox", "Maps++ — Map Calibration")
+    g.MarginX := 12
+    g.MarginY := 12
+    g.SetFont("s9", "Segoe UI")
+    g.Add("Text", "w440",
+        "Stand at a landmark in game, put the mouse on that same spot on the "
+        . "minimap, then press Ctrl+Alt+1. Do it again somewhere diagonally "
+        . "away with Ctrl+Alt+2, then Apply.")
+    gCalibNativeText := g.Add("Text", "xm y+10 w440 r12", "")
+    g.Add("Button", "xm y+10 w110 Default", "Apply").OnEvent("Click", (*) => _Calib_Apply())
+    g.Add("Button", "x+8 w110", "Reset points").OnEvent("Click", (*) => _Calib_ResetPoints())
+    g.Add("Button", "x+8 w110", "Open maps folder")
+        .OnEvent("Click", (*) => _Calib_OpenMapsFolder())
+    g.Add("Button", "x+8 w80", "Close").OnEvent("Click", (*) => _Calib_Close())
+    g.OnEvent("Close", (*) => _Calib_Close())
+    g.OnEvent("Escape", (*) => _Calib_Close())
+    gCalibGui := g
+    gCalibIsNative := true
+    _Calib_PushNative()
+    g.Show("AutoSize")
+    SetTimer(_Calib_Push, CALIB_PUSH_MS)
+}
+
+_Calib_OpenMapsFolder() {
+    global MAP_DIR
+    try Run('explorer.exe "' MAP_DIR '"')
+}
+
+_Calib_PushNative() {
+    global gCalibNativeText
+    if !IsObject(gCalibNativeText)
+        return
+    st := _Calib_State()
+    txt := "Map: " (st.mapName = "" ? "<none — open the minimap on a map first>" : st.mapName) "`n"
+        . "Image: " (st.hasImage ? "found" : "MISSING from maps\") "`n"
+        . "Calibration: " (st.hasCalibration ? st.calText : "none yet") "`n`n"
+        . "Point 1: " (st.p1.captured ? st.p1.text : "<not captured>") "`n"
+        . "Point 2: " (st.p2.captured ? st.p2.text : "<not captured>") "`n`n"
+        . "Your position: " (st.posOk ? ("raw " st.rawX ", " st.rawY "   shown as " st.gameText)
+                                      : "<could not read>") "`n"
+        . "  (compare 'shown as' with the coordinates on the game's own HUD)`n`n"
+        . (st.canApply ? "Ready to apply." : st.blocker)
+    gCalibNativeText.Value := txt
 }
 
 ExportCurrentCalibrationToFile() {

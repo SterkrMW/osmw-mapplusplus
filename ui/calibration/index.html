@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map Calibration</title>
+    <script src="../common/theme.js"></script>
+    <link rel="stylesheet" href="../common/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="title-bar" id="title-bar">
+        <div class="title-bar-drag">
+            <span class="material-symbols-outlined title-bar-icon">track_changes</span>
+            <span class="title-bar-title">Map Calibration</span>
+            <span class="title-bar-version" id="mapName"></span>
+        </div>
+        <div class="title-bar-controls">
+            <button class="title-btn title-btn-close" id="btnTitleClose" title="Close">✕</button>
+        </div>
+    </header>
+
+    <div class="calib-body">
+        <!-- Anything that stops calibration working at all is said here, once,
+             at the top, instead of leaving the steps below looking broken. -->
+        <div class="calib-blocker" id="prereq" hidden></div>
+
+        <section class="calib-card">
+            <h2>What calibration does</h2>
+            <p class="calib-note">
+                It teaches Maps++ where your character sits on this map's image. You
+                show it two places you can identify both in game and on the minimap,
+                and it works out the rest.
+            </p>
+        </section>
+
+        <section class="calib-card">
+            <h2>1 &middot; Capture two points</h2>
+            <ol class="calib-steps">
+                <li>Stand somewhere you can recognise on the minimap — a shop door, a bridge, a corner.</li>
+                <li>Move the mouse to that same spot on the <strong>minimap</strong>.</li>
+                <li>Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>.</li>
+                <li>Walk somewhere <strong>diagonally away</strong> and repeat with <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>2</kbd>.</li>
+            </ol>
+            <p class="calib-note">
+                The capture reads where your mouse is over the minimap, which is why
+                it is a keyboard shortcut — clicking a button here would move the
+                mouse off the point you are capturing.
+            </p>
+
+            <div class="calib-point" id="point1Row">
+                <span class="calib-point-tag">Point 1</span>
+                <span class="calib-point-val" id="point1">not captured</span>
+            </div>
+            <div class="calib-point" id="point2Row">
+                <span class="calib-point-tag">Point 2</span>
+                <span class="calib-point-val" id="point2">not captured</span>
+            </div>
+        </section>
+
+        <section class="calib-card">
+            <h2>2 &middot; Apply and check</h2>
+            <div class="calib-status" id="applyStatus">Capture both points first.</div>
+            <div class="calib-actions">
+                <button class="btn btn-primary" id="btnApply" disabled>Apply calibration</button>
+                <button class="btn" id="btnReset">Reset points</button>
+            </div>
+        </section>
+
+        <section class="calib-card">
+            <h2>Live check</h2>
+            <!-- The verification that would have caught the missing coordinate
+                 offsets: our number, next to the game's own. -->
+            <div class="calib-kv"><span>Raw position</span><b id="rawVal">—</b></div>
+            <div class="calib-kv"><span>Maps++ shows</span><b id="gameVal">—</b></div>
+            <div class="calib-kv"><span>Current calibration</span><b id="calVal">none yet</b></div>
+            <p class="calib-note">
+                <strong>Maps++ shows</strong> should match the coordinates on the game's
+                own display. If it does not, calibration is not the problem — send a
+                Debug State report instead.
+            </p>
+        </section>
+
+        <section class="calib-card">
+            <h2>Adding a new map</h2>
+            <p class="calib-note">
+                Drop the zone's image into the <code>maps\</code> folder named after
+                the zone's map file — <code>MAP301.jpg</code> and so on. The name Maps++
+                is looking for appears at the top of this window while you stand in
+                that zone.
+            </p>
+            <button class="btn btn-sm" id="btnMapsFolder">Open maps folder</button>
+        </section>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+    <script src="main.js"></script>
+</body>
+</html>

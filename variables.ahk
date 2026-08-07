@@ -22,6 +22,44 @@ global BATTLE_STATE_OFFSET := 0x301DE4
 global CHAR_CLASS_OFFSET := 0x2AA62C
 global MAP_FILE_LEN := 20
 global MAP_NAME_LEN := 14
+
+; === Battle actors ===
+; One flat array of combatant records, in the client's own "fight view" order:
+;
+;       enemy        party
+;       16 17         9 8
+;       12 13         5 4
+;       10 11         1 0        <- location 0 is the party leader
+;       14 15         3 2
+;       18 19         7 6
+;
+; Locations 0-9 are your party, 10-19 the opposing side. Even numbers are
+; characters and the odd number after each one is that character's pet, so
+; location 1 is location 0's pet.
+;
+; Each record is BATTLE_ACTOR_STRIDE apart, and carries TWO identical-looking
+; blocks of {MaxHP, CurHP, MaxMP, CurMP} — one at +0x00 and a copy at +0x24.
+; Which of the two is the live pool is not yet established; Tray > Debug >
+; Verify Battle Stats dumps both side by side to settle it against a real fight.
+; BATTLE_STATS_BLOCK selects the one everything else reads.
+global BATTLE_ACTOR_BASE_OFFSET := 0x2A3D90
+global BATTLE_ACTOR_STRIDE := 0x1D0      ; 464 bytes between locations
+global BATTLE_PARTY_SLOTS := 10          ; locations 0-9
+global BATTLE_TOTAL_SLOTS := 20          ; both sides
+global BATTLE_ACTOR_BLOCK_A := 0x00
+global BATTLE_ACTOR_BLOCK_B := 0x24
+global BATTLE_ACTOR_RECORD_BYTES := 0x34 ; through the end of the second block
+; Field order inside either block.
+global BATTLE_F_MAXHP := 0x00
+global BATTLE_F_HP    := 0x04
+global BATTLE_F_MAXMP := 0x08
+global BATTLE_F_MP    := 0x0C
+; 0 = the block at +0x00, 1 = the copy at +0x24. Provisional until the
+; diagnostic says which one moves when damage is taken.
+global BATTLE_STATS_BLOCK := 0
+; Guards a plainly wrong read (a moved offset after a patch) from being rendered
+; as a real health bar.
+global BATTLE_HP_SANE_MAX := 1000000
 ; Raw memory position → the coordinates the game shows the player.
 ;
 ;   displayed = (raw + offset) / divisor

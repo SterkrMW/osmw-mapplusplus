@@ -125,6 +125,29 @@ The custom map works only when **all** of these are true:
 
 If you enter battle, load into an unsupported zone, or the game cannot read the current map name, the overlay closes automatically. **Tab** will work again once you return to a supported area.
 
+### Adding a zone Maps++ doesn't have
+
+**Tray → Map & Overlay → Calibrate This Map…** walks you through it.
+
+1. Put the zone's image in the `maps\` folder, named after its map file —
+   `MAP301.jpg`, `MAP329.jpg` and so on. The name Maps++ is looking for is shown at the top of
+   the calibration window while you stand in that zone.
+2. Open the minimap and the calibration window, then stand somewhere you can recognise on the
+   image — a shop door, a bridge, a corner.
+3. Move the mouse to that same spot **on the minimap** and press **Ctrl+Alt+1**.
+4. Walk somewhere **diagonally away** and repeat with **Ctrl+Alt+2**.
+5. Press **Apply calibration**.
+
+Capturing is a keyboard shortcut rather than a button because it reads where your mouse is
+sitting over the minimap — clicking a button would move the mouse off the point you are capturing.
+
+Two points is all it needs; everything between and beyond them is worked out from those. Pick
+them far apart and diagonal to each other — two spots close together, or in a line, give a much
+less accurate result, and Maps++ will refuse points that share an X or Y position.
+
+After applying, the window shows what your own position now reads as. **Compare it with the
+coordinates on the game's own display** — if they match, the map is calibrated correctly.
+
 ### Changing zones
 
 When you walk into a different supported map, the overlay image swaps to the new zone without you needing to reopen it.
@@ -568,6 +591,21 @@ onto the clipboard:
 		direction: Direction.South,
 	},
 ```
+
+#### Sharing POIs with other players
+
+That export is for the **server repo**. To share with another *player*, use
+**Export POI Pack…** — it writes every POI you have, across every map, as an ordinary
+`pois.ini`-shaped file you can send to someone.
+
+**Import POI Pack…** reads one back. It **merges**: your own POIs are never removed, and
+anything already present — same map, same spot, same name — is left alone rather than
+duplicated, so importing the same pack twice does nothing the second time. Two different NPCs
+standing on the same spot are still treated as two POIs, since the name is part of the match.
+
+Imported labels go through the same cleaning as ones you type, so a pack from elsewhere cannot
+corrupt your file. Anything unusable is skipped and counted in the summary rather than
+silently dropped.
 
 ### Party Markers (Full / Battle)
 
