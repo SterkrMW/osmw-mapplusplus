@@ -376,6 +376,40 @@ Use this to confirm or repeat the same battle command across all fighting charac
 Nothing is typed into the clients — the action value is written straight into each one, so it
 works on every fighting client at once regardless of which window has focus.
 
+### Broadcast (Full / Battle)
+
+Sends one keystroke to every running client at once.
+
+| Hotkey | Action |
+|--------|--------|
+| **Not bound** | Switch between sending to all clients and all but the focused one |
+| *(configured)* | One shortcut per key you list — see below |
+
+Set it up in **Settings → Broadcast**. Choose a **trigger** modifier (Alt by default) and list the
+**keys to broadcast**, e.g. `1,2,3,4,5`. Each key then gets its own shortcut: with the Alt trigger,
+pressing **Alt+1** sends **1** to your clients, **Alt+2** sends **2**, and so on. Letters, digits,
+**F1–F24** and named keys (`Enter`, `Space`, `Tab`, `Up`, `Numpad1`, …) can be sent; up to 24 of them.
+
+**Send to** chooses between every client including the one you are looking at, or everyone except it.
+The **Switch target** action flips that mid-session without opening Settings, and is available on the
+Quick Actions ring.
+
+**Never send to these characters** takes a comma-separated list of names — a bank alt or a client
+parked somewhere deliberately sits out. The field suggests the characters running right now.
+
+Three things it will not do, by design:
+
+- **It never fires on a bare key.** Triggers always include a modifier, so typing `1` in chat cannot
+  broadcast. The shortcuts also only exist while a game window is focused, so nothing fires from your
+  browser.
+- **It never types into a login screen.** Every client's state is checked at the moment you press the
+  key, and any client still loading or sitting at character select is skipped and reported.
+- **It sends one keystroke per client**, never twice to the same one, even when a client has more
+  than one window.
+
+A key whose shortcut is already taken by something else is skipped rather than stealing the binding,
+and **Settings → Broadcast** lists any that clash so it is never silent.
+
 ### Better Hotkeys (Full / Battle)
 
 Choose **Tray → Quick Actions → Better Hotkeys…** to create character profiles and bind their
@@ -577,6 +611,12 @@ WarnAbove=10000000
 PresetClears=0
 IconBase=0
 
+[Broadcast]
+Modifier=!
+Keys=1,2,3,4,5
+Target=all
+Exclude=
+
 [QuickActions]
 Actions=viewModeToggle,battleSend,inventoryOpenClick,chatToggleAll,windowLayoutPrimary,clientRosterToggle,poiToggleLayer,openSettings
 Prewarm=1
@@ -614,6 +654,10 @@ BetterHotkeys=1
 | `DefaultKind` | Type pre-selected when adding a POI: `npc`, `shop`, `portal`, `quest`, `note` |
 | `Actions` | Quick Actions ring contents: hotkey action ids, comma-separated, in ring order (first at 12 o'clock, then clockwise). Ids for addons this build doesn't have are ignored, so one file works across variants. Set from **Settings → Quick Actions** |
 | `Prewarm` | `1` = load the Quick Actions ring at startup so the first press is instant; `0` = build it on first use, saving memory |
+| `Modifier` | Broadcast trigger, in AutoHotkey chord syntax: `!` Alt, `^!` Ctrl+Alt, `+!` Shift+Alt, `^+` Ctrl+Shift. Always a modifier, so a bare keypress can never broadcast |
+| `Keys` | Comma-separated keys to broadcast, e.g. `1,2,3,4,5`. Letters, digits, `F1`–`F24` and named keys; up to 24. Unrecognised entries are dropped |
+| `Target` | `all` = every client; `others` = every client except the focused one |
+| `Exclude` | Comma-separated character names that never receive a broadcast |
 | `DefaultLayout` | Layout used by the primary/secondary **Apply default layout** actions — a preset name, or the name of one of your custom layouts |
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |

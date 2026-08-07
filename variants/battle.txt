@@ -1,6 +1,7 @@
 # Battle variant — combat-focused subset.
 battle_send.ahk
 better_hotkeys.ahk
+broadcast.ahk
 chat_toggle.ahk
 client_roster.ahk
 party_markers.ahk

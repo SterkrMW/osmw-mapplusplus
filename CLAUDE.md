@@ -16,6 +16,13 @@ Windows-only. Requires AutoHotkey v2.0.
   - `-Clean` wipes `releases\` first. Manifests list one addon filename per line (`#` comments allowed); an addon referenced by a manifest but missing from `addons\` fails the build.
 - There are no automated tests. Verification is manual: run against the live game client, or use the in-app debug tools (Tray → Debug: **Debug State**, **Calibrate Signatures**, **Verify Signatures**) described in TUTORIAL.md.
 
+**`pwsh ./build.ps1` is the only reliable syntax gate.** Two traps make the obvious alternatives lie:
+
+- `AutoHotkey64.exe /validate main.ahk` returns **exit 2 for valid and invalid scripts alike**, and `/ErrorStdOut` prints nothing with it. Its exit code carries no signal — do not gate on it.
+- `AutoHotkey64.exe` and `Ahk2Exe.exe` are **GUI-subsystem** binaries, so PowerShell's `&` operator does not wait for them and leaves `$LASTEXITCODE` stale from an earlier command. `build.ps1` already uses `Start-Process -Wait -PassThru` for exactly this reason; anything invoking them directly must do the same, or run them from Bash where `$?` is real.
+
+Ahk2Exe *does* discriminate (valid → exit 0 and an exe; invalid → exit 17, no exe), which is why the build is the gate. Note it is stricter than the interpreter: a script that runs fine under `AutoHotkey64.exe` can still fail to compile — shadowing a built-in function name with a local variable (`mod := ...` against the built-in `Mod()`) is one that does. When a build fails with no message, bisect by stubbing function bodies rather than truncating the file, since truncation removes functions that `RegisterAddon` references and produces a different error.
+
 ## Architecture
 
 ### Load order and global state

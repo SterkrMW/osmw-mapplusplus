@@ -95,6 +95,10 @@ _QuickActions_BuildCatalog() {
         Map("id", "chatToggleAll",           "label", "Chat (others)", "icon", "chat",
             "needsGame", true),
         Map("id", "chatToggleSize",          "label", "Chat size",     "icon", "chat"),
+        ; Only the target switch belongs on the ring — the broadcast keys
+        ; themselves are per-key, hidden and transient, so they are not ring
+        ; items. Flipping the target is the thing worth reaching mid-fight.
+        Map("id", "broadcastToggleTarget",   "label", "Broadcast to",  "icon", "group"),
         ; Resolves its own target client (see _ShopPrices_ResolveOpenTarget), so
         ; it does not need one focused. Icon matches the tray's Character Vendor
         ; entry — TODO: `storefront` once the icon subset is next regenerated.
