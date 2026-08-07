@@ -6,6 +6,7 @@ client_roster.ahk
 discord_rpc.ahk
 inventory_toggle.ahk
 map_pois.ahk
+party_health.ahk
 party_markers.ahk
 quick_actions.ahk
 shop_prices.ahk

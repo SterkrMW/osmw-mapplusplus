@@ -634,6 +634,26 @@ UpdateMapState() {
     }
 }
 
+; ── Verify Battle Stats ──────────────────────────────────────────
+;
+; The direct analogue of Character Vendor's Verify Slot Mapping, and here for
+; the same reason: the battle actor layout rests on assumptions that can only be
+; checked against a live fight.
+;
+; It answers the one thing still open — whether the live pool is the block at
+; +0x00 or the copy at +0x24 — by showing both. Take a reading, take damage,
+; take another: the block that moved is the real one. It also shows every
+; location, so where the party ends and the enemy begins is visible rather than
+; assumed, and it stays in the build afterwards as the check to run after a
+; client patch.
+
+_BattleJoin(arr) {
+    out := ""
+    for v in arr
+        out .= (out = "" ? "" : ", ") v
+    return out
+}
+
 ShowAboutDialog() {
     global APP_VERSION, gInterfaceMode, gAddonHooks, gDisabledAddons
     global gUpdateVersion, gUpdateNotes, VERSION_DOWNLOAD_URL
@@ -704,15 +724,7 @@ ShowDebugState() {
     ; and UpdateMapState blanks gResolvedMapName the moment that happens — so
     ; neither the map name nor the marker timer's last sample can be relied on
     ; here. Both are re-read from the process, which does not need focus.
-    ; Sampled twice: a character that is still walking gives a raw position that
-    ; no longer matches the HUD by the time it is read, and a moving sample is
-    ; worse than no sample — it silently poisons any coordinate fit derived from
-    ; it. Two identical reads a moment apart mean the position has settled.
     livePos := ReadRawPlayerPosition()
-    Sleep 150
-    livePos2 := ReadRawPlayerPosition()
-    stationary := livePos.ok && livePos2.ok
-        && (livePos.x = livePos2.x) && (livePos.y = livePos2.y)
 
     chainMap := gResolvedMapName
     if (chainMap = "")
@@ -722,15 +734,9 @@ ShowDebugState() {
 
     msg .= "`nPosition chain (" (chainMap = "" ? "no map resolved" : chainMap) ")`n"
     if livePos.ok {
-        msg .= "  raw          " livePos.x ", " livePos.y
-            . (stationary ? "   (stationary)" : "") "`n"
-            . "  game coords  " GameCoordText(livePos.x, livePos.y)
-            . "   (raw / " GAME_COORD_DIV_X " and / " GAME_COORD_DIV_Y ")`n"
-        if !stationary {
-            msg .= "  *** STILL MOVING — read again as " livePos2.x ", " livePos2.y "."
-                . "`n      Stand still, then take this sample again. ***`n"
-        }
-        msg .= "  << compare 'game coords' with the number on the game's own HUD >>`n"
+        msg .= "  raw          " livePos.x ", " livePos.y "`n"
+            . "  game coords  " GameCoordText(livePos.x, livePos.y) "`n"
+            . "  << compare 'game coords' with the number on the game's own HUD >>`n"
     } else {
         msg .= "  raw          <could not read position>`n"
     }
@@ -747,14 +753,6 @@ ShowDebugState() {
             . "               multY=" Format("{:.10f}", cal.multY)
             . " addY=" Format("{:.4f}", cal.addY) "`n"
     }
-    ; Logged as well as shown, so a run of samples can be collected by standing
-    ; somewhere, opening this, moving, and repeating — the log keeps them all.
-    if livePos.ok
-        LogInfo("PositionChain", "map=" (chainMap = "" ? "?" : chainMap)
-            . " raw=" livePos.x "," livePos.y
-            . " game=" GameCoordText(livePos.x, livePos.y)
-            . (stationary ? "" : "  MOVING(discard)"))
-
     ; Per-client reads. Mainly here to check the character class against what
     ; the game shows — classId is what picks avatars\c<N>.png in the radial
     ; menu, and -1 means "unreadable or not logged in yet".

@@ -162,7 +162,7 @@ Right-click the tray icon for the main menu:
 |------|---------|
 | **Launch (Primary)** | Start the configured clients on the primary target, then optionally apply its layout |
 | **Launch (Secondary)** | Start the configured clients on the secondary target, then optionally apply its layout |
-| **Quick Actions** | Open the action ring and access broadcast/game controls such as Send Enter, battle send, chat, inventory and view mode |
+| **Quick Actions** | Open the action ring and access game controls such as Send Enter, battle send, chat, inventory and view mode |
 | **Clients & Windows** | Open the client roster, arrange game windows and access character tools available in the current build |
 | **Map & Overlay** | Add or manage map POIs and toggle map-related overlay features available in the current build |
 | **Interface** | Switch between Native (low memory) and WebView2 (enhanced); Maps++ reloads automatically |
@@ -429,40 +429,6 @@ Use this to confirm or repeat the same battle command across all fighting charac
 Nothing is typed into the clients — the action value is written straight into each one, so it
 works on every fighting client at once regardless of which window has focus.
 
-### Broadcast (Full / Battle)
-
-Sends one keystroke to every running client at once.
-
-| Hotkey | Action |
-|--------|--------|
-| **Not bound** | Switch between sending to all clients and all but the focused one |
-| *(configured)* | One shortcut per key you list — see below |
-
-Set it up in **Settings → Broadcast**. Choose a **trigger** modifier (Alt by default) and list the
-**keys to broadcast**, e.g. `1,2,3,4,5`. Each key then gets its own shortcut: with the Alt trigger,
-pressing **Alt+1** sends **1** to your clients, **Alt+2** sends **2**, and so on. Letters, digits,
-**F1–F24** and named keys (`Enter`, `Space`, `Tab`, `Up`, `Numpad1`, …) can be sent; up to 24 of them.
-
-**Send to** chooses between every client including the one you are looking at, or everyone except it.
-The **Switch target** action flips that mid-session without opening Settings, and is available on the
-Quick Actions ring.
-
-**Never send to these characters** takes a comma-separated list of names — a bank alt or a client
-parked somewhere deliberately sits out. The field suggests the characters running right now.
-
-Three things it will not do, by design:
-
-- **It never fires on a bare key.** Triggers always include a modifier, so typing `1` in chat cannot
-  broadcast. The shortcuts also only exist while a game window is focused, so nothing fires from your
-  browser.
-- **It never types into a login screen.** Every client's state is checked at the moment you press the
-  key, and any client still loading or sitting at character select is skipped and reported.
-- **It sends one keystroke per client**, never twice to the same one, even when a client has more
-  than one window.
-
-A key whose shortcut is already taken by something else is skipped rather than stealing the binding,
-and **Settings → Broadcast** lists any that clash so it is never silent.
-
 ### Better Hotkeys (Full / Battle)
 
 Choose **Tray → Quick Actions → Better Hotkeys…** to create character profiles and bind their
@@ -508,6 +474,81 @@ rather it opened itself whenever two or more clients are running, tick that in
 
 Use it with **Ctrl+Alt+E** (*Send Enter Until Ready*): the roster is what shows you which alt is
 still sitting at a login prompt.
+
+#### Health and mana
+
+The list view shows each client's **HP and MP** as a bar with the figures beside it, so you can see
+at a glance which alt is in trouble without switching to it. Below a quarter health the HP bar turns
+red — but the numbers are always there, so you are never relying on the colour alone.
+
+Each client shows **its own** health, whoever is leading the party — and it keeps updating during a
+fight, which is the moment it matters.
+
+A client still at a login or character-select screen shows **—**: there is no character loaded to
+have health. The same **—** appears in the rare case where a fight is running and Maps++ cannot work
+out which combatant you are — two party members built identically enough to be indistinguishable.
+Showing nothing is deliberate there: the alternative is a bar that might belong to somebody else,
+and a health bar you cannot trust is worse than no health bar.
+
+### Party Health HUD (Full, Battle)
+
+A strip along the bottom of the client you are playing, with one cell per character, for checking
+on your alts without switching to them.
+
+| Hotkey | Action |
+|--------|--------|
+| **Ctrl+Alt+H** | Peek at party health — shows the strip for a few seconds |
+
+By default it is **not** on screen permanently. Press the key, read it, and it takes itself away
+after five seconds; press again to dismiss it sooner.
+
+**Clicking another window also dismisses it.** A peek belongs to the client you opened it on — it is
+answering a question about *that* character's fight — so switching away ends it rather than dragging
+the strip onto the new window. Press the key again on the client you have moved to and you get its
+fight, freshly read. Left up all the time it is just another gauge
+competing with the ones the game already draws.
+
+Each cell shows the character name, then its health, mana and — during a fight — its pet, each as a
+figure with a hairline bar under it. The health bar runs **green through amber to red** as health
+falls, so a character sliding into trouble looks different from one that is merely not full. The
+numbers are always there, so colour is never the only signal.
+
+**It sits on the window you are playing.** The strip is centred along the bottom edge of the active
+client and follows you when you switch windows, so in a multi-box layout it is always on the client
+you are looking at. It is never wider than that client: cells share the available width and shrink
+as more characters appear.
+
+There is no saved position and nothing to drag, deliberately — a fixed coordinate would be wrong
+the moment you alt-tabbed to a window somewhere else on screen.
+
+**It never intercepts your clicks.** The HUD is click-through, so a click that lands on it goes to
+the game underneath as though it were not there. It also never takes focus, so it can appear in the
+middle of a fight without pulling you out of the game.
+
+**Settings → Party Health HUD** changes when it appears:
+
+| Setting | Meaning |
+|---------|---------|
+| Only when I press the key, for a few seconds | *(default)* Never appears on its own |
+| Automatically while a client is in battle | Appears when a fight starts and disappears when it ends, listing **only the clients actually fighting** |
+| Always, whenever a client is running | Permanently on screen, listing every client |
+
+**Seconds a peek lasts** sets how long the key holds it up, between 1 and 60.
+
+**It shows one fight.** If a battle is running, the strip lists the characters in the fight that the
+window you are playing is in — at most five, which is a full party. Boxing six clients across two
+separate battles, you get the battle you are looking at rather than both parties' bars in one row;
+switch to a client in the other fight and peek again, and the strip follows.
+
+Peeking while nothing is fighting shows every running client instead, since checking on idle alts is
+the other reason to press the key. The automatic battle mode shows nothing at all out of combat, and
+leaves an idle alt out of a fight it is not in — rows you do not need push the ones you do further
+from where you are looking.
+
+Cells show **—** for a client with no character loaded, or in the rare case where two party members
+are built identically enough that Maps++ cannot tell which combatant you are.
+
+To turn the HUD off entirely, switch the addon off in **Settings → Addons**.
 
 ### Quick Actions (all variants)
 
@@ -680,11 +721,10 @@ WarnAbove=10000000
 PresetClears=0
 IconBase=0
 
-[Broadcast]
-Modifier=!
-Keys=1,2,3,4,5
-Target=all
-Exclude=
+[PartyHealth]
+Mode=peek
+PeekSeconds=5
+ShowPets=1
 
 [QuickActions]
 Actions=viewModeToggle,battleSend,inventoryOpenClick,chatToggleAll,windowLayoutPrimary,clientRosterToggle,poiToggleLayer,openSettings
@@ -724,10 +764,9 @@ BetterHotkeys=1
 | `DefaultKind` | Type pre-selected when adding a POI: `npc`, `shop`, `portal`, `quest`, `note` |
 | `Actions` | Quick Actions ring contents: hotkey action ids, comma-separated, in ring order (first at 12 o'clock, then clockwise). Ids for addons this build doesn't have are ignored, so one file works across variants. Set from **Settings → Quick Actions** |
 | `Prewarm` | `1` = load the Quick Actions ring at startup so the first press is instant; `0` = build it on first use, saving memory |
-| `Modifier` | Broadcast trigger, in AutoHotkey chord syntax: `!` Alt, `^!` Ctrl+Alt, `+!` Shift+Alt, `^+` Ctrl+Shift. Always a modifier, so a bare keypress can never broadcast |
-| `Keys` | Comma-separated keys to broadcast, e.g. `1,2,3,4,5`. Letters, digits, `F1`–`F24` and named keys; up to 24. Unrecognised entries are dropped |
-| `Target` | `all` = every client; `others` = every client except the focused one |
-| `Exclude` | Comma-separated character names that never receive a broadcast |
+| `Mode` | When the party health HUD appears: `peek` (only while its hotkey holds it up), `combat` (while a client is fighting, listing just those clients), or `always` |
+| `PeekSeconds` | How long a peek lasts, 1–60 |
+| `ShowPets` | `1` = include a pet health bar in each cell during a fight |
 | `DefaultLayout` | Layout used by the primary/secondary **Apply default layout** actions — a preset name, or the name of one of your custom layouts |
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |

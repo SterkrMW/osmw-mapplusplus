@@ -247,7 +247,8 @@ _ClientRoster_EnsureGui() {
         g.MarginX := 6
         g.MarginY := 6
         g.SetFont("s9", "Segoe UI")
-        lv := g.Add("ListView", "w330 r6 -Multi NoSortHdr Grid", ["Character", "Zone", "Status"])
+        lv := g.Add("ListView", "w470 r6 -Multi NoSortHdr Grid",
+            ["Character", "Zone", "Status", "HP", "MP"])
         lv.OnEvent("DoubleClick", _ClientRoster_OnNativeRowActivate)
         g.OnEvent("Close", (*) => _ClientRoster_UserHide())
         g.OnEvent("Escape", (*) => _ClientRoster_UserHide())
@@ -258,7 +259,7 @@ _ClientRoster_EnsureGui() {
 
     dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
     dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
-    wvSettings := { DllPath: dllPath, DefaultWidth: 380, DefaultHeight: 260 }
+    wvSettings := { DllPath: dllPath, DefaultWidth: 560, DefaultHeight: 280 }
 
     g := WebViewGui("-Caption +AlwaysOnTop +ToolWindow -MaximizeBox +E0x08000000", "Maps++ Clients",, wvSettings)
     g.OnEvent("Close", (*) => _ClientRoster_UserHide())
@@ -443,10 +444,12 @@ _ClientRoster_OnSnapshot(snapshots) {
             _ClientRoster_List.Add(,
                 (snap.charName != "" ? snap.charName : "PID " snap.pid),
                 _ClientRoster_ZoneText(snap),
-                _ClientRoster_StatusText(snap))
+                _ClientRoster_StatusText(snap),
+                _ClientRoster_VitalText(snap, false),
+                _ClientRoster_VitalText(snap, true))
         }
         _ClientRoster_RowHwnds := rows
-        loop 3
+        loop 5
             _ClientRoster_List.ModifyCol(A_Index, "AutoHdr")
         _ClientRoster_List.Opt("+Redraw")
         return
@@ -464,11 +467,33 @@ _ClientRoster_OnSnapshot(snapshots) {
             . ',"charName":' _JSON_Str(cName)
             . ',"zoneText":' _JSON_Str(_ClientRoster_ZoneText(snap))
             . ',"statusText":' _JSON_Str(_ClientRoster_StatusText(snap))
+            . ',"hasVitals":' (snap.hasVitals ? "true" : "false")
+            . ',"hp":' snap.hp ',"maxHp":' snap.maxHp
+            . ',"mp":' snap.mp ',"maxMp":' snap.maxMp
+            . ',"hasPet":' (snap.hasPet ? "true" : "false")
+            . ',"petHp":' snap.petHp ',"petMaxHp":' snap.petMaxHp
+            . ',"petMp":' snap.petMp ',"petMaxMp":' snap.petMaxMp
         . '}'
     }
     clientsJson .= "]"
 
     try _ClientRoster_Gui.PostWebMessageAsJson('{"type":"snapshot-update","clients":' clientsJson '}')
+}
+
+; "21197 / 46775 (45%)", or "—" when there is nothing real to show.
+;
+; Blank rather than zeros: a client that has not been in a fight has no numbers
+; at all, and "0 / 0" would read as a dead character.
+; Not named `cur`/`max`: Max() is a built-in, and shadowing one is a load-time
+; conflict that Ahk2Exe refuses to compile.
+_ClientRoster_VitalText(snap, wantMp) {
+    if !snap.hasVitals
+        return "—"
+    curVal := wantMp ? snap.mp : snap.hp
+    maxVal := wantMp ? snap.maxMp : snap.maxHp
+    if (maxVal <= 0)
+        return "—"
+    return curVal " / " maxVal "  (" Round(curVal * 100 / maxVal) "%)"
 }
 
 _ClientRoster_ZoneText(snap) {

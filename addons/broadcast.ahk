@@ -1,5 +1,11 @@
 #Requires AutoHotkey v2.0
 
+; SUSPENDED — deliberately absent from every variants\*.txt, so no build ships
+; it. The addon loads and registers, but it needs more work before it is safe to
+; hand to users and sits below other work in priority. Kept rather than deleted
+; so that work resumes where it stopped; add the filename back to the manifests
+; to ship it.
+
 ; Sends one keystroke to every running client at once — the thing multi-boxers
 ; reach for constantly and that this app had no answer for.
 ;

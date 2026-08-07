@@ -20,6 +20,24 @@ global BATTLE_STATE_OFFSET := 0x301DE4
 ; Character class of the logged-in character, 0-7. Indexes avatars\c<N>.png.
 ; Only meaningful once the client is past the login screens (GAME_STATE_READY).
 global CHAR_CLASS_OFFSET := 0x2AA62C
+; This character's own vitals — the block starting 0x1C past the class id.
+;
+; THE per-character health source. Not the battle actor array, which describes
+; the fight from the party leader's seat and so reports the leader's health to
+; every client in the party.
+;
+; Established with two clients dumping this region side by side while BOTH were
+; in battle: every field below differed per client and the max values matched
+; each client's own on-screen figures exactly (2121697 and 46775). A shared or
+; leader-relative field cannot do that.
+;
+; Same field order as a battle record: MaxHP, CurHP, MaxMP, CurMP.
+global CHAR_VITALS_OFFSET := 0x2AA648
+global CHAR_V_MAXHP := 0x00
+global CHAR_V_HP    := 0x04
+global CHAR_V_MAXMP := 0x08
+global CHAR_V_MP    := 0x0C
+global CHAR_VITALS_BYTES := 0x10
 global MAP_FILE_LEN := 20
 global MAP_NAME_LEN := 14
 
@@ -37,29 +55,80 @@ global MAP_NAME_LEN := 14
 ; characters and the odd number after each one is that character's pet, so
 ; location 1 is location 0's pet.
 ;
-; Each record is BATTLE_ACTOR_STRIDE apart, and carries TWO identical-looking
-; blocks of {MaxHP, CurHP, MaxMP, CurMP} — one at +0x00 and a copy at +0x24.
-; Which of the two is the live pool is not yet established; Tray > Debug >
-; Verify Battle Stats dumps both side by side to settle it against a real fight.
-; BATTLE_STATS_BLOCK selects the one everything else reads.
+; Each record is BATTLE_ACTOR_STRIDE apart, and carries two blocks of
+; {MaxHP, CurHP, MaxMP, CurMP} — one at +0x00 and a copy at +0x24.
+;
+; Measured in a live fight: the two are a genuine mirror. Every location agreed
+; in both values, and taking damage moved them by identical amounts (-982/-982,
+; -195/-195). So the choice does not matter; block A is read because it is first.
+;
+; ── Telling an occupied location from a leftover ─────────────────
+;
+; A location that is no longer in the fight KEEPS its last values, so HP and MP
+; cannot answer "is anyone here". Measured: locations 2 and 3 reported plausible
+; HP (29997/30971) for a party member who was not in that battle at all.
+;
+; BATTLE_F_ACTOR_ID is what answers it. It carries a per-combatant id where
+; someone is standing (56, 27, 29 in that measurement) and -1 everywhere else —
+; for leftovers and for never-used locations alike. That is the presence test.
+;
+; BATTLE_F_ACTIVE discriminated equally well in the same sample (1 against 0)
+; but is a plain boolean, so it may well mean "alive" rather than "present" —
+; which would hide a dead ally. It is read but is not what presence is decided
+; on.
+;
+; Finding this is what made zeroing the array from outside unnecessary: nothing
+; is written into the client.
+;
+; ── +0x1B8 holds text, but it is NOT this combatant's name ───────
+;
+; Worth stating so it is not re-investigated. The record's tail contains
+; readable names ("Devious Devil", "Queef", "Dream Flyer", "Thief"), which looks
+; exactly like the identity field a roster would need. It is not:
+;
+;   loc 10 was occupied (the enemy, id 29) and had NO name
+;   loc  9 was empty (id -1, all stats zero) and HAD one
+;   loc  0 held the local character's stats (max HP 46775, consistent across
+;          every dump) while naming the enemy it was fighting
+;
+; So the text does not track occupancy and does not describe the record it sits
+; in — a target or last-interaction name would fit the evidence better. Pairing
+; a location with a character needs something else.
+;
+; Which entry belongs to which character is answered instead by matching the
+; maxima against CHAR_VITALS_OFFSET — see FindOwnBattleLocation. Location 0 is
+; the party LEADER, not whoever is looking, so nothing may read it as "mine".
 global BATTLE_ACTOR_BASE_OFFSET := 0x2A3D90
 global BATTLE_ACTOR_STRIDE := 0x1D0      ; 464 bytes between locations
 global BATTLE_PARTY_SLOTS := 10          ; locations 0-9
 global BATTLE_TOTAL_SLOTS := 20          ; both sides
 global BATTLE_ACTOR_BLOCK_A := 0x00
 global BATTLE_ACTOR_BLOCK_B := 0x24
-global BATTLE_ACTOR_RECORD_BYTES := 0x34 ; through the end of the second block
+global BATTLE_ACTOR_RECORD_BYTES := 0x4C ; through the end of BATTLE_F_ACTOR_ID
 ; Field order inside either block.
 global BATTLE_F_MAXHP := 0x00
 global BATTLE_F_HP    := 0x04
 global BATTLE_F_MAXMP := 0x08
 global BATTLE_F_MP    := 0x0C
-; 0 = the block at +0x00, 1 = the copy at +0x24. Provisional until the
-; diagnostic says which one moves when damage is taken.
+; Record-level fields, outside both blocks.
+global BATTLE_F_ACTIVE   := 0x3C   ; 1 where someone stands, 0 otherwise
+; Per-combatant id, -1 when nobody is there. Good for presence, useless for
+; identity ACROSS clients: two clients watching one fight do not agree on it,
+; so it must never be part of anything compared between them (see
+; BattleFingerprint, which had to stop using it).
+global BATTLE_F_ACTOR_ID := 0x48
+global BATTLE_ACTOR_ID_NONE := -1
+; 0 = the block at +0x00, 1 = the copy at +0x24. Either works — both were
+; measured moving by identical amounts when damage landed.
 global BATTLE_STATS_BLOCK := 0
 ; Guards a plainly wrong read (a moved offset after a patch) from being rendered
 ; as a real health bar.
-global BATTLE_HP_SANE_MAX := 1000000
+;
+; Raised from 1,000,000, which was set from a small sample and would have
+; rejected a real character: Queef's max HP is 2,121,697. The ceiling only has
+; to be below what a misread pointer looks like (hundreds of millions, or
+; negative), not close to a plausible maximum.
+global BATTLE_HP_SANE_MAX := 50000000
 ; Raw memory position → the coordinates the game shows the player.
 ;
 ;   displayed = (raw + offset) / divisor
@@ -204,15 +273,16 @@ global gNpcNextId := NPC_ID_START
 ; Hardcoded RVAs that get discovered and resolved at runtime. The values here
 ; serve two purposes: bootstrap input for signature capture (Ctrl+Alt+S), and
 ; runtime fallback when no cache or signature is available.
-global SIGNATURE_NAMES := ["MAP_FILE_OFFSET", "MAP_NAME_OFFSET", "POS_X_OFFSET", "POS_Y_OFFSET", "GAME_STATE_OFFSET", "BATTLE_STATE_OFFSET", "CHAR_CLASS_OFFSET"]
-global gFallbackOffsets := Map("MAP_FILE_OFFSET", MAP_FILE_OFFSET, "MAP_NAME_OFFSET", MAP_NAME_OFFSET, "POS_X_OFFSET", POS_X_OFFSET, "POS_Y_OFFSET", POS_Y_OFFSET, "GAME_STATE_OFFSET", GAME_STATE_OFFSET, "BATTLE_STATE_OFFSET", BATTLE_STATE_OFFSET, "CHAR_CLASS_OFFSET", CHAR_CLASS_OFFSET)
+global SIGNATURE_NAMES := ["MAP_FILE_OFFSET", "MAP_NAME_OFFSET", "POS_X_OFFSET", "POS_Y_OFFSET", "GAME_STATE_OFFSET", "BATTLE_STATE_OFFSET", "CHAR_CLASS_OFFSET", "CHAR_VITALS_OFFSET", "BATTLE_ACTOR_BASE"]
+global gFallbackOffsets := Map("MAP_FILE_OFFSET", MAP_FILE_OFFSET, "MAP_NAME_OFFSET", MAP_NAME_OFFSET, "POS_X_OFFSET", POS_X_OFFSET, "POS_Y_OFFSET", POS_Y_OFFSET, "GAME_STATE_OFFSET", GAME_STATE_OFFSET, "BATTLE_STATE_OFFSET", BATTLE_STATE_OFFSET, "CHAR_CLASS_OFFSET", CHAR_CLASS_OFFSET, "CHAR_VITALS_OFFSET", CHAR_VITALS_OFFSET, "BATTLE_ACTOR_BASE", BATTLE_ACTOR_BASE_OFFSET)
 ; Offsets that cannot be captured as byte signatures — they are data strings
 ; with no abs32 code reference for the scanner to latch onto — but that sit at
 ; a fixed delta from an offset that can. Once the source resolves, these follow.
 ; delta is taken from the constants above, so editing those keeps it correct.
 ; validate(handle, addr) → "ok" | "unknown" | "bad" (see ValidateMapNameRva).
 global DERIVED_OFFSETS := Map(
-    "MAP_NAME_OFFSET", { from: "MAP_FILE_OFFSET", delta: MAP_NAME_OFFSET - MAP_FILE_OFFSET, validate: ValidateMapNameRva }
+    "MAP_NAME_OFFSET", { from: "MAP_FILE_OFFSET", delta: MAP_NAME_OFFSET - MAP_FILE_OFFSET, validate: ValidateMapNameRva },
+    "CHAR_VITALS_OFFSET", { from: "CHAR_CLASS_OFFSET", delta: CHAR_VITALS_OFFSET - CHAR_CLASS_OFFSET, validate: ValidateCharVitalsRva }
 )
 ; INIs live next to the script when writable; otherwise %AppData% so users who
 ; install under Program Files (or whose folder is locked by AV/Controlled Folder

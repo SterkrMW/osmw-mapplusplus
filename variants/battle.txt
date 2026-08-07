@@ -3,6 +3,7 @@ battle_send.ahk
 better_hotkeys.ahk
 chat_toggle.ahk
 client_roster.ahk
+party_health.ahk
 party_markers.ahk
 quick_actions.ahk
 view_mode.ahk

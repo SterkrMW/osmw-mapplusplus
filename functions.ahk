@@ -722,6 +722,36 @@ GetOverlayPositionForGameWindow() {
     return { x: base.x + gMinimapOffsetX, y: base.y + gMinimapOffsetY }
 }
 
+; Screen rect of the active game client's drawing area, for anything that has
+; to sit on top of the game.
+;
+; The CLIENT rect, not the window rect, so placement ignores invisible DWM
+; borders, the title bar and DPI-scaled chrome — those differ per Windows
+; version and would otherwise shift every overlay by a few pixels.
+;
+; Falls back to the first game window found, then to the primary screen, so a
+; caller always gets usable numbers; `ok` says whether a game window was behind
+; them.
+GameClientRect() {
+    global GAME_WIN_FILTER
+    hwnd := WinActive(GAME_WIN_FILTER)
+    if !hwnd {
+        hwnd := WinExist(GAME_WIN_FILTER)
+    }
+    if !hwnd {
+        return { ok: false, hwnd: 0, x: 0, y: 0, w: A_ScreenWidth, h: A_ScreenHeight }
+    }
+    rc := Buffer(16, 0)
+    DllCall("user32\GetClientRect", "Ptr", hwnd, "Ptr", rc)
+    pt := Buffer(8, 0)
+    DllCall("user32\ClientToScreen", "Ptr", hwnd, "Ptr", pt)
+    return {
+        ok: true, hwnd: hwnd,
+        x: NumGet(pt, 0, "Int"), y: NumGet(pt, 4, "Int"),
+        w: NumGet(rc, 8, "Int"), h: NumGet(rc, 12, "Int")
+    }
+}
+
 ; Same, with the user's offsets excluded — the zero point a drag is measured
 ; against, so a dragged overlay stays put when the game window moves.
 GetOverlayAnchorPosition() {
@@ -729,29 +759,8 @@ GetOverlayAnchorPosition() {
     totalW := MinimapDisplayW() + 2 * MINIMAP_MAP_INSET
     totalH := MinimapDisplayH() + 2 * MINIMAP_MAP_INSET
 
-    hwnd := WinActive(GAME_WIN_FILTER)
-    if !hwnd {
-        hwnd := WinExist(GAME_WIN_FILTER)
-    }
-
-    if hwnd {
-        ; Use the client rect so placement ignores invisible DWM borders,
-        ; the title bar, and DPI-scaled window chrome.
-        rc := Buffer(16, 0)
-        DllCall("user32\GetClientRect", "Ptr", hwnd, "Ptr", rc)
-        areaW := NumGet(rc, 8, "Int")
-        areaH := NumGet(rc, 12, "Int")
-        pt := Buffer(8, 0)
-        DllCall("user32\ClientToScreen", "Ptr", hwnd, "Ptr", pt)
-        areaX := NumGet(pt, 0, "Int")
-        areaY := NumGet(pt, 4, "Int")
-    } else {
-        ; No game window — fall back to the primary screen.
-        areaX := 0
-        areaY := 0
-        areaW := A_ScreenWidth
-        areaH := A_ScreenHeight
-    }
+    area := GameClientRect()
+    areaX := area.x, areaY := area.y, areaW := area.w, areaH := area.h
 
     switch gMinimapAnchor {
         case "TopLeft":
@@ -1893,6 +1902,227 @@ CharacterNameFromWindow(hwnd) {
     return ""
 }
 
+; ── Battle actors ────────────────────────────────────────────────
+;
+; The combatant array described in variables.ahk. One ReadProcessMemory covers
+; every location — the records are strided, so reading them individually would
+; be 20 calls for 9 KB that arrives in one.
+
+; Every location up to `slotCount`, as raw records carrying BOTH field blocks.
+; Choosing between the blocks is deliberately left to the caller so the
+; diagnostic can show them side by side.
+ReadBattleActors(proc, slotCount) {
+    global BATTLE_ACTOR_STRIDE, BATTLE_ACTOR_RECORD_BYTES, BATTLE_PARTY_SLOTS
+    global BATTLE_ACTOR_BLOCK_A, BATTLE_ACTOR_BLOCK_B
+    global BATTLE_F_MAXHP, BATTLE_F_HP, BATTLE_F_MAXMP, BATTLE_F_MP
+    global BATTLE_F_ACTOR_ID, BATTLE_F_ACTIVE
+
+    if (slotCount < 1)
+        return []
+    span := (slotCount - 1) * BATTLE_ACTOR_STRIDE + BATTLE_ACTOR_RECORD_BYTES
+    buf := ReadClientBuffer(proc, GetResolvedOffset("BATTLE_ACTOR_BASE"), span)
+    if !buf
+        return []
+
+    out := []
+    Loop slotCount {
+        loc := A_Index - 1
+        o := loc * BATTLE_ACTOR_STRIDE
+        out.Push({
+            loc:     loc,
+            isPet:   Mod(loc, 2) = 1,
+            isEnemy: loc >= BATTLE_PARTY_SLOTS,
+            owner:   (Mod(loc, 2) = 1) ? loc - 1 : loc,
+            id:      NumGet(buf, o + BATTLE_F_ACTOR_ID, "Int"),
+            active:  NumGet(buf, o + BATTLE_F_ACTIVE, "Int"),
+            a: {
+                maxHp: NumGet(buf, o + BATTLE_ACTOR_BLOCK_A + BATTLE_F_MAXHP, "Int"),
+                hp:    NumGet(buf, o + BATTLE_ACTOR_BLOCK_A + BATTLE_F_HP,    "Int"),
+                maxMp: NumGet(buf, o + BATTLE_ACTOR_BLOCK_A + BATTLE_F_MAXMP, "Int"),
+                mp:    NumGet(buf, o + BATTLE_ACTOR_BLOCK_A + BATTLE_F_MP,    "Int")
+            },
+            b: {
+                maxHp: NumGet(buf, o + BATTLE_ACTOR_BLOCK_B + BATTLE_F_MAXHP, "Int"),
+                hp:    NumGet(buf, o + BATTLE_ACTOR_BLOCK_B + BATTLE_F_HP,    "Int"),
+                maxMp: NumGet(buf, o + BATTLE_ACTOR_BLOCK_B + BATTLE_F_MAXMP, "Int"),
+                mp:    NumGet(buf, o + BATTLE_ACTOR_BLOCK_B + BATTLE_F_MP,    "Int")
+            }
+        })
+    }
+    return out
+}
+
+; The block everything outside the diagnostic reads.
+BattleActorStats(rec) {
+    global BATTLE_STATS_BLOCK
+    return (BATTLE_STATS_BLOCK = 1) ? rec.b : rec.a
+}
+
+; Whether a location's numbers are usable at all — a sanity check on the pools,
+; not a statement about occupancy.
+;
+; This is what stops a base that has moved after a game patch from being drawn
+; as a confident-looking health bar. It cannot tell a live combatant from the
+; values one left behind: a leftover measured at 29997/30971 passes every test
+; here. Occupancy is BattleActorOccupied's job.
+BattleActorStatsSane(stats) {
+    global BATTLE_HP_SANE_MAX
+    return stats.maxHp > 0 && stats.maxHp <= BATTLE_HP_SANE_MAX
+        && stats.hp >= 0 && stats.hp <= stats.maxHp
+}
+
+; Whether anyone is actually standing in this location.
+;
+; The actor id is -1 for an empty location and for one still holding a departed
+; combatant's values, which is the only field found that separates the two.
+BattleActorOccupied(rec) {
+    global BATTLE_ACTOR_ID_NONE
+    return rec.id != BATTLE_ACTOR_ID_NONE && rec.id >= 0
+}
+
+; Occupied, and reading numbers worth showing. This is the test to count
+; combatants with.
+BattleActorIsPresent(rec) {
+    return BattleActorOccupied(rec) && BattleActorStatsSane(BattleActorStats(rec))
+}
+
+; A fingerprint of the fight itself, identical in every client taking part.
+;
+; This is the same property that made the battle array so misleading for
+; health: it describes ONE fight from the party leader's seat, so every client
+; in that fight holds byte-for-byte the same array. What is useless for saying
+; "whose health is this" is exactly right for saying "are you two in the same
+; battle" — two clients agree here only if they are in the same fight.
+;
+; Built from location and the MAXIMA — deliberately NOT the actor id, and never
+; current HP.
+;
+; Current values move constantly, so two clients polled a moment apart would
+; disagree for no good reason. The actor id looked like the ideal ingredient and
+; is the opposite: keying on it gave every client a fingerprint no other client
+; shared, so a five-strong party grouped as five parties of one. Whatever that
+; id counts, it is not the same number in two clients looking at one fight.
+;
+; The maxima are known to agree across clients, and from the worst possible
+; source: the bug where the roster showed one character's health on every row
+; was two clients reading identical maxima out of this array. What made that
+; wrong for identity makes it exactly right for grouping.
+;
+; Occupied party locations only, in location order, so a departed combatant's
+; leftovers cannot change the answer.
+BattleFingerprint(actors) {
+    key := ""
+    for rec in actors {
+        if (rec.isEnemy || !BattleActorIsPresent(rec)) {
+            continue
+        }
+        st := BattleActorStats(rec)
+        key .= rec.loc ":" st.maxHp ":" st.maxMp "|"
+    }
+    return key
+}
+
+; Which battle location is THIS client's character.
+;
+; Neither source is sufficient alone, and they fail in opposite directions:
+;
+;   the battle array   is live during a fight, but leader-relative — location 0
+;                      is the party leader, not whoever is looking
+;   the character block is reliably per-character, but its CURRENT hp/mp stop
+;                      updating the moment a fight starts (measured: a HUD
+;                      showing 2121162 while the block still read 984027)
+;
+; The join is the MAXIMA. Those stay correct in the character block during
+; battle — verified against the HUD mid-fight — and the battle record carries
+; them too, so the location whose maximum HP and MP both equal this character's
+; is this character. That turns the live array into a per-client reading.
+;
+; Matching on the pair rather than HP alone is what keeps two similarly-built
+; party members apart, and an ambiguous match returns nothing rather than
+; guessing: picking arbitrarily between two members is precisely the bug this
+; whole exercise started with.
+FindOwnBattleLocation(actors, maxHp, maxMp) {
+    if (maxHp <= 0) {
+        return 0
+    }
+    found := 0
+    for rec in actors {
+        if (rec.isEnemy || rec.isPet || !BattleActorIsPresent(rec)) {
+            continue
+        }
+        st := BattleActorStats(rec)
+        if (st.maxHp = maxHp && st.maxMp = maxMp) {
+            if (found) {
+                return 0
+            }
+            found := rec
+        }
+    }
+    return found
+}
+
+; This character's own HP/MP, from the per-character block.
+;
+; Unlike the battle actor array this is genuinely per client, so it is what the
+; roster reads. One 16-byte read on the poll's existing handle.
+;
+; Returns ok:false at a login screen, where the block is all zeros — a client
+; with nothing loaded has no vitals, which is different from having zero health.
+ReadCharacterVitals(proc, inBattle := false) {
+    global CHAR_VITALS_BYTES, CHAR_V_MAXHP, CHAR_V_HP, CHAR_V_MAXMP, CHAR_V_MP, BATTLE_HP_SANE_MAX
+    global BATTLE_PARTY_SLOTS
+    blank := { ok: false, live: false, hp: 0, maxHp: 0, mp: 0, maxMp: 0,
+        hasPet: false, petHp: 0, petMaxHp: 0, petMp: 0, petMaxMp: 0, battleKey: "" }
+    buf := ReadClientBuffer(proc, GetResolvedOffset("CHAR_VITALS_OFFSET"), CHAR_VITALS_BYTES)
+    if !buf {
+        return blank
+    }
+    maxHp := NumGet(buf, CHAR_V_MAXHP, "Int")
+    hp    := NumGet(buf, CHAR_V_HP, "Int")
+    maxMp := NumGet(buf, CHAR_V_MAXMP, "Int")
+    mp    := NumGet(buf, CHAR_V_MP, "Int")
+    ; Same plausibility rule the offset validator uses, so a patch that moves
+    ; this shows as "no data" rather than as a wrong bar.
+    good := (maxHp > 0 && maxHp <= BATTLE_HP_SANE_MAX && hp >= 0 && hp <= maxHp
+        && maxMp >= 0 && maxMp <= BATTLE_HP_SANE_MAX && mp >= 0 && mp <= maxMp)
+    res := { ok: good, live: true, hp: hp, maxHp: maxHp, mp: mp, maxMp: maxMp,
+        hasPet: false, petHp: 0, petMaxHp: 0, petMp: 0, petMaxMp: 0, battleKey: "" }
+    if (!good || !inBattle) {
+        return res
+    }
+
+    ; Out of a fight the block above is the live one. In a fight its current
+    ; values freeze, so they come from the battle array instead — via the
+    ; maxima, which are what say which location is ours.
+    actors := ReadBattleActors(proc, BATTLE_PARTY_SLOTS)
+    ; Costs nothing extra — the array is already read and in hand.
+    res.battleKey := BattleFingerprint(actors)
+    rec := FindOwnBattleLocation(actors, maxHp, maxMp)
+    if !rec {
+        res.live := false
+        return res
+    }
+    st := BattleActorStats(rec)
+    res.hp := st.hp
+    res.mp := st.mp
+    res.maxHp := st.maxHp
+    res.maxMp := st.maxMp
+
+    ; A pet sits in the location after its owner, so identifying the owner
+    ; identifies the pet — which reading location 1 blindly never could.
+    for other in actors {
+        if (other.loc = rec.loc + 1 && BattleActorIsPresent(other)) {
+            pst := BattleActorStats(other)
+            res.hasPet := true
+            res.petHp := pst.hp
+            res.petMaxHp := pst.maxHp
+            res.petMp := pst.mp
+            res.petMaxMp := pst.maxMp
+        }
+    }
+    return res
+}
+
 GetClientSnapshots() {
     global gClientSnapshots
     return gClientSnapshots
@@ -2001,6 +2231,9 @@ UpdateClientSnapshots() {
             }
         }
 
+        ; Health rides the same poll rather than adding a loop of its own: one
+        ; 16-byte read per client, from the process handle already open.
+        vit := ReadCharacterVitals(proc, inBattle)
         snapshots.Push({
             hwnd: hwnd,
             pid: pid,
@@ -2012,7 +2245,23 @@ UpdateClientSnapshots() {
             gameState: gameState,
             inBattle: inBattle,
             classId: classId,
-            isActive: (pid = activePid)
+            isActive: (pid = activePid),
+            ; live is false only when a fight is on and no location matched,
+            ; where the block's numbers are frozen — "—" beats a stale bar.
+            hasVitals: vit.ok && vit.live,
+            ; Empty outside a fight. Clients sharing a non-empty key are in the
+            ; same battle — see BattleFingerprint.
+            battleKey: vit.battleKey,
+            hp:    vit.ok ? vit.hp    : 0,
+            maxHp: vit.ok ? vit.maxHp : 0,
+            mp:    vit.ok ? vit.mp    : 0,
+            maxMp: vit.ok ? vit.maxMp : 0,
+            ; Only during a fight, and only once the owner's location is known.
+            hasPet: vit.ok && vit.live && vit.hasPet,
+            petHp: vit.petHp,
+            petMaxHp: vit.petMaxHp,
+            petMp: vit.petMp,
+            petMaxMp: vit.petMaxMp
         })
     }
 
@@ -3042,6 +3291,42 @@ EnsureResolvedOffsetsForBuild(handle, modBase) {
 ; reports "ok" (looks like a zone name), "unknown" (empty or unreadable — the
 ; usual answer during a loading screen), or "bad" (it's the map *filename*,
 ; so the delta doesn't hold for this build).
+; Plausible only if the four vitals agree with each other: positive maxima and
+; current values that fit inside them. A moved offset lands on unrelated data,
+; which fails one of these almost immediately.
+ValidateCharVitalsRva(handle, addr) {
+    global CHAR_VITALS_BYTES, CHAR_V_MAXHP, CHAR_V_HP, CHAR_V_MAXMP, CHAR_V_MP, BATTLE_HP_SANE_MAX
+    buf := Buffer(CHAR_VITALS_BYTES, 0)
+    ok := DllCall("ReadProcessMemory",
+        "Ptr", handle,
+        "Ptr", addr,
+        "Ptr", buf.Ptr,
+        "UPtr", CHAR_VITALS_BYTES,
+        "UPtr*", 0,
+        "Int")
+    if !ok {
+        return "unknown"
+    }
+    maxHp := NumGet(buf, CHAR_V_MAXHP, "Int")
+    hp    := NumGet(buf, CHAR_V_HP, "Int")
+    maxMp := NumGet(buf, CHAR_V_MAXMP, "Int")
+    mp    := NumGet(buf, CHAR_V_MP, "Int")
+    ; All zero at a login screen — right address, nothing loaded into it yet.
+    if (maxHp = 0 && hp = 0 && maxMp = 0 && mp = 0) {
+        return "unknown"
+    }
+    if (maxHp <= 0 || maxHp > BATTLE_HP_SANE_MAX) {
+        return "bad"
+    }
+    if (hp < 0 || hp > maxHp) {
+        return "bad"
+    }
+    if (maxMp < 0 || maxMp > BATTLE_HP_SANE_MAX || mp < 0 || mp > maxMp) {
+        return "bad"
+    }
+    return "ok"
+}
+
 ValidateMapNameRva(handle, addr) {
     buf := Buffer(MAP_NAME_LEN, 0)
     ok := DllCall("ReadProcessMemory",

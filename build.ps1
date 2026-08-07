@@ -255,6 +255,17 @@ if (-not (Test-Path -LiteralPath $VariantsDir)) {
 }
 
 $appVersion = Get-AppVersion
+
+# Catch the failure mode Ahk2Exe reports without a line number, before spending
+# a compile on it. See tools\check-shadowing.ps1.
+$shadowCheck = Join-Path $RepoRoot 'tools\check-shadowing.ps1'
+if (Test-Path -LiteralPath $shadowCheck) {
+    & $shadowCheck -Root $RepoRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "A local variable shadows an AutoHotkey built-in (listed above). Rename it and build again."
+    }
+}
+
 $compiler = Resolve-Ahk2Exe -Override $Ahk2ExePath
 Write-Host "Maps++ version: $appVersion" -ForegroundColor DarkGray
 Write-Host "Using compiler: $compiler" -ForegroundColor DarkGray

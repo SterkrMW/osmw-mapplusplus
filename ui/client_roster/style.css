@@ -16,3 +16,46 @@
 .char-name {
     font-weight: var(--weight-semibold);
 }
+
+/* ── Vitals ──────────────────────────────────────────────────────
+   A bar with the figures underneath. The numbers are always present, so
+   colour is reinforcement rather than the only way to read the row. */
+.col-vitals { width: 8.5rem; }
+
+td.vitals {
+    padding-top: 0.3rem;
+    padding-bottom: 0.3rem;
+    white-space: nowrap;
+}
+
+td.vitals-none {
+    color: var(--text-dim);
+    text-align: center;
+}
+
+.vital-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+
+.vital-fill {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    transition: width 140ms ease-out;
+}
+
+.vital-hp { background: var(--success); }
+.vital-mp { background: var(--accent); }
+/* A quarter health left is worth noticing across the room. */
+.vital-hp.is-low { background: var(--danger); }
+
+.vital-text {
+    margin-top: 2px;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
