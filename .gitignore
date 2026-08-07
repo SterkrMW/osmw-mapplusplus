@@ -5,6 +5,10 @@ config.ini
 layouts.ini
 shop_presets.ini
 better_hotkeys.ini
+# Runtime output — written next to the exe, never read back except by LogTail.
+mapsplusplus.log
+mapsplusplus.log.1
+mapsplusplus.log.diagnostics.txt
 /releases
 _addons.ahk
 /docs/superpowers

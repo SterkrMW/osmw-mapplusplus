@@ -197,9 +197,20 @@ global ADDON_FAIL_QUARANTINE := 10       ; consecutive failures before disabling
 global gQuarantinedAddons := Map()
 
 ; === Version check ===
-; Passive only: fetches a plain-text version string and says a newer build
-; exists. Never downloads, never installs. Empty URL = the check is inert, which
-; is the shipping default until a location is decided.
-global VERSION_CHECK_URL := ""
+; Passive only: fetches a small manifest and says a newer build exists. Never
+; downloads, never installs, never sends anything about the user. An empty URL
+; makes the whole feature inert and hides its Settings toggle.
+; The manifest's shape and hosting rules are documented in web\README.md.
+global VERSION_CHECK_URL := "https://osmw.net/mapsplusplus/version.json"
+; Where "Get the update" sends people. Deliberately compiled in rather than read
+; from the manifest: a URL that arrives over the network and gets handed to
+; Run() is a remote code execution vector, and server-side flexibility here is
+; not worth that.
+global VERSION_DOWNLOAD_URL := "https://osmw.net/mapsplusplus/"
 global VERSION_CHECK_TIMEOUT_MS := 5000
+global VERSION_NOTES_MAX := 100
 global gVersionCheckEnabled := true
+; Set once a newer version is seen, so the tray can offer it and About can
+; mention it. "" means up to date or not yet checked.
+global gUpdateVersion := ""
+global gUpdateNotes := ""

@@ -57,7 +57,9 @@ Consequences to respect when adding a ring: only one may be on screen at a time 
 
 `BuildDiagnosticsReport()` is what beta bug reports should carry — it identifies the build, dumps every `SIGNATURE_NAMES` entry with its `OffsetSourceLabel()` verdict, and includes the addon states and log tail. When adding a subsystem worth triaging, add it there rather than to `ShowDebugState()`.
 
-`VERSION_CHECK_URL` is empty by default, which makes the update check fully inert and hides its Settings toggle. The app makes **no** network requests otherwise, and that is a property worth preserving — see the note in TUTORIAL.md that promises it to users.
+`VERSION_CHECK_URL` points at the manifest on osmw.net (shape and hosting rules in `web/README.md`; `web/` is not shipped and `build.ps1` does not copy it). This is the app's **only** network request and its only untrusted input — it sends nothing about the user, and `_ParseVersionManifest` validates every field before anything reaches a notification. `VERSION_DOWNLOAD_URL` is compiled in and deliberately **not** read from the manifest: a URL that arrives over the network and gets handed to `Run()` is a remote-code-execution vector. Preserve both properties; TUTORIAL.md promises them to users.
+
+Because that manifest is parsed by `_JSON_Parse` (`settings.ahk`), the hand-rolled parser now takes input from outside the app. Its object/array loops carry explicit end-of-string bail-outs — without them a truncated body (`{"version":`) spins forever and hangs the whole single-threaded app. Keep those guards if you touch it, and treat any new caller that feeds it non-local data as a reason to re-check them.
 
 ### Addon system
 

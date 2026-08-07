@@ -160,11 +160,15 @@ one is kept as `mapsplusplus.log.1`; nothing else is retained.
 
 ### Update notifications
 
-If this build has an update location configured, **Settings → Launcher** offers **Check for a newer
-Maps++ on startup**. It makes a single request shortly after launch and, if a newer version exists,
-says so once. It never downloads or installs anything, and it makes no other network requests. If
-the option is not shown, this build has no update location and Maps++ does not use the network at
-all. Failures are silent by design.
+**Settings → Launcher → Check for a newer Maps++ on startup** (on by default) makes a single request
+to `osmw.net` a few seconds after launch. If a newer version exists you get one notification, and
+the tray menu gains a **Get the update** entry that opens the download page; **About Maps++…** shows
+it too. If you are up to date, nothing happens at all.
+
+It never downloads or installs anything — it reads a version number and tells you. Maps++ makes no
+other network requests, sends nothing about you or your characters (no identifiers, no query string,
+not even your own version), and treats every failure as "no update" without saying a word. Turn the
+setting off and it makes no requests at all.
 
 ---
 
@@ -609,7 +613,7 @@ BetterHotkeys=1
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |
 | `MainCharacterAsked` | `1` once the first-run "which is your main character?" prompt has been shown. Set whether you answered or dismissed it, so it is only ever asked once — clear it to be asked again |
-| `VersionCheck` | `0` disables the startup update check. Has no effect on builds with no update location configured, which never touch the network |
+| `VersionCheck` | `0` disables the startup update check, after which Maps++ makes no network requests at all |
 | `ConfirmHigh` | `1` = ask for confirmation before applying a large vendor price |
 | `WarnAbove` | The price at which that confirmation kicks in |
 | `PresetClears` | `1` = loading a shop preset also clears prices on slots the preset doesn’t mention. Off by default, so presets only add |

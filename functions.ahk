@@ -2417,35 +2417,109 @@ CheckForUpdateAsync() {
 
 _DoVersionCheck() {
     global VERSION_CHECK_URL, VERSION_CHECK_TIMEOUT_MS, APP_VERSION
-    latest := ""
+    global gUpdateVersion, gUpdateNotes
+
+    body := ""
     try {
         req := ComObject("WinHttp.WinHttpRequest.5.1")
         ; resolve / connect / send / receive, all bounded.
         req.SetTimeouts(VERSION_CHECK_TIMEOUT_MS, VERSION_CHECK_TIMEOUT_MS,
             VERSION_CHECK_TIMEOUT_MS, VERSION_CHECK_TIMEOUT_MS)
         req.Open("GET", VERSION_CHECK_URL, true)
+        ; A cached answer would mean an upload nobody sees. No query string, so
+        ; the request carries nothing identifying the user.
+        req.SetRequestHeader("Cache-Control", "no-cache")
         req.Send()
         req.WaitForResponse(VERSION_CHECK_TIMEOUT_MS // 1000)
-        if (req.Status != 200)
+        if (req.Status != 200) {
+            LogInfo("VersionCheck", "HTTP " req.Status "; ignored.")
             return
-        latest := Trim(req.ResponseText, " `t`r`n")
+        }
+        body := Trim(req.ResponseText, " `t`r`n")
     } catch as err {
+        ; Offline, DNS down, TLS failure, no route — all the same to us.
         LogInfo("VersionCheck", "Skipped: " err.Message)
         return
     }
-    ; A response that isn't a version is a misconfigured or hijacked endpoint —
-    ; ignore it rather than showing the user whatever came back.
-    if (latest = "" || StrLen(latest) > 32 || !RegExMatch(latest, "^[0-9][0-9A-Za-z.\-+]*$")) {
-        LogWarn("VersionCheck", "Unusable response; ignored.")
+
+    parsed := _ParseVersionManifest(body)
+    if !parsed.ok {
+        LogWarn("VersionCheck", "Unusable response; ignored. (" parsed.reason ")")
         return
     }
-    if (CompareVersions(latest, APP_VERSION) <= 0) {
-        LogInfo("VersionCheck", "Up to date (latest " latest ").")
+    if (CompareVersions(parsed.version, APP_VERSION) <= 0) {
+        LogInfo("VersionCheck", "Up to date (latest " parsed.version ").")
         return
     }
-    LogInfo("VersionCheck", "Newer version available: " latest)
-    TrayTip("Maps++ " latest " is available. You have " APP_VERSION ".",
+
+    gUpdateVersion := parsed.version
+    gUpdateNotes := parsed.notes
+    LogInfo("VersionCheck", "Newer version available: " parsed.version
+        . (parsed.notes != "" ? " — " parsed.notes : ""))
+    ; The tray gains a "Get the update" entry, so the notification is not the
+    ; only chance the user has to act on this.
+    SetTimer(RebuildTrayMenu, -1)
+    TrayTip("Maps++ " parsed.version " is available — you have " APP_VERSION "."
+        . (parsed.notes != "" ? "`n" parsed.notes : "")
+        . "`nTray menu → Get the update",
         "Update available", "Iconi")
+}
+
+; {ok, version, notes, reason}. Accepts the JSON manifest documented in
+; web\README.md, or a bare version string so a mis-uploaded plain-text file
+; still works instead of failing silently.
+;
+; Everything is validated before it is believed: this is the one input the app
+; takes from the network, and a misconfigured or hijacked endpoint must not be
+; able to put arbitrary text in front of the user.
+_ParseVersionManifest(body) {
+    global VERSION_NOTES_MAX
+    fail(reason) => { ok: false, version: "", notes: "", reason: reason }
+
+    if (body = "")
+        return fail("empty body")
+    if (StrLen(body) > 4096)
+        return fail("body too large")
+
+    version := "", notes := ""
+    if (SubStr(body, 1, 1) = "{") {
+        msg := ""
+        try msg := _JSON_Parse(body)
+        catch as err
+            return fail("bad JSON: " err.Message)
+        if (!IsObject(msg) || !msg.Has("version"))
+            return fail("no version field")
+        version := Trim(String(msg["version"]))
+        if msg.Has("notes")
+            notes := Trim(String(msg["notes"]))
+    } else {
+        version := body
+    }
+
+    if (version = "" || StrLen(version) > 32
+        || !RegExMatch(version, "^[0-9][0-9A-Za-z.\-+]*$"))
+        return fail("version '" SubStr(version, 1, 32) "' is not a version string")
+
+    ; Notes are shown in a notification, so they get one line and a hard cap.
+    notes := Trim(StrReplace(StrReplace(StrReplace(notes, "`r", " "), "`n", " "), "`t", " "))
+    while InStr(notes, "  ")
+        notes := StrReplace(notes, "  ", " ")
+    if (StrLen(notes) > VERSION_NOTES_MAX)
+        notes := Trim(SubStr(notes, 1, VERSION_NOTES_MAX - 1)) "…"
+
+    return { ok: true, version: version, notes: notes, reason: "" }
+}
+
+; Opens the download page. The URL is the compiled-in constant, never anything
+; the manifest supplied — see the note on VERSION_DOWNLOAD_URL.
+OpenUpdatePage() {
+    global VERSION_DOWNLOAD_URL
+    try {
+        Run(VERSION_DOWNLOAD_URL)
+    } catch as err {
+        LogWarn("VersionCheck", "Could not open " VERSION_DOWNLOAD_URL ": " err.Message)
+        TrayTip("Could not open " VERSION_DOWNLOAD_URL, "Maps++", "Iconx")
+    }
 }
 
 ; -1 / 0 / 1 for a < b, a = b, a > b. Compares dotted numeric parts, then treats

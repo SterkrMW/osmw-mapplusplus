@@ -408,6 +408,10 @@ _IconForLabel(lbl) {
     ; Toggle items may append their live state to the visible label.
     if (InStr(lbl, "Party Markers — ") = 1)
         return "shield"
+    ; Carries the version, so match the prefix.
+    ; TODO: `download` once the icon subset is next regenerated.
+    if (InStr(lbl, "Get the update — ") = 1)
+        return "rocket_launch"
     switch lbl {
         ; `info` and `folder` are not in the subsetted font and would render as
         ; permanent tofu, so these borrow the closest names that are.
@@ -449,9 +453,15 @@ _IconForLabel(lbl) {
 }
 
 RebuildTrayMenu() {
-    global gInterfaceMode
+    global gInterfaceMode, gUpdateVersion
     trayMenu := A_TrayMenu
     trayMenu.Delete()
+    ; Only present when a newer version was actually seen, so the notification
+    ; is not the user's only chance to act on it.
+    if (gUpdateVersion != "") {
+        trayMenu.Add("Get the update — " gUpdateVersion, (*) => OpenUpdatePage())
+        trayMenu.Add()
+    }
     trayMenu.Add("Launch (Primary)`t" GetHotkeyDisplay("launchPrimary"), (*) => LaunchConfiguredClients("primary"))
     trayMenu.Add("Launch (Secondary)`t" GetHotkeyDisplay("launchSecondary"), (*) => LaunchConfiguredClients("secondary"))
     trayMenu.Add()
@@ -621,18 +631,25 @@ UpdateMapState() {
 
 ShowAboutDialog() {
     global APP_VERSION, gInterfaceMode, gAddonHooks, gDisabledAddons
+    global gUpdateVersion, gUpdateNotes, VERSION_DOWNLOAD_URL
     active := 0
     for _, am in gAddonHooks {
         name := am.Has("name") ? am["name"] : ""
         if !(name != "" && gDisabledAddons.Has(name) && gDisabledAddons[name])
             active++
     }
+    updateLine := (gUpdateVersion != "")
+        ? ("`n" gUpdateVersion " is available"
+            . (gUpdateNotes != "" ? " — " gUpdateNotes : "")
+            . "`n" VERSION_DOWNLOAD_URL "`n")
+        : ""
     MsgBox("osMW Maps++`n`n"
         . "Version " APP_VERSION (A_IsCompiled ? "" : "  (running from source)") "`n"
         . "AutoHotkey " A_AhkVersion "`n"
         . "Interface: " (gInterfaceMode = "webview" ? "WebView2 (enhanced)" : "Native (low memory)") "`n"
-        . active " of " gAddonHooks.Length " addons active`n`n"
-        . "Reporting a problem? Tray → Debug → Copy Diagnostics`n"
+        . active " of " gAddonHooks.Length " addons active`n"
+        . updateLine
+        . "`nReporting a problem? Tray → Debug → Copy Diagnostics`n"
         . "collects everything needed, ready to paste.",
         "About Maps++", "Iconi")
 }

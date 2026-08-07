@@ -813,6 +813,11 @@ _JSON_ParseNumber(str, &pos) {
     while (pos <= StrLen(str) && RegExMatch(SubStr(str, pos, 1), "[0-9.eE+\-]"))
         pos++
     numStr := SubStr(str, start, pos - start)
+    ; A value that is not a number at all leaves numStr empty, and Integer("")
+    ; throws. Fall back to 0 instead: the caller's validation is what should
+    ; reject a malformed body, not an exception from three frames down.
+    if (numStr = "" || !IsNumber(numStr))
+        return 0
     if InStr(numStr, ".") || InStr(numStr, "e") || InStr(numStr, "E")
         return Float(numStr)
     return Integer(numStr)
@@ -826,10 +831,19 @@ _JSON_ParseObject(str, &pos) {
         pos++
         return obj
     }
+    ; Every exit below is a bail-out on malformed input. Without them this loop
+    ; never terminates on a truncated body — `{"version":` used to spin forever,
+    ; hanging the whole app, because a value parsed past the end of the string
+    ; advances nothing and nothing checked for it. Returning what was parsed so
+    ; far lets the caller's own validation reject it.
     loop {
         _JSON_SkipWhitespace(str, &pos)
+        if (pos > StrLen(str) || SubStr(str, pos, 1) != '"')
+            return obj                      ; truncated, or not a key
         key := _JSON_ParseString(str, &pos)
         _JSON_SkipWhitespace(str, &pos)
+        if (SubStr(str, pos, 1) != ":")
+            return obj
         pos++ ; skip :
         value := _JSON_ParseValue(str, &pos)
         obj[key] := value
@@ -839,6 +853,8 @@ _JSON_ParseObject(str, &pos) {
             pos++
             return obj
         }
+        if (ch != ",")
+            return obj                      ; ran off the end
         pos++ ; skip ,
     }
 }
@@ -851,7 +867,11 @@ _JSON_ParseArray(str, &pos) {
         pos++
         return arr
     }
+    ; Same termination guards as _JSON_ParseObject — see the note there.
     loop {
+        _JSON_SkipWhitespace(str, &pos)
+        if (pos > StrLen(str))
+            return arr
         value := _JSON_ParseValue(str, &pos)
         arr.Push(value)
         _JSON_SkipWhitespace(str, &pos)
@@ -860,6 +880,8 @@ _JSON_ParseArray(str, &pos) {
             pos++
             return arr
         }
+        if (ch != ",")
+            return arr
         pos++ ; skip ,
     }
 }
