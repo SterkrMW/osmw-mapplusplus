@@ -340,6 +340,7 @@ function populateMinimap() {
     document.getElementById('offsetX').value = state.minimap.offsetX;
     document.getElementById('offsetY').value = state.minimap.offsetY;
     document.getElementById('keepOpen').checked = !!state.minimap.keepOpen;
+    document.getElementById('showHoverCoords').checked = !!state.minimap.showHoverCoords;
     ['minimapAnchor', 'offsetX', 'offsetY'].forEach(id => {
         document.getElementById(id).addEventListener('input', updateMinimapPreview);
         document.getElementById(id).addEventListener('change', updateMinimapPreview);
@@ -963,6 +964,7 @@ function collectAndSave() {
         offsetX:  parseInt(document.getElementById('offsetX').value, 10) || 0,
         offsetY:  parseInt(document.getElementById('offsetY').value, 10) || 0,
         keepOpen: document.getElementById('keepOpen').checked,
+        showHoverCoords: document.getElementById('showHoverCoords').checked,
     };
 
     const selectedScheme = document.querySelector('input[name="accentScheme"]:checked');

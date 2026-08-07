@@ -23,8 +23,21 @@ global CHAR_CLASS_OFFSET := 0x2AA62C
 global MAP_FILE_LEN := 20
 global MAP_NAME_LEN := 14
 ; Raw memory position → the coordinates the game shows the player.
+;
+;   displayed = (raw + offset) / divisor
+;
+; The offsets are not cosmetic: without them every coordinate this app shows is
+; low by 25 on X and 37 on Y. They were established by teleporting to known
+; coordinates and reading the raw values back — five points along X and four
+; along Y on Stillreach, all exact, then confirmed unchanged on Newgrove, which
+; is what makes them global constants rather than per-map calibration.
+;
+; (A fifth Y sample, HUD y=25, wants raw -100 and reads 0 instead: the position
+; clamps at the edge of the walkable area, so it sits outside this relation.)
 global GAME_COORD_DIV_X := 16
 global GAME_COORD_DIV_Y := 8
+global GAME_COORD_OFFSET_X := 400   ; raw units, i.e. 25 displayed units
+global GAME_COORD_OFFSET_Y := 300   ; raw units, i.e. 37.5 displayed units
 global MAP_DIR := A_ScriptDir "\maps"
 ; Base map-image space. Every calibration in maps\calibration.ini maps world
 ; coordinates into *these* pixels, so they must not change with the user's
@@ -67,6 +80,15 @@ global MARKER_LABEL_MODE_LABELS := ["Hide while the mouse is over the minimap", 
 ; True while the cursor is over the overlay window; maintained by the marker
 ; timer and published to addons through the OnOverlayHover hook.
 global gOverlayHover := false
+; In-game coordinates under the cursor, shown while hovering the minimap.
+global gShowHoverCoords := true
+global gCoordReadout := 0
+; A temporary "meet me here" mark, distinct from a POI: one at a time, never
+; saved, and dropped when you leave the zone. {rawX, rawY, mapName} or 0.
+global gWaypoint := 0
+global gWaypointDot := 0
+global gWaypointLabel := 0
+global WAYPOINT_COLOR := "FF3B30"
 ; True while the user is dragging the overlay — suppresses the follow-the-window
 ; reposition in UpdateMarkerPosition so the drag doesn't fight the timer.
 global gOverlayDragging := false

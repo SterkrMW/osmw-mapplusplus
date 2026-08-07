@@ -85,6 +85,36 @@ When the minimap is open, a small icon (`marker.png`) shows where your character
 
 If the marker is missing, check that `marker.png` exists next to the executable.
 
+### Coordinates under the cursor
+
+Put your mouse over the minimap and the **in-game coordinates** under the pointer appear in the
+bottom-left corner — the same numbers the game shows you, so you can read a location straight off the
+map and call it out to someone. They update as you move the mouse and disappear when you move it away.
+
+Turn it off under **Settings → Minimap → Show coordinates under the cursor** if you would rather have
+the clear corner.
+
+> This is also the quickest way to tell whether a map is calibrated correctly: hover your own marker
+> and the coordinates should match what the game reports for your position.
+
+### Waypoints
+
+**Shift+click** anywhere on the minimap to drop a temporary marker. It shows **how far away it is and
+which way to walk** — `42 SW` means forty-two paces to the south-west — and the distance updates as
+you move. **Shift+click it again** to remove it.
+
+A waypoint is a quick "meet me here", not a saved place:
+
+- Only one exists at a time.
+- It is **never written to disk** and does not survive a restart.
+- It clears itself when you leave the zone.
+
+For somewhere you want to keep, use **Map POIs** instead — those are permanent, named, per-map, and
+shareable.
+
+> The other minimap gestures are unchanged: **Ctrl+drag** moves the overlay, **double-click**
+> re-centres it, **right-click** closes it, and a plain hover reveals marker labels.
+
 ### When the minimap is available
 
 The custom map works only when **all** of these are true:
@@ -508,7 +538,7 @@ the game puts on your screen — wherever it talks about a POI.
 POIs are stored per map in **`maps\pois.ini`**, next to `calibration.ini`, so a curated set can
 ship with a release and anyone can add their own on top. The file is keyed by map **id** and
 holds **raw** positions, because that is what the game and the server repo use — in-game
-coordinates are raw X ÷ 16 and Y ÷ 8, applied for display only:
+coordinates are `(raw X + 400) ÷ 16` and `(raw Y + 300) ÷ 8`, applied for display only:
 
 ```ini
 [MAP302]
@@ -587,6 +617,7 @@ Anchor=Center
 OffsetX=0
 OffsetY=0
 KeepOpenOnFocusLoss=0
+ShowHoverCoords=1
 
 [WindowLayout]
 DefaultLayout=Grid2x2
@@ -649,6 +680,7 @@ BetterHotkeys=1
 | `Anchor` | Where the minimap sits on the game window: `Center`, `TopLeft`, `TopRight`, `BottomLeft`, `BottomRight` |
 | `OffsetX` / `OffsetY` | Pixel nudge from the anchor (negative allowed). Dragging the minimap writes these for you |
 | `KeepOpenOnFocusLoss` | `1` = keep the minimap open when you Alt+Tab away |
+| `ShowHoverCoords` | `1` = show in-game coordinates in the corner while the mouse is over the minimap |
 | `LabelMode` | When marker labels are drawn: `autohide` (shown, except while the mouse is over the minimap), `always`, or `never`. Applies to both POI labels and party marker names |
 | `LayerVisible` | `0` = that layer stays hidden. Set by the POI/party **Show/hide layer** actions, so a layer you switch off stays off next session |
 | `DefaultKind` | Type pre-selected when adding a POI: `npc`, `shop`, `portal`, `quest`, `note` |

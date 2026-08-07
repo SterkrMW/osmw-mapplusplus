@@ -675,6 +675,7 @@ OpenLogFolder() {
 ShowDebugState() {
     global gCanOverride, gResolvedMapName, gResolvedMapPath, gLastReadStatus, gLastPosStatus
     global gLastRawX, gLastRawY, gResolvedOffsets, gResolvedBuildStamp, gFallbackOffsets
+    global GAME_COORD_DIV_X, GAME_COORD_DIV_Y
     msg := "CanOverride: " gCanOverride "`n"
         . "ReadStatus: " gLastReadStatus "`n"
         . "PosStatus: " gLastPosStatus "`n"
@@ -686,6 +687,69 @@ ShowDebugState() {
         rva := GetResolvedOffset(name)
         msg .= "  " name ": " Format("0x{:08X}", rva) " (" OffsetSourceLabel(name) ")`n"
     }
+    ; The whole position chain, so a "the coordinates are wrong" report can be
+    ; resolved without guessing which link broke. Compare "game coords" against
+    ; the numbers the game's own HUD is showing at the same moment:
+    ;   they match      → the divisors and the position read are right, and any
+    ;                     hover-readout discrepancy was where the cursor was
+    ;   they differ     → GAME_COORD_DIV_X/Y or the position offsets are wrong
+    ; "pixel -> back" re-inverts the marker's own pixel; it must land within a
+    ; unit or two of the raw values above, whatever the calibration says.
+    ; Opening this dialog means the tray menu already took focus from the game,
+    ; and UpdateMapState blanks gResolvedMapName the moment that happens — so
+    ; neither the map name nor the marker timer's last sample can be relied on
+    ; here. Both are re-read from the process, which does not need focus.
+    ; Sampled twice: a character that is still walking gives a raw position that
+    ; no longer matches the HUD by the time it is read, and a moving sample is
+    ; worse than no sample — it silently poisons any coordinate fit derived from
+    ; it. Two identical reads a moment apart mean the position has settled.
+    livePos := ReadRawPlayerPosition()
+    Sleep 150
+    livePos2 := ReadRawPlayerPosition()
+    stationary := livePos.ok && livePos2.ok
+        && (livePos.x = livePos2.x) && (livePos.y = livePos2.y)
+
+    chainMap := gResolvedMapName
+    if (chainMap = "")
+        chainMap := gCurrentMapName
+    if (chainMap = "")
+        chainMap := ResolveMapPath(ReadCurrentMapName()) != "" ? ReadCurrentMapName() : ""
+
+    msg .= "`nPosition chain (" (chainMap = "" ? "no map resolved" : chainMap) ")`n"
+    if livePos.ok {
+        msg .= "  raw          " livePos.x ", " livePos.y
+            . (stationary ? "   (stationary)" : "") "`n"
+            . "  game coords  " GameCoordText(livePos.x, livePos.y)
+            . "   (raw / " GAME_COORD_DIV_X " and / " GAME_COORD_DIV_Y ")`n"
+        if !stationary {
+            msg .= "  *** STILL MOVING — read again as " livePos2.x ", " livePos2.y "."
+                . "`n      Stand still, then take this sample again. ***`n"
+        }
+        msg .= "  << compare 'game coords' with the number on the game's own HUD >>`n"
+    } else {
+        msg .= "  raw          <could not read position>`n"
+    }
+    if (chainMap != "" && livePos.ok) {
+        cal := GetCalibration(chainMap)
+        px := WorldToOverlayPixels(livePos.x, livePos.y, chainMap)
+        back := OverlayPixelsToWorld(px.x, px.y, chainMap)
+        msg .= "  base pixel   " px.x ", " px.y "`n"
+            . "  pixel -> back " (back.ok
+                ? (back.x ", " back.y "   game " GameCoordText(back.x, back.y))
+                : "<no usable calibration>") "`n"
+            . "  calibration  multX=" Format("{:.10f}", cal.multX)
+            . " addX=" Format("{:.4f}", cal.addX) "`n"
+            . "               multY=" Format("{:.10f}", cal.multY)
+            . " addY=" Format("{:.4f}", cal.addY) "`n"
+    }
+    ; Logged as well as shown, so a run of samples can be collected by standing
+    ; somewhere, opening this, moving, and repeating — the log keeps them all.
+    if livePos.ok
+        LogInfo("PositionChain", "map=" (chainMap = "" ? "?" : chainMap)
+            . " raw=" livePos.x "," livePos.y
+            . " game=" GameCoordText(livePos.x, livePos.y)
+            . (stationary ? "" : "  MOVING(discard)"))
+
     ; Per-client reads. Mainly here to check the character class against what
     ; the game shows — classId is what picks avatars\c<N>.png in the radial
     ; menu, and -1 means "unreadable or not logged in yet".
@@ -903,6 +967,8 @@ UpdateMarkerPosition() {
     }
 
     UpdateOverlayHoverState()
+    UpdateCoordReadout()
+    UpdateWaypoint()
 
     ; Keep the overlay anchored to the game window as it moves — but never
     ; while the user is dragging it, or the drag fights this timer.

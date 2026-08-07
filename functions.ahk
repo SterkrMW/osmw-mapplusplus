@@ -277,14 +277,30 @@ ZoneDisplayName(mapId) {
 ; POI data and the server repo's NPC entries stay in raw memory units, so this
 ; conversion is display-only.
 
+; Floor(), not AHK's // — that truncates toward zero, so a position just outside
+; the walkable area (raw below -offset) would round the wrong way and read one
+; unit high instead of one low.
 GameCoordX(rawX) {
-    global GAME_COORD_DIV_X
-    return rawX // GAME_COORD_DIV_X
+    global GAME_COORD_DIV_X, GAME_COORD_OFFSET_X
+    return Floor((rawX + GAME_COORD_OFFSET_X) / GAME_COORD_DIV_X)
 }
 
 GameCoordY(rawY) {
-    global GAME_COORD_DIV_Y
-    return rawY // GAME_COORD_DIV_Y
+    global GAME_COORD_DIV_Y, GAME_COORD_OFFSET_Y
+    return Floor((rawY + GAME_COORD_OFFSET_Y) / GAME_COORD_DIV_Y)
+}
+
+; Displayed coordinate back to a raw position — the inverse of the pair above.
+; Returns the low end of the raw range that displays as this coordinate, since
+; the forward direction is lossy (16 raw units share one displayed X).
+RawCoordFromGameX(gameX) {
+    global GAME_COORD_DIV_X, GAME_COORD_OFFSET_X
+    return gameX * GAME_COORD_DIV_X - GAME_COORD_OFFSET_X
+}
+
+RawCoordFromGameY(gameY) {
+    global GAME_COORD_DIV_Y, GAME_COORD_OFFSET_Y
+    return gameY * GAME_COORD_DIV_Y - GAME_COORD_OFFSET_Y
 }
 
 GameCoordText(rawX, rawY) {
@@ -488,6 +504,27 @@ WorldToOverlayPixels(rawX, rawY, mapName) {
     return { x: px, y: py }
 }
 
+; The inverse of WorldToOverlayPixels: base-space pixel back to a raw game
+; position. Takes BASE pixels (the unscaled 400x300 space calibrations are
+; stored in), so callers working from screen pixels must divide by
+; MinimapScaleFactor() first — the same asymmetry the drawing code already has.
+;
+; Returns {ok, x, y}, matching ReadRawPlayerPosition's shape. A zero multiplier
+; would be a divide by zero: ApplyCalibrationFromPoints refuses to write one, but
+; calibration.ini is a text file a user can hand-edit, so it is checked rather
+; than assumed.
+OverlayPixelsToWorld(px, py, mapName) {
+    cal := GetCalibration(mapName)
+    if (cal.multX = 0 || cal.multY = 0) {
+        return { ok: false, x: 0, y: 0 }
+    }
+    return {
+        ok: true,
+        x: Round((px - cal.addX) / cal.multX),
+        y: Round((py - cal.addY) / cal.multY)
+    }
+}
+
 ; ── Image parsing ────────────────────────────────────────────────
 
 GetImageDimensionsFromFile(path) {
@@ -589,7 +626,7 @@ MinimapMarkerSize() {
 
 LoadMinimapConfig() {
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
-    global gMinimapKeepOpen, MINIMAP_ANCHORS, CONFIG_INI
+    global gMinimapKeepOpen, MINIMAP_ANCHORS, CONFIG_INI, gShowHoverCoords
     if !FileExist(CONFIG_INI) {
         return
     }
@@ -619,11 +656,13 @@ LoadMinimapConfig() {
         gMinimapOffsetY := Integer(offY)
     }
     gMinimapKeepOpen := (Trim(IniRead(CONFIG_INI, "Minimap", "KeepOpenOnFocusLoss", "0")) = "1")
+    gShowHoverCoords := (Trim(IniRead(CONFIG_INI, "Minimap", "ShowHoverCoords", "1")) != "0")
 }
 
 SaveMinimapConfig() {
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
-    global gMinimapKeepOpen, CONFIG_INI
+    global gMinimapKeepOpen, CONFIG_INI, gShowHoverCoords
+    IniWrite(gShowHoverCoords ? "1" : "0", CONFIG_INI, "Minimap", "ShowHoverCoords")
     IniWrite(gMinimapScale, CONFIG_INI, "Minimap", "Scale")
     IniWrite(gMinimapOpacity, CONFIG_INI, "Minimap", "Opacity")
     IniWrite(gMinimapAnchor, CONFIG_INI, "Minimap", "Anchor")
@@ -664,6 +703,9 @@ RebuildOverlayGui() {
     gOverlayVisible := false
     gCurrentMapName := ""
     gCurrentMapPath := ""
+    ; Core controls on the old Gui are dangling now too.
+    ResetCoordReadout()
+    ResetWaypointControls()
     ; Addons that added controls to the old Gui must drop their references.
     FireAddonHook("OnOverlayRebuild")
     if (wasVisible && mapPath != "" && FileExist(mapPath)) {
@@ -850,6 +892,220 @@ PositionMarkerLabel(ctrl, text, dotX, dotY, dotSize, visible := true) {
 ; Tracks whether the cursor is over the overlay and publishes changes through
 ; the OnOverlayHover hook. Called from the marker timer, which only runs while
 ; the overlay is visible.
+; ── Hover coordinate readout ─────────────────────────────────────
+;
+; The in-game coordinates under the cursor, shown in the corner of the minimap
+; while the mouse is over it. Hovering already means "let me look at the map"
+; (it is what hides the marker labels), so this is the moment the numbers are
+; wanted — for calling a location out to someone, or for checking that a map's
+; calibration is actually right.
+
+; Created once per overlay Gui, alongside the marker pool controls.
+EnsureCoordReadout() {
+    global gGui, gCoordReadout, MARKER_LABEL_TEXT_COLOR
+    if (IsObject(gCoordReadout) || !IsObject(gGui)) {
+        return
+    }
+    gGui.SetFont("s8 Bold")
+    gCoordReadout := gGui.AddText(
+        "x0 y0 w10 h10 Hidden Center Background000000 c" MARKER_LABEL_TEXT_COLOR, "")
+    gGui.SetFont()
+    DllCall("uxtheme\SetWindowTheme", "Ptr", gCoordReadout.Hwnd, "WStr", "", "WStr", "")
+}
+
+; Dropped when the overlay Gui is rebuilt, same as the addon marker pools.
+ResetCoordReadout() {
+    global gCoordReadout
+    gCoordReadout := 0
+}
+
+; Called from the marker timer. Reads the cursor, converts to raw game
+; coordinates and parks the text in the bottom-left of the map.
+UpdateCoordReadout() {
+    global gGui, gCoordReadout, gOverlayHover, gShowHoverCoords, gCurrentMapName
+    global MINIMAP_MAP_INSET, MARKER_LABEL_PAD_X
+
+    if (!gShowHoverCoords || !gOverlayHover || !IsObject(gGui) || !gGui.Hwnd) {
+        if IsObject(gCoordReadout)
+            gCoordReadout.Visible := false
+        return
+    }
+    EnsureCoordReadout()
+    if !IsObject(gCoordReadout) {
+        return
+    }
+
+    CoordMode("Mouse", "Screen")
+    MouseGetPos(&mx, &my)
+    pt := Buffer(8, 0)
+    DllCall("user32\ClientToScreen", "Ptr", gGui.Hwnd, "Ptr", pt)
+    relX := mx - NumGet(pt, 0, "Int") - MINIMAP_MAP_INSET
+    relY := my - NumGet(pt, 4, "Int") - MINIMAP_MAP_INSET
+    if (relX < 0 || relY < 0 || relX >= MinimapDisplayW() || relY >= MinimapDisplayH()) {
+        gCoordReadout.Visible := false      ; over the border, not the map
+        return
+    }
+
+    ; Calibration lives in base map space, so undo the user's display scale
+    ; before inverting — the same asymmetry the drawing code has.
+    scale := MinimapScaleFactor()
+    world := OverlayPixelsToWorld(Round(relX / scale), Round(relY / scale), gCurrentMapName)
+    if !world.ok {
+        gCoordReadout.Visible := false      ; unusable calibration
+        return
+    }
+
+    text := GameCoordText(world.x, world.y)
+    dims := MeasureControlText(gCoordReadout, text)
+    w := dims.w + 2 * MARKER_LABEL_PAD_X
+    h := dims.h + 2
+    gCoordReadout.Text := text
+    gCoordReadout.Move(MINIMAP_MAP_INSET + 2,
+        MINIMAP_MAP_INSET + MinimapDisplayH() - h - 2, w, h)
+    gCoordReadout.Visible := true
+    gCoordReadout.Redraw()
+}
+
+; ── Waypoint ─────────────────────────────────────────────────────
+;
+; Shift+click the minimap to mark a spot; the mark shows how far away it is and
+; which way to walk. Deliberately not a POI: POIs are permanent, per-map and
+; saved to disk, whereas this is "meet me here" — one at a time, never written
+; anywhere, and gone when you leave the zone.
+;
+; Shift because the other gestures on the overlay are taken: Ctrl+drag moves the
+; window, double-click re-centres it, right-click closes it, and a plain hover
+; is what reveals marker labels.
+
+EnsureWaypointControls() {
+    global gGui, gWaypointDot, gWaypointLabel, WAYPOINT_COLOR
+    if (!IsObject(gGui))
+        return
+    if !IsObject(gWaypointDot) {
+        gWaypointDot := gGui.AddText("x0 y0 w1 h1 Hidden Background" WAYPOINT_COLOR, "")
+        DllCall("uxtheme\SetWindowTheme", "Ptr", gWaypointDot.Hwnd, "WStr", "", "WStr", "")
+    }
+    if !IsObject(gWaypointLabel) {
+        gWaypointLabel := AddMarkerLabelControl(gGui)
+    }
+}
+
+ResetWaypointControls() {
+    global gWaypointDot, gWaypointLabel
+    gWaypointDot := 0
+    gWaypointLabel := 0
+}
+
+ClearWaypoint() {
+    global gWaypoint, gWaypointDot, gWaypointLabel
+    gWaypoint := 0
+    if IsObject(gWaypointDot)
+        try gWaypointDot.Visible := false
+    if IsObject(gWaypointLabel)
+        try gWaypointLabel.Visible := false
+}
+
+; Places (or clears) the waypoint from a click in overlay client coordinates.
+SetWaypointFromClientPoint(clientX, clientY) {
+    global gWaypoint, gCurrentMapName, MINIMAP_MAP_INSET
+
+    relX := clientX - MINIMAP_MAP_INSET
+    relY := clientY - MINIMAP_MAP_INSET
+    if (relX < 0 || relY < 0 || relX >= MinimapDisplayW() || relY >= MinimapDisplayH())
+        return false                       ; the border, not the map
+
+    scale := MinimapScaleFactor()
+    world := OverlayPixelsToWorld(Round(relX / scale), Round(relY / scale), gCurrentMapName)
+    if !world.ok {
+        TrayTip("This map has no usable calibration, so a waypoint cannot be placed.",
+            "Maps++", "Icon!")
+        return true                        ; handled: don't fall through to drag
+    }
+
+    ; Clicking the existing waypoint again takes it away, so setting and
+    ; clearing are the same gesture and nothing new has to be learned.
+    if IsObject(gWaypoint) {
+        prev := WorldToOverlayPixels(gWaypoint.rawX, gWaypoint.rawY, gCurrentMapName)
+        size := Max(6, MinimapMarkerSize())
+        if (Abs(Round(prev.x * scale) - relX) <= size
+            && Abs(Round(prev.y * scale) - relY) <= size) {
+            ClearWaypoint()
+            return true
+        }
+    }
+
+    gWaypoint := { rawX: world.x, rawY: world.y, mapName: gCurrentMapName }
+    return true
+}
+
+; Draws the waypoint and its distance/bearing. Called from the marker timer, so
+; the readout tracks the player rather than freezing at the moment of the click.
+UpdateWaypoint() {
+    global gWaypoint, gWaypointDot, gWaypointLabel, gGui, gOverlayVisible
+    global gCurrentMapName, gLastRawX, gLastRawY, MINIMAP_MAP_INSET
+
+    if (!gOverlayVisible || !IsObject(gGui) || !gGui.Hwnd || !IsObject(gWaypoint)) {
+        if IsObject(gWaypointDot)
+            try gWaypointDot.Visible := false
+        if IsObject(gWaypointLabel)
+            try gWaypointLabel.Visible := false
+        return
+    }
+    ; A waypoint belongs to the zone it was dropped in.
+    if (gWaypoint.mapName != gCurrentMapName) {
+        ClearWaypoint()
+        return
+    }
+
+    EnsureWaypointControls()
+    if (!IsObject(gWaypointDot) || !IsObject(gWaypointLabel))
+        return
+
+    scale := MinimapScaleFactor()
+    size := Max(5, MinimapMarkerSize() - 2)
+    pos := WorldToOverlayPixels(gWaypoint.rawX, gWaypoint.rawY, gCurrentMapName)
+    px := Clamp(Round(pos.x * scale), 0, MinimapDisplayW() - size)
+    py := Clamp(Round(pos.y * scale), 0, MinimapDisplayH() - size)
+
+    gWaypointDot.Move(px + MINIMAP_MAP_INSET, py + MINIMAP_MAP_INSET, size, size)
+    gWaypointDot.Visible := true
+    gWaypointDot.Redraw()
+
+    PositionMarkerLabel(gWaypointLabel, WaypointBearingText(),
+        px + MINIMAP_MAP_INSET, py + MINIMAP_MAP_INSET, size, true)
+}
+
+; "42 SW" — how far the waypoint is and which way it lies.
+;
+; Measured in the coordinates the game shows the player, not raw memory units:
+; raw X and Y are scaled differently (÷16 and ÷8), so a distance computed on raw
+; values would be wrong by a factor of two along one axis.
+WaypointBearingText() {
+    global gWaypoint, gLastRawX, gLastRawY
+    dx := GameCoordX(gWaypoint.rawX) - GameCoordX(gLastRawX)
+    dy := GameCoordY(gWaypoint.rawY) - GameCoordY(gLastRawY)
+    dist := Round(Sqrt(dx * dx + dy * dy))
+    if (dist = 0)
+        return "here"
+    return dist " " _CompassPoint(dx, dy)
+}
+
+; Eight-point compass for a delta in map space. The minimap is drawn with y
+; increasing downward, so up on the image is north — this describes the picture
+; the player is looking at, which is the only frame that helps them walk.
+_CompassPoint(dx, dy) {
+    static POINTS := ["E", "SE", "S", "SW", "W", "NW", "N", "NE"]
+    if (dx = 0 && dy = 0)
+        return ""
+    ; ATan2 via ATan, avoiding a divide by zero on a purely vertical delta.
+    angle := (dx = 0) ? (dy > 0 ? 90 : -90) : ATan(dy / dx) * 180 / 3.14159265358979
+    if (dx < 0)
+        angle += 180
+    ; Bucket into 45-degree sectors starting at due east.
+    idx := Mod(Round(angle / 45) + 8, 8) + 1
+    return POINTS[idx]
+}
+
 UpdateOverlayHoverState() {
     global gGui, gOverlayHover
     hovering := false
@@ -934,6 +1190,24 @@ _Overlay_OnEnterSizeMove(wParam, lParam, msg, hwnd) {
 _Overlay_OnLButtonDown(wParam, lParam, msg, hwnd) {
     global gOverlayLastClickTick
     if !_Overlay_IsOverlayHwnd(hwnd) {
+        return
+    }
+    ; Shift+click drops or lifts the waypoint. Handled before the double-click
+    ; timing below so two quick waypoint clicks cannot also re-centre the
+    ; overlay, and the tick is left alone so it does not poison the next
+    ; genuine double-click.
+    if GetKeyState("Shift") {
+        ; lParam packs the click point as two signed 16-bit client coords.
+        cx := lParam & 0xFFFF
+        cy := (lParam >> 16) & 0xFFFF
+        if (cx > 0x7FFF)
+            cx -= 0x10000
+        if (cy > 0x7FFF)
+            cy -= 0x10000
+        if SetWaypointFromClientPoint(cx, cy) {
+            UpdateWaypoint()
+            return 0
+        }
         return
     }
     now := A_TickCount

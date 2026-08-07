@@ -114,7 +114,7 @@ _Settings_SendState() {
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
-    global gMinimapKeepOpen, OVERLAY_W, OVERLAY_H, gAccentScheme
+    global gMinimapKeepOpen, OVERLAY_W, OVERLAY_H, gAccentScheme, gShowHoverCoords
     global APP_VERSION, gVersionCheckEnabled, VERSION_CHECK_URL
     global gUpdateVersion, gUpdateNotes
 
@@ -182,6 +182,7 @@ _Settings_SendState() {
             . ',"offsetX":' gMinimapOffsetX
             . ',"offsetY":' gMinimapOffsetY
             . ',"keepOpen":' (gMinimapKeepOpen ? "true" : "false")
+            . ',"showHoverCoords":' (gShowHoverCoords ? "true" : "false")
             . ',"baseW":' OVERLAY_W
             . ',"baseH":' OVERLAY_H
             . ',"clientW":1024'
@@ -364,7 +365,7 @@ _Settings_HandleSave(msg) {
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
-    global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme
+    global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme, gShowHoverCoords
     global gAddonHooks, gHotkeyActions, gVersionCheckEnabled
 
     ; ── Launcher ──
@@ -425,6 +426,10 @@ _Settings_HandleSave(msg) {
     gMinimapOffsetX := Integer(offX)
     gMinimapOffsetY := Integer(offY)
     gMinimapKeepOpen := mm["keepOpen"] ? true : false
+    ; Absent key = an older page; keep the current value rather than
+    ; silently switching the readout off.
+    if mm.Has("showHoverCoords")
+        gShowHoverCoords := mm["showHoverCoords"] ? true : false
     SaveMinimapConfig()
     if (gMinimapScale != previousScale || gAccentScheme != previousAccentScheme) {
         RebuildOverlayGui()

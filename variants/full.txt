@@ -1,7 +1,6 @@
 # Full variant — all addons bundled.
 battle_send.ahk
 better_hotkeys.ahk
-broadcast.ahk
 chat_toggle.ahk
 client_roster.ahk
 discord_rpc.ahk
