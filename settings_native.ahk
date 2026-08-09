@@ -226,8 +226,10 @@ _Settings_BuildNative() {
 
     ; Shared buttons ---------------------------------------------
     tab.UseTab()
+    resetDefaultsBtn := g.Add("Button", "x10 y524 w160", "Reset to Defaults")
     saveBtn := g.Add("Button", "x454 y524 w96 Default", "Save")
     cancelBtn := g.Add("Button", "x558 y524 w96", "Cancel")
+    resetDefaultsBtn.OnEvent("Click", (*) => _Settings_HandleResetDefaults())
     saveBtn.OnEvent("Click", SaveNativeSettings)
     cancelBtn.OnEvent("Click", (*) => _Settings_Close())
     g.Show("w664 h566")
