@@ -112,13 +112,19 @@ _Pois_OnSettingsWeb() {
             . "thing is and press the Add POI hotkey — the position is read from the`n"
             . "game, so it lands exactly where you stood."),
         Map("type", "checkbox", "id", "layerVisible", "label", "Show the POI layer",
-            "value", _Pois_LayerVisible ? true : false),
+            "value", _Pois_LayerVisible ? true : false,
+            "default", (DefaultRead("MapPois", "LayerVisible", "1") != "0")),
+        ; LabelMode is not in defaults.ini — it doubles as a migration sentinel
+        ; (see the design doc), so its default is this addon's own compiled
+        ; initial value ("autohide"), not a DefaultRead lookup.
         Map("type", "dropdown", "id", "labelModeIdx", "label", "Show labels:",
             "options", MARKER_LABEL_MODE_LABELS,
-            "value", MarkerLabelModeIndex(_Pois_LabelMode) - 1),
+            "value", MarkerLabelModeIndex(_Pois_LabelMode) - 1,
+            "default", MarkerLabelModeIndex("autohide") - 1),
         Map("type", "dropdown", "id", "kindIdx", "label", "Default type:",
             "options", _Pois_KINDS,
-            "value", _Pois_KindIndex(_Pois_DefaultKind) - 1),
+            "value", _Pois_KindIndex(_Pois_DefaultKind) - 1,
+            "default", _Pois_KindIndex(DefaultRead("MapPois", "DefaultKind", "npc")) - 1),
         Map("type", "info", "text",
             "Stored in maps\pois.ini. Tray → Map POIs → Manage POIs… edits the`n"
             . "current map; Export writes them in the server repo's NPC entry format.")
@@ -146,7 +152,7 @@ _Pois_ApplySettings(labelMode, defaultKind, layerVisible) {
 
 _Pois_LoadConfig() {
     global _Pois_LabelMode, _Pois_DefaultKind, _Pois_LayerVisible, CONFIG_INI
-    _Pois_LayerVisible := (Trim(IniRead(CONFIG_INI, "MapPois", "LayerVisible", "1")) != "0")
+    _Pois_LayerVisible := (Trim(ConfigRead("MapPois", "LayerVisible", "1")) != "0")
     mode := Trim(IniRead(CONFIG_INI, "MapPois", "LabelMode", ""))
     if (mode != "") {
         _Pois_LabelMode := NormalizeMarkerLabelMode(mode)
@@ -155,7 +161,7 @@ _Pois_LoadConfig() {
         _Pois_LabelMode := (Trim(IniRead(CONFIG_INI, "MapPois", "ShowLabels", "1")) = "0")
             ? "never" : "autohide"
     }
-    kind := Trim(IniRead(CONFIG_INI, "MapPois", "DefaultKind", "npc"))
+    kind := Trim(ConfigRead("MapPois", "DefaultKind", "npc"))
     if _Pois_IsKind(kind) {
         _Pois_DefaultKind := kind
     }
