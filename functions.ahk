@@ -1888,14 +1888,37 @@ MapIdFromName(name) {
     return RegExReplace(Trim(name), "i)\.(map|jpg|jpeg|png)$", "")
 }
 
+; Bounded stand-in for WinGetTitle/GetWindowText: that call sends a plain,
+; timeout-less WM_GETTEXT to the target window, which never returns if the
+; target's thread stops pumping messages (a hitch, a stall, a crash that
+; leaves the window alive) — freezing this whole single-threaded app. This
+; caps the wait instead, exactly like the HTTP timeouts and WinWaitActive
+; deadline elsewhere in the app. SMTO_ABORTIFHUNG returns immediately once
+; Windows has already flagged the window as not-responding; the explicit
+; timeoutMs covers the window before that flag is set.
+SafeWindowTitle(hwnd, timeoutMs := 200) {
+    static WM_GETTEXT := 0x000D
+    static SMTO_ABORTIFHUNG := 0x0002
+    if (!hwnd || !DllCall("IsWindow", "Ptr", hwnd)) {
+        return ""
+    }
+    buf := Buffer(512, 0)   ; 256 WCHARs
+    result := 0
+    ok := DllCall("SendMessageTimeoutW",
+        "Ptr", hwnd, "UInt", WM_GETTEXT, "Ptr", 256, "Ptr", buf,
+        "UInt", SMTO_ABORTIFHUNG, "UInt", timeoutMs, "Ptr*", &result, "Ptr")
+    if (!ok) {
+        return ""   ; timed out, hung, or failed — same fallback as the old catch
+    }
+    return StrGet(buf, "UTF-16")
+}
+
 ; The character name is whatever sits between the last ": " and " ID" in the
 ; window title. The prefix varies with the server/patch — "Behemoth: Name ID 5"
 ; and "MythWar … [ Local Server: Name ID 16 ]" are both seen — so match on the
 ; ": … ID" shape rather than on any particular prefix.
 CharacterNameFromWindow(hwnd) {
-    try title := WinGetTitle("ahk_id " hwnd)
-    catch
-        return ""
+    title := SafeWindowTitle(hwnd)
     if RegExMatch(title, ".*:\s+(.+?)\s+ID\b", &m) {
         return Trim(m[1])
     }
