@@ -502,10 +502,10 @@ _Settings_HandleSave(msg) {
 ; pressing Save would do — reusing the existing save/apply functions (and
 ; each addon's own OnSettingsWebSave) instead of a parallel code path.
 ;
-; Deliberately NOT touched: the Windows "run on login" registry entry and the
-; WebView-vs-Native interface mode. Neither is a field in the Settings
-; window's own tabs, so a reset scoped to "what this window edits" shouldn't
-; reach into either.
+; Deliberately NOT touched: the Windows "run on login" registry entry
+; (autoStart appears on the Launcher tab but registry is intentionally left
+; alone) and the WebView-vs-Native interface mode. A reset scoped to settings
+; defaults shouldn't reach into either.
 ResetAllSettingsToDefaults() {
     global gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
@@ -535,10 +535,10 @@ ResetAllSettingsToDefaults() {
     gMinimapKeepOpen := (DefaultRead("Minimap", "KeepOpenOnFocusLoss", "0") = "1")
     gShowHoverCoords := (DefaultRead("Minimap", "ShowHoverCoords", "1") != "0")
     SaveMinimapConfig()
-    RebuildOverlayGui()
 
-    ; ── Appearance ──
+    ; ── Appearance ── (accent before overlay rebuild, same order as save)
     SetAccentScheme(DefaultRead("UI", "AccentScheme", "amber"))
+    RebuildOverlayGui()
 
     ; ── Hotkeys ── (mirrors SaveHotkeyOverrides' own persist:false skip)
     for id, action in gHotkeyActions {
