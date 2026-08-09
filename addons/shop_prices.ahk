@@ -161,18 +161,25 @@ _ShopPrices_OnSettingsWeb() {
             . "so you can check every price first."),
         Map("type", "checkbox", "id", "confirmHigh",
             "label", "Ask before applying a large price",
-            "value", _ShopPrices_ConfirmHigh ? true : false),
+            "value", _ShopPrices_ConfirmHigh ? true : false,
+            "default", (DefaultRead("ShopPrices", "ConfirmHigh", "1") != "0")),
+        ; WarnAbove/IconBase/ItemIdOffset are not in defaults.ini — each is an
+        ; opt-in advanced override where "unset" is the meaningful state (see
+        ; the design doc). Their "default" is this addon's own compiled
+        ; initial value, matching the `global ... :=` declarations above.
         Map("type", "number", "id", "warnAbove",
             "label", "Ask when a price reaches:",
-            "value", _ShopPrices_WarnAbove, "min", 0, "max", _ShopPrices_MAX_PRICE),
+            "value", _ShopPrices_WarnAbove, "min", 0, "max", _ShopPrices_MAX_PRICE,
+            "default", 10000000),
         Map("type", "checkbox", "id", "presetClears",
             "label", "Presets also clear prices on slots they don't mention",
-            "value", _ShopPrices_PresetClears ? true : false),
+            "value", _ShopPrices_PresetClears ? true : false,
+            "default", (DefaultRead("ShopPrices", "PresetClears", "0") != "0")),
         Map("type", "dropdown", "id", "iconBaseIdx",
             "label", "Item icon numbering:",
             "options", ["Item id is 0-based (id 0 = 000.1.png)",
                         "Item id is 1-based (id 1 = 000.1.png)"],
-            "value", _ShopPrices_IconBase),
+            "value", _ShopPrices_IconBase, "default", 0),
         Map("type", "info", "text",
             "Icon files are named <n>.<n+1>.png, so both numberings resolve to a "
             . "real file and the right one cannot be detected automatically — "
@@ -180,7 +187,7 @@ _ShopPrices_OnSettingsWeb() {
         Map("type", "combo", "id", "itemIdOffset",
             "label", "Item id array offset (hex) — blank for the built-in:",
             "options", ["0x2E2028"],
-            "value", _ShopPrices_ItemIdOffsetText())
+            "value", _ShopPrices_ItemIdOffsetText(), "default", "")
     ]
 }
 
@@ -238,8 +245,8 @@ _ShopPrices_LoadConfig() {
     global _ShopPrices_ItemIdOverride, _ShopPrices_ConfirmHigh, _ShopPrices_WarnAbove
     global _ShopPrices_PresetClears, _ShopPrices_IconBase
 
-    _ShopPrices_ConfirmHigh  := (Trim(IniRead(CONFIG_INI, "ShopPrices", "ConfirmHigh", "1")) != "0")
-    _ShopPrices_PresetClears := (Trim(IniRead(CONFIG_INI, "ShopPrices", "PresetClears", "0")) != "0")
+    _ShopPrices_ConfirmHigh  := (Trim(ConfigRead("ShopPrices", "ConfirmHigh", "1")) != "0")
+    _ShopPrices_PresetClears := (Trim(ConfigRead("ShopPrices", "PresetClears", "0")) != "0")
 
     warn := Trim(IniRead(CONFIG_INI, "ShopPrices", "WarnAbove", ""))
     if (IsInteger(warn) && Integer(warn) >= 0)
