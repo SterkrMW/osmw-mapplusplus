@@ -358,7 +358,7 @@ _QuickActions_MakeMenuHandler(item) {
 ; ── Settings ─────────────────────────────────────────────────────
 
 _QuickActions_OnSettingsWeb() {
-    global _QuickActions_Ids, _QuickActions_Prewarm, QUICK_ACTIONS_MAX
+    global _QuickActions_Ids, _QuickActions_Prewarm, QUICK_ACTIONS_MAX, _QUICK_ACTIONS_DEFAULT
     shortcut := GetHotkeyDisplay("quickActionsToggle")
     openHint := (shortcut != "")
         ? "Open it with " shortcut " or from the tray menu, then click an action"
@@ -383,10 +383,12 @@ _QuickActions_OnSettingsWeb() {
             "label", "Actions shown in the ring",
             "items", choices,
             "value", _QuickActions_JoinIds(_QuickActions_Ids),
-            "max", QUICK_ACTIONS_MAX),
+            "max", QUICK_ACTIONS_MAX,
+            "default", DefaultRead("QuickActions", "Actions", _QUICK_ACTIONS_DEFAULT)),
         Map("type", "checkbox", "id", "prewarm",
             "label", "Load the ring at startup (faster first open, more memory)",
-            "value", _QuickActions_Prewarm ? true : false)
+            "value", _QuickActions_Prewarm ? true : false,
+            "default", (DefaultRead("QuickActions", "Prewarm", "1") != "0"))
     ]
 }
 
@@ -410,8 +412,8 @@ _QuickActions_ApplySettings(actionsCsv, prewarm) {
 _QuickActions_LoadConfig() {
     global _QuickActions_Ids, _QuickActions_Prewarm, CONFIG_INI, _QUICK_ACTIONS_DEFAULT
     _QuickActions_Ids := _QuickActions_ParseIds(
-        IniRead(CONFIG_INI, "QuickActions", "Actions", _QUICK_ACTIONS_DEFAULT))
-    _QuickActions_Prewarm := (Trim(IniRead(CONFIG_INI, "QuickActions", "Prewarm", "1")) != "0")
+        ConfigRead("QuickActions", "Actions", _QUICK_ACTIONS_DEFAULT))
+    _QuickActions_Prewarm := (Trim(ConfigRead("QuickActions", "Prewarm", "1")) != "0")
 }
 
 _QuickActions_SaveConfig() {
