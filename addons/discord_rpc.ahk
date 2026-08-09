@@ -50,7 +50,8 @@ _DiscordRpc_OnSettingsWeb() {
             . "Off by default — enable below to opt in.`n"
             . "Requires the Discord desktop client (not web/mobile)."),
         Map("type", "checkbox", "id", "enabled", "label", "Enable Rich Presence",
-            "value", _DiscordRpc_Enabled ? true : false)
+            "value", _DiscordRpc_Enabled ? true : false,
+            "default", (DefaultRead("Discord", "Enabled", "0") != "0"))
     ]
 }
 
@@ -96,7 +97,7 @@ _DiscordRpc_OnExit(*) {
 
 _DiscordRpc_LoadConfig() {
     global _DiscordRpc_Enabled, CONFIG_INI
-    enabledVal := Trim(IniRead(CONFIG_INI, "Discord", "Enabled", "0"))
+    enabledVal := Trim(ConfigRead("Discord", "Enabled", "0"))
     _DiscordRpc_Enabled := (enabledVal = "1")
 }
 
