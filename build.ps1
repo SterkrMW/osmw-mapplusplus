@@ -67,6 +67,7 @@ $ReleasesDir   = Join-Path $RepoRoot 'releases'
 $MainScript    = Join-Path $RepoRoot 'main.ahk'
 $AddonsInclude = Join-Path $RepoRoot '_addons.ahk'
 $MarkerPng     = Join-Path $RepoRoot 'marker.png'
+$DefaultsIni   = Join-Path $RepoRoot 'defaults.ini'
 $MapDir        = Join-Path $RepoRoot 'maps'
 $UiDir         = Join-Path $RepoRoot 'ui'
 $LibDir        = Join-Path $RepoRoot 'Lib'
@@ -223,6 +224,11 @@ function Build-Variant {
             Copy-Item -LiteralPath $MarkerPng -Destination $outDir -Force
         } else {
             Write-Warning "marker.png missing at $MarkerPng -- shipped exe will warn at startup."
+        }
+        if (Test-Path -LiteralPath $DefaultsIni) {
+            Copy-Item -LiteralPath $DefaultsIni -Destination $outDir -Force
+        } else {
+            Write-Warning "defaults.ini missing at $DefaultsIni -- shipped exe will fall back to built-in literals."
         }
         if (Test-Path -LiteralPath $MapDir) {
             Copy-Item -LiteralPath $MapDir -Destination $outDir -Recurse -Force
