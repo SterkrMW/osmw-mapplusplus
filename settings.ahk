@@ -496,6 +496,89 @@ _Settings_HandleSave(msg) {
     return true
 }
 
+; ── Reset to Defaults ────────────────────────────────────────
+;
+; Does exactly what manually setting every field back to its default and
+; pressing Save would do — reusing the existing save/apply functions (and
+; each addon's own OnSettingsWebSave) instead of a parallel code path.
+;
+; Deliberately NOT touched: the Windows "run on login" registry entry and the
+; WebView-vs-Native interface mode. Neither is a field in the Settings
+; window's own tabs, so a reset scoped to "what this window edits" shouldn't
+; reach into either.
+ResetAllSettingsToDefaults() {
+    global gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
+    global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout, gVersionCheckEnabled
+    global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
+    global gMinimapKeepOpen, gShowHoverCoords
+    global gAddonHooks, gHotkeyActions, LAUNCH_LAYOUT_DEFAULT
+
+    ; ── Launcher ──
+    gGameArgs := DefaultRead("Launcher", "GameArgs", "")
+    gLaunchOnStartup := (DefaultRead("Launcher", "LaunchOnStartup", "0") = "1")
+    gMultiClientCount := Integer(DefaultRead("Launcher", "MultiClientCount", "5"))
+    gMultiClientDelay := Integer(DefaultRead("Launcher", "MultiClientDelay", "0"))
+    gPrimaryMonitorOverride := Integer(DefaultRead("Launcher", "PrimaryMonitor", "0"))
+    gSecondaryMonitorOverride := Integer(DefaultRead("Launcher", "SecondaryMonitor", "0"))
+    gPrimaryLaunchLayout := DefaultRead("Launcher", "PrimaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT)
+    gSecondaryLaunchLayout := DefaultRead("Launcher", "SecondaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT)
+    gVersionCheckEnabled := (DefaultRead("Launcher", "VersionCheck", "1") != "0")
+    SaveLauncherConfig()
+
+    ; ── Minimap ──
+    gMinimapScale := Integer(DefaultRead("Minimap", "Scale", "100"))
+    gMinimapOpacity := Integer(DefaultRead("Minimap", "Opacity", "100"))
+    gMinimapAnchor := DefaultRead("Minimap", "Anchor", "Center")
+    gMinimapOffsetX := Integer(DefaultRead("Minimap", "OffsetX", "0"))
+    gMinimapOffsetY := Integer(DefaultRead("Minimap", "OffsetY", "0"))
+    gMinimapKeepOpen := (DefaultRead("Minimap", "KeepOpenOnFocusLoss", "0") = "1")
+    gShowHoverCoords := (DefaultRead("Minimap", "ShowHoverCoords", "1") != "0")
+    SaveMinimapConfig()
+    RebuildOverlayGui()
+
+    ; ── Appearance ──
+    SetAccentScheme(DefaultRead("UI", "AccentScheme", "amber"))
+
+    ; ── Hotkeys ── (mirrors SaveHotkeyOverrides' own persist:false skip)
+    for id, action in gHotkeyActions {
+        if action.Has("persist") && !action["persist"]
+            continue
+        action["chord"] := action["default"]
+    }
+    SaveHotkeyOverrides()
+
+    ; ── Addon enable/disable ──
+    for _, am in gAddonHooks {
+        name := am.Has("name") ? am["name"] : ""
+        if (name = "")
+            continue
+        SetAddonEnabled(name, DefaultRead("Addons", name, "1") = "1")
+    }
+
+    ; ── Per-addon settings ──
+    ; OnSettingsWeb is called immediately before OnSettingsWebSave for the
+    ; same addon (not batched) — Window Layout's OnSettingsWebSave reads back
+    ; a global (_WindowLayout_SettingsNames) that only OnSettingsWeb sets, so
+    ; the two must run as a pair in this order.
+    for _, am in gAddonHooks {
+        if (!am.Has("OnSettingsWeb") || !am.Has("OnSettingsWebSave"))
+            continue
+        fields := []
+        try fields := am["OnSettingsWeb"]()
+        defaults := Map()
+        for f in fields {
+            if (IsObject(f) && f.Has("id") && f["id"] != "" && f.Has("default"))
+                defaults[f["id"]] := f["default"]
+        }
+        if (defaults.Count > 0)
+            try am["OnSettingsWebSave"](defaults)
+    }
+
+    ApplyAllHotkeys()
+    RebuildTrayMenu()
+}
+
 _Settings_SendSaveResult(ok, error := "") {
     global gSettingsGui
     ; The native panel has nowhere in itself to put a save error, so it gets a
