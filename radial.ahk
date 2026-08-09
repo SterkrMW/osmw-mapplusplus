@@ -99,6 +99,9 @@ RadialRegister(spec) {
 
 _Radial_Ring(name) {
     global gRadialRings
+    if !IsSet(gRadialRings) {
+        return 0
+    }
     return gRadialRings.Has(name) ? gRadialRings[name] : 0
 }
 
@@ -110,6 +113,11 @@ OnMessage(0x0138, _Radial_OnCtlColorStatic)   ; WM_CTLCOLORSTATIC
 
 _Radial_OnCtlColorStatic(wParam, lParam, msg, hwnd) {
     global gRadialHosts, gRadialKeyBrush, RADIAL_KEY_COLOR_REF
+    ; IsSet: see _Radial_OnExit — destroying the hosts on exit paints them one
+    ; last time, and by then these globals may already be gone.
+    if (!IsSet(gRadialKeyBrush) || !IsSet(gRadialHosts) || !IsSet(RADIAL_KEY_COLOR_REF)) {
+        return
+    }
     if (!gRadialKeyBrush || !gRadialHosts.Has(lParam)) {
         return
     }
@@ -346,13 +354,29 @@ _Radial_OnWmActivate(wParam, lParam, msg, hwnd) {
     global gRadialActive
     ; wParam = 0 (WA_INACTIVE). Ring windows outlive any single open, so this
     ; must only fire for the ring that is actually on screen.
-    if (wParam != 0 || gRadialActive = "") {
+    if (!IsSet(gRadialActive) || wParam != 0 || gRadialActive = "") {
         return
     }
     ring := _Radial_Ring(gRadialActive)
     if (IsObject(ring) && IsObject(ring.gui) && ring.gui.Hwnd && hwnd = ring.gui.Hwnd) {
         SetTimer(RadialClose, -10)
     }
+}
+
+; Exit teardown destroys the ring windows (WebViewToo registers its own OnExit
+; for that), and destroying them emits one last WM_CTLCOLORSTATIC/WM_ACTIVATE
+; each — which arrive after AHK has freed this file's globals, so the handlers
+; die on "global variable has not been assigned a value" as the app closes.
+; Unhooking here is what prevents it: this OnExit is registered from the
+; auto-execute thread, i.e. after WebViewToo's class initialiser registered
+; its own, and AHK runs exit callbacks most-recent-first, so the handlers are
+; gone before the first window is destroyed. The IsSet() guards in them cover
+; anything already queued.
+OnExit(_Radial_OnExit)
+
+_Radial_OnExit(*) {
+    try OnMessage(0x0138, _Radial_OnCtlColorStatic, 0)
+    try OnMessage(0x0006, _Radial_OnWmActivate, 0)
 }
 
 ; ── Messages ─────────────────────────────────────────────────────

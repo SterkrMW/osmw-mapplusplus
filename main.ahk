@@ -15,6 +15,7 @@ SetTitleMatchMode(2)
 #Include variables.ahk
 #Include functions.ahk
 #Include settings.ahk
+#Include dialogs.ahk
 #Include radial.ahk
 #Include hotkeys.ahk
 #Include *i _addons.ahk
@@ -71,9 +72,18 @@ RebuildTrayMenu()
 if IsWebViewInterface() {
     OnMessage(0x0404, _OnTrayNotify)
     OnMessage(0x0006, _OnTrayWmActivate)
+    ; Same reason as radial.ahk's _Radial_OnExit: tearing the menu window down on
+    ; exit emits a WM_ACTIVATE that would otherwise reach the handler after the
+    ; globals it reads are gone.
+    OnExit(_Tray_UnhookMessages)
     ; Enhanced mode intentionally pays the memory cost up front so the first
     ; right-click is as quick as every one after it.
     SetTimer(_PrewarmWebTrayMenu, -6000)
+}
+
+_Tray_UnhookMessages(*) {
+    try OnMessage(0x0404, _OnTrayNotify, 0)
+    try OnMessage(0x0006, _OnTrayWmActivate, 0)
 }
 
 _OnTrayNotify(wParam, lParam, msg, hwnd) {
@@ -89,6 +99,9 @@ _OnTrayWmActivate(wParam, lParam, msg, hwnd) {
     global gWebTrayGui, gWebTrayShown
     ; wParam = 0 (WA_INACTIVE). The window outlives any single open now, so this
     ; must only fire for a menu that is actually on screen.
+    if (!IsSet(gWebTrayGui) || !IsSet(gWebTrayShown)) {
+        return
+    }
     if (wParam = 0 && gWebTrayShown && IsObject(gWebTrayGui) && gWebTrayGui.Hwnd
         && hwnd = gWebTrayGui.Hwnd) {
         SetTimer(_CloseWebTrayMenu, -10)
@@ -668,7 +681,7 @@ ShowAboutDialog() {
             . (gUpdateNotes != "" ? " — " gUpdateNotes : "")
             . "`n" VERSION_DOWNLOAD_URL "`n")
         : ""
-    MsgBox("osMW Maps++`n`n"
+    ShowMessage("osMW Maps++`n`n"
         . "Version " APP_VERSION (A_IsCompiled ? "" : "  (running from source)") "`n"
         . "AutoHotkey " A_AhkVersion "`n"
         . "Interface: " (gInterfaceMode = "webview" ? "WebView2 (enhanced)" : "Native (low memory)") "`n"
@@ -676,7 +689,7 @@ ShowAboutDialog() {
         . updateLine
         . "`nReporting a problem? Tray → Debug → Copy Diagnostics`n"
         . "collects everything needed, ready to paste.",
-        "About Maps++", "Iconi")
+        "About Maps++")
 }
 
 OpenLogFolder() {
@@ -763,7 +776,13 @@ ShowDebugState() {
         msg .= "  " (snap.charName = "" ? "PID " snap.pid : snap.charName)
             . " — class " snap.classId ", state " snap.gameState "`n"
     }
-    MsgBox(msg, "AHK Minimap Debug")
+    ; Column-aligned offsets and a position chain — monospace or it is
+    ; unreadable — so the dump is the dialog's detail block and the message
+    ; above it says what to look at first.
+    ShowMessage("Live state read from the game process."
+        . "`n`nIf the coordinates look wrong, compare “game coords” in the"
+        . " position chain against the numbers on the game's own HUD right now.",
+        "Maps++ — Debug State", Map("detail", msg))
 }
 
 ; ── Calibration handlers ─────────────────────────────────────────
@@ -773,17 +792,19 @@ CaptureCalibrationPoint(index) {
     global gCalibrationPoint1, gCalibrationPoint2
 
     if !gOverlayVisible || !IsObject(gGui) || !gGui.Hwnd {
-        MsgBox("Open the minimap first, then hover a landmark and capture again.", "Calibration")
+        ShowMessage("Open the minimap first, then hover a landmark and capture again.",
+            "Calibration", Map("severity", "warn"))
         return
     }
     if (gResolvedMapName = "") {
-        MsgBox("No resolved map name available yet.", "Calibration")
+        ShowMessage("No resolved map name available yet.", "Calibration", Map("severity", "warn"))
         return
     }
 
     rawPos := ReadRawPlayerPosition()
     if !rawPos.ok {
-        MsgBox("Failed to read raw position from memory.", "Calibration")
+        ShowMessage("Failed to read raw position from memory.", "Calibration",
+            Map("severity", "danger"))
         return
     }
 
@@ -797,7 +818,8 @@ CaptureCalibrationPoint(index) {
     relX := mx - clx - MINIMAP_MAP_INSET
     relY := my - cly - MINIMAP_MAP_INSET
     if (relX < 0 || relY < 0 || relX >= MinimapDisplayW() || relY >= MinimapDisplayH()) {
-        MsgBox("Place your mouse over the minimap image before capturing.", "Calibration")
+        ShowMessage("Place your mouse over the minimap image before capturing.",
+            "Calibration", Map("severity", "warn"))
         return
     }
     ; Calibration is stored in base (unscaled) map space, so a user calibrating
@@ -820,12 +842,12 @@ CaptureCalibrationPoint(index) {
         gCalibrationPoint2 := point
     }
 
-    MsgBox(
-        "Captured point " index "`n"
-        . "Map: " point.mapName "`n"
-        . "Raw: " point.rawX ", " point.rawY "`n"
-        . "Pixel: " point.px ", " point.py,
-        "Calibration"
+    ShowMessage(
+        "Captured point " index " on " point.mapName ".",
+        "Calibration",
+        Map("severity", "success",
+            "detail", "raw    " point.rawX ", " point.rawY "`n"
+                    . "pixel  " point.px ", " point.py)
     )
 }
 
@@ -833,11 +855,13 @@ ApplyCalibrationFromPoints() {
     global gCalibrationPoint1, gCalibrationPoint2, MAP_DIR
 
     if !IsObject(gCalibrationPoint1) || !IsObject(gCalibrationPoint2) {
-        MsgBox("Capture two points first (`Ctrl+Alt+1` and `Ctrl+Alt+2`).", "Calibration")
+        ShowMessage("Capture two points first (`Ctrl+Alt+1` and `Ctrl+Alt+2`).",
+            "Calibration", Map("severity", "warn"))
         return
     }
     if (gCalibrationPoint1.mapName != gCalibrationPoint2.mapName) {
-        MsgBox("Points are from different maps. Recapture both points on the same map.", "Calibration")
+        ShowMessage("Points are from different maps. Recapture both points on the same map.",
+            "Calibration", Map("severity", "warn"))
         return
     }
 
@@ -846,7 +870,8 @@ ApplyCalibrationFromPoints() {
     dxPx := gCalibrationPoint2.px - gCalibrationPoint1.px
     dyPx := gCalibrationPoint2.py - gCalibrationPoint1.py
     if (dxRaw = 0 || dyRaw = 0) {
-        MsgBox("Captured points are invalid (raw delta is zero). Choose two separated landmarks.", "Calibration")
+        ShowMessage("Captured points are invalid (raw delta is zero). Choose two separated landmarks.",
+            "Calibration", Map("severity", "warn"))
         return
     }
 
@@ -871,11 +896,12 @@ ApplyCalibrationFromPoints() {
     }
 
     A_Clipboard := calibText
-    MsgBox(
+    ShowMessage(
         "Calibration saved for " mapName ".`n`n"
         . CombinedCalibrationPath() "`n`n"
-        . "Section copied to clipboard for reference.",
-        "Calibration"
+        . "The section below is on your clipboard too.",
+        "Calibration",
+        Map("severity", "success", "detail", calibText)
     )
 }
 
@@ -1153,7 +1179,8 @@ _Calib_PushNative() {
 ExportCurrentCalibrationToFile() {
     global gResolvedMapName
     if (gResolvedMapName = "") {
-        MsgBox("Enter a map with a custom minimap first.", "Calibration")
+        ShowMessage("Enter a map with a custom minimap first.", "Calibration",
+            Map("severity", "warn"))
         return
     }
     global MAP_DIR
@@ -1161,7 +1188,8 @@ ExportCurrentCalibrationToFile() {
     dims := GetImageDimensionsFromFile(MAP_DIR "\" gResolvedMapName)
     SaveExplicitCalibrationToIni(gResolvedMapName, cal.multX, cal.addX, cal.multY, cal.addY, dims.w, dims.h)
     gCalibrationCache.Delete(gResolvedMapName)
-    MsgBox("Wrote section [" gResolvedMapName "] in " CombinedCalibrationPath(), "Calibration")
+    ShowMessage("Wrote section [" gResolvedMapName "] in " CombinedCalibrationPath(),
+        "Calibration", Map("severity", "success"))
 }
 
 ; ── Overlay display ──────────────────────────────────────────────

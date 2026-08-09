@@ -1223,14 +1223,15 @@ _WindowLayout_CaptureAsPrompt(suggested := "") {
         suggested := _WLayouts_UniqueName(layout.slots.Length " Client Layout")
 
     Loop {
-        prompt := InputBox("Name this layout — " layout.slots.Length " window"
+        prompt := PromptText("Name this layout — " layout.slots.Length " window"
             . (layout.slots.Length = 1 ? "" : "s") " on " _WindowLayout_DisplayLabel(monIdx) ".",
-            "Window Layout — Capture", "w360 h150", suggested)
+            "Window Layout — Capture", suggested,
+            _WindowLayout_DialogOpts(Map("inputLabel", "Layout name", "okLabel", "Save")))
         if (prompt.Result != "OK")
             return 0
         name := _WLayouts_SanitizeName(prompt.Value)
         if (err := _WLayouts_ValidateName(name)) {
-            MsgBox(err, "Window Layout", "Icon!")
+            ShowMessage(err, "Window Layout", _WindowLayout_DialogOpts(Map("severity", "warn")))
             suggested := name
             continue
         }
@@ -1255,6 +1256,23 @@ _WindowLayout_CaptureAsPrompt(suggested := "") {
 _WindowLayout_CanUseWebView() {
     return FileExist(A_ScriptDir "\Lib\WebViewToo.ahk")
         && FileExist(A_ScriptDir "\ui\window_layout\index.html")
+}
+
+; Dialogs raised by the manager are owned by whichever manager is open, so they
+; centre on it and — in the native fallback, where they are real MsgBoxes —
+; cannot open behind its +AlwaysOnTop and look like a freeze. Capture can also
+; be triggered from the tray with no manager open, which is why an absent
+; window is a normal answer rather than a failure.
+_WindowLayout_DialogOpts(extra := 0) {
+    global _WindowLayout_MgrGui, _WindowLayout_WebGui
+    o := IsObject(extra) ? extra : Map()
+    g := (IsObject(_WindowLayout_WebGui) && _WindowLayout_WebGui.Hwnd)
+        ? _WindowLayout_WebGui : _WindowLayout_MgrGui
+    if (IsObject(g) && g.Hwnd) {
+        try g.Opt("+OwnDialogs")
+        o["owner"] := g.Hwnd
+    }
+    return o
 }
 
 _WindowLayout_ShowManager() {
@@ -1380,13 +1398,14 @@ _WindowLayout_MgrRename() {
         return
     current := layout.name
     Loop {
-        prompt := InputBox("New name for “" current "”:", "Window Layout — Rename", "w320 h130", layout.name)
+        prompt := PromptText("Rename “" current "”.", "Window Layout — Rename", layout.name,
+            _WindowLayout_DialogOpts(Map("inputLabel", "Layout name", "okLabel", "Rename")))
         if (prompt.Result != "OK")
             return
         err := _WLayouts_Rename(id, prompt.Value)
         if (err = "")
             break
-        MsgBox(err, "Window Layout", "Icon!")
+        ShowMessage(err, "Window Layout", _WindowLayout_DialogOpts(Map("severity", "warn")))
     }
     _WindowLayout_MgrRenamedDefault(current, _WLayouts_NameForId(id))
     _WindowLayout_MgrRefresh(id)
@@ -1410,7 +1429,8 @@ _WindowLayout_MgrDelete() {
     layout := _WLayouts_Load(id)
     if !IsObject(layout)
         return
-    if (MsgBox("Delete the layout “" layout.name "”?", "Window Layout", "YesNo Icon? 0x40000") != "Yes")
+    if !ConfirmAction("Delete the layout “" layout.name "”?", "Window Layout",
+        _WindowLayout_DialogOpts(Map("severity", "danger", "okLabel", "Delete", "danger", true)))
         return
     wasDefault := (_WindowLayout_DefaultLayout = layout.name)
     _WLayouts_Delete(id)

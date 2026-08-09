@@ -3375,20 +3375,19 @@ GetResolvedOffset(name) {
 VerifyResolution() {
     cached := GetCachedProcessHandleAndBase()
     if !cached.ok {
-        MsgBox("Game process not found.", "Verify Signatures")
+        ShowMessage("Game process not found.", "Verify Signatures", Map("severity", "warn"))
         return
     }
     pe := ReadPEInfo(cached.handle, cached.modBase)
     if !pe.ok {
-        MsgBox("PE read failed: " pe.reason, "Verify Signatures")
+        ShowMessage("PE read failed: " pe.reason, "Verify Signatures", Map("severity", "danger"))
         return
     }
 
     sigs := LoadSignaturesIni()
     cacheMap := LoadOffsetsCacheForBuild(pe.timeDateStamp)
 
-    out := "Build: " Format("0x{:08X}", pe.timeDateStamp) "`n"
-        . "(constant | cached | live scan)`n`n"
+    out := "(constant | cached | live scan)`n`n"
 
     okCount := 0
     failCount := 0
@@ -3452,8 +3451,12 @@ VerifyResolution() {
             . "  cached: " cacheStr "`n"
             . "  scan  : " scanStr "`n`n"
     }
-    out .= "Summary: " okCount " ok, " failCount " problem(s)."
-    MsgBox(out, "Verify Signatures")
+    ; The per-signature breakdown is column-aligned hex, so it goes in the
+    ; dialog's monospace detail block and the verdict stands on its own above it.
+    ShowMessage("Build " Format("0x{:08X}", pe.timeDateStamp) " — "
+        okCount " ok, " failCount " problem" (failCount = 1 ? "" : "s") ".",
+        "Verify Signatures",
+        Map("severity", failCount ? "warn" : "success", "detail", out))
 }
 
 ; User-triggered: capture signatures for every name in SIGNATURE_NAMES from the
@@ -3463,20 +3466,24 @@ VerifyResolution() {
 CalibrateSignaturesNow() {
     cached := GetCachedProcessHandleAndBase()
     if !cached.ok {
-        MsgBox("Game process not found. Launch the game first.", "Calibrate Signatures")
+        ShowMessage("Game process not found. Launch the game first.",
+            "Calibrate Signatures", Map("severity", "warn"))
         return
     }
     pe := ReadPEInfo(cached.handle, cached.modBase)
     if !pe.ok {
-        MsgBox("Failed to read PE info: " pe.reason, "Calibrate Signatures")
+        ShowMessage("Failed to read PE info: " pe.reason, "Calibrate Signatures",
+            Map("severity", "danger"))
         return
     }
     if (pe.machine != 0x14C) {
-        MsgBox("Target is not 32-bit (machine=0x" Format("{:04X}", pe.machine) ").`nOnly 32-bit absolute operand scans are implemented.", "Calibrate Signatures")
+        ShowMessage("Target is not 32-bit (machine=0x" Format("{:04X}", pe.machine) ")."
+            . "`nOnly 32-bit absolute operand scans are implemented.",
+            "Calibrate Signatures", Map("severity", "danger"))
         return
     }
 
-    summary := "Build: " Format("0x{:08X}", pe.timeDateStamp) "`n`n"
+    summary := ""
     failures := 0
     for _, name in SIGNATURE_NAMES {
         ; Derived offsets have no signature by design — EnsureResolvedOffsetsForBuild
@@ -3508,10 +3515,14 @@ CalibrateSignaturesNow() {
 
     summary .= "`nWrote " SIGNATURES_INI
     summary .= "`nWrote " OFFSETS_CACHE_INI
-    if (failures > 0) {
-        summary .= "`n`n" failures " signature(s) could not be uniquely captured. The corresponding RVAs will fall back to the hardcoded constants."
-    }
-    MsgBox(summary, "Calibrate Signatures")
+
+    headline := "Build " Format("0x{:08X}", pe.timeDateStamp) " — "
+        . (failures
+            ? failures " signature(s) could not be uniquely captured, so those"
+              . " RVAs fall back to the hardcoded constants."
+            : "every signature captured.")
+    ShowMessage(headline, "Calibrate Signatures",
+        Map("severity", failures ? "warn" : "success", "detail", summary))
 }
 
 ; ── Addon system ─────────────────────────────────────────────────

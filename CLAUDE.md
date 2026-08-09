@@ -103,6 +103,18 @@ Both frontends for a given panel (e.g. `settings.ahk`'s `_Settings_BuildWebView`
 
 Shared web UI styling lives in `ui\common\style.css` (one dark theme via CSS custom properties, used by every panel — see `.impeccable.md` for the design system: dense table/form-heavy utility UI, no light theme, practical rather than WCAG-graded accessibility). Don't hardcode one-off colors per panel; extend the shared custom properties instead.
 
+### Dialogs
+
+`dialogs.ahk` is the app's `MsgBox`/`InputBox` replacement — `ShowMessage`, `ConfirmAction`, `PromptText`, rendering `ui\dialog\` in enhanced mode and falling back to the Win32 originals in native mode. **Nothing outside it should call `MsgBox` or `InputBox` directly**, or a Win32 dialog appears in the middle of a WebView2 panel, which is the inconsistency it exists to remove. `FileSelect` stays native everywhere: the OS file picker is the right dialog for picking a file.
+
+The unusual property is that these **block**, parking the caller in a `Sleep` loop until the page answers, because the ~forty call sites are written as `if !ConfirmAction(…)` and rewriting them into callbacks would buy nothing visible. AHK pumps messages during `Sleep`, so the answer arrives and timers keep running — exactly as under `MsgBox`. Two consequences are load-bearing: the owner window is **disabled** for the duration (otherwise the panel behind the dialog keeps handling its own WebView messages and a confirm could be answered by clicking something else), and **every wait has a deadline that ends in a `MsgBox`** rather than a spin — a dialog that never returns would hang the whole single-threaded app. Nested calls, a missing page and a page that never loads all take that fallback.
+
+Like the tray menu and the radial rings, the window is built once and parked off-screen; unlike them it is not prewarmed, since a session may raise no dialog at all. Because one window serves every dialog, replies carry a **token** and stale ones are dropped, and `_Dlg_ResolveOwner` rejects the dialog's own window along with anything else parked off-screen — without that the second dialog of a session adopts the first as its owner and disables the window it is about to appear in.
+
+The page reports the height it needs and AHK sizes the window to it. It must measure under `body.measuring` (see `ui\dialog\style.css`): the window is still parked at a placeholder height at that moment, so an unmodified measurement returns the squashed layout. For the same family of reasons `[hidden]` is forced with `!important` there — the shared primitives it hides (`.field`, `.btn`, `.dlg-detail-wrap`) all set an explicit `display`, which beats the UA sheet.
+
+Column-aligned output (signature dumps, debug state, slot tables) belongs in the `detail` option, not in the message: it renders in a monospace, scrollable block with a Copy button, and the message above it says what the dump means.
+
 ### Config and data files
 
 - `config.ini` — user settings (`[Launcher]`, `[Minimap]`, `[Hotkeys]`, `[MapPois]`, `[Addons]`, `[UI]`, `[WindowLayout]`); written next to the exe or falls back to `%AppData%` via `ResolveWritableIniPath()` if that directory isn't writable (e.g. under Program Files, or Controlled Folder Access). Full key reference is in [TUTORIAL.md](TUTORIAL.md#configuration-configini).

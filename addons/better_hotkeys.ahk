@@ -475,33 +475,41 @@ _BH_ReportOnce(key, message) {
     TrayTip(message, "Better Hotkeys", "Iconx")
 }
 
-; Native dialogs must be owned by the active editor. Both frontends are
-; AlwaysOnTop, so an unowned MsgBox/InputBox can otherwise open behind the
-; panel and make the application look locked.
-_BH_OwnDialogs() {
+; Every dialog this addon raises goes through these three, so both the theming
+; and the ownership are decided in one place. ShowMessage/ConfirmAction/
+; PromptText (dialogs.ahk) draw the themed WebView2 dialog in enhanced mode and
+; fall back to MsgBox/InputBox in native mode.
+;
+; The +OwnDialogs below only matters to that fallback: MsgBox and InputBox are
+; unowned top-level windows, so against either frontend's +AlwaysOnTop they open
+; *behind* the panel and make the application look locked. It lasts only for the
+; current thread, hence setting it before every dialog.
+_BH_DialogOpts(severity, extra := 0) {
     global _BH_PanelMode, _BH_WebGui, _BH_NativeGui
+    o := IsObject(extra) ? extra : Map()
+    o["severity"] := severity
     g := 0
     if (_BH_PanelMode = "web")
         g := _BH_WebGui
     else if (_BH_PanelMode = "native")
         g := _BH_NativeGui
-    if (IsObject(g) && g.Hwnd)
+    if (IsObject(g) && g.Hwnd) {
         try g.Opt("+OwnDialogs")
+        o["owner"] := g.Hwnd
+    }
+    return o
 }
 
-_BH_Say(text, icon := "Icon!", title := "Better Hotkeys") {
-    _BH_OwnDialogs()
-    return MsgBox(text, title, icon)
+_BH_Say(text, severity := "warn", title := "Better Hotkeys", opts := 0) {
+    return ShowMessage(text, title, _BH_DialogOpts(severity, opts))
 }
 
-_BH_Ask(text, icon := "Icon?", title := "Better Hotkeys") {
-    _BH_OwnDialogs()
-    return MsgBox(text, title, "YesNo Default2 " icon) = "Yes"
+_BH_Ask(text, severity := "ask", title := "Better Hotkeys", opts := 0) {
+    return ConfirmAction(text, title, _BH_DialogOpts(severity, opts))
 }
 
-_BH_Prompt(text, title, options := "", default := "") {
-    _BH_OwnDialogs()
-    return InputBox(text, title, options, default)
+_BH_Prompt(text, title, opts := 0, defaultValue := "") {
+    return PromptText(text, title, defaultValue, _BH_DialogOpts("info", opts))
 }
 
 ; ── Shared editor state and hotkey capture ───────────────────────
@@ -976,7 +984,8 @@ _BH_NativeOnBindingSelect(ctrl, row, selected) {
 _BH_NativeCreateProfile() {
     global _BH_NativeDraft, _BH_NativeProfileIndex, _BH_NativeDirty
     ib := _BH_Prompt("Enter the character name exactly as it appears in the game client.",
-        "Better Hotkeys — Create Profile", "w420 h145")
+        "Better Hotkeys — Create Profile",
+        Map("inputLabel", "Character name", "okLabel", "Create"))
     if (ib.Result != "OK")
         return
     name := _BH_SanitizeName(ib.Value)
@@ -994,10 +1003,17 @@ _BH_NativeCreateProfile() {
     if (IsObject(live) && live.classId >= 0) {
         classId := live.classId
     } else {
-        classPrompt := "Enter the class ID:`n`n0 Male Human    1 Female Human`n"
-            . "2 Male Centaur  3 Female Centaur`n4 Male Mage     5 Female Mage`n"
-            . "6 Male Borg     7 Female Borg"
-        cb := _BH_Prompt(classPrompt, "Better Hotkeys — Character Class", "w430 h250", "0")
+        ; The table is two aligned columns, so it goes in the monospace detail
+        ; block rather than the message, where a proportional font would stagger
+        ; it.
+        classTable := "0  Male Human      1  Female Human`n"
+            . "2  Male Centaur    3  Female Centaur`n"
+            . "4  Male Mage       5  Female Mage`n"
+            . "6  Male Borg       7  Female Borg"
+        cb := _BH_Prompt(name " is not logged in, so the class could not be read."
+            . " Enter it from the list below.",
+            "Better Hotkeys — Character Class",
+            Map("inputLabel", "Class ID", "detail", classTable), "0")
         if (cb.Result != "OK")
             return
         if !IsInteger(Trim(cb.Value)) || Integer(Trim(cb.Value)) < 0 || Integer(Trim(cb.Value)) > 7 {

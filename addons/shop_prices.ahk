@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 
 ; Character Vendor pricing.
 ;
@@ -592,15 +592,17 @@ _ShopPrices_ShowSlotDump() {
 
     state := _ShopPrices_ReadSlots(pid)
     if !state.ok {
-        _ShopPrices_Say(state.reason, "Iconx")
+        _ShopPrices_Say(state.reason, "danger")
         return
     }
 
     priceBase := GetResolvedOffset("ShopPriceBase")
     idBase    := _ShopPrices_ItemIdBase()
 
-    out := charName "`n`n"
-        . "ShopPriceBase  " Format("0x{:06X}", priceBase) "  stride 4`n"
+    ; The table below is column-aligned, so it goes in the dialog's monospace
+    ; detail block rather than the message — the summary is what answers the
+    ; question, the table is the evidence.
+    out := "ShopPriceBase  " Format("0x{:06X}", priceBase) "  stride 4`n"
         . "vendor open at " Format("0x{:06X}", _ShopPrices_VendorOpenRva())
         . "   reads " (state.vendorOpen ? "OPEN" : "closed") "`n"
         . "count      at  " Format("0x{:06X}", _ShopPrices_CountRva())
@@ -625,10 +627,16 @@ _ShopPrices_ShowSlotDump() {
     out .= "`nNon-zero prices: " listed
         . "   count field: " state.count
         . (listed = state.count ? "   (consistent)" : "   <-- MISMATCH")
-        . "`n`nCheck against the game: item ids must line up with the inventory"
-        . "`nslots in the same order, and the prices must line up with the ids."
 
-    _ShopPrices_Say(out, "Iconi", "Character Vendor — Verify Slot Mapping")
+    summary := charName " — " listed " priced slot"
+        . (listed = 1 ? "" : "s") ", count field reads " state.count
+        . (listed = state.count ? " (consistent)." : " — MISMATCH.")
+        . "`n`nCheck the table against the game: item ids must line up with the"
+        . " inventory slots in the same order, and the prices must line up with"
+        . " the ids."
+
+    _ShopPrices_Say(summary, (listed = state.count) ? "info" : "warn",
+        "Character Vendor — Verify Slot Mapping", Map("detail", out))
 }
 
 ; Item icons ship as ui\items\<n>.<n+1>.png, so the filename encodes the id
@@ -1452,17 +1460,23 @@ _ShopPrices_ApplyPresetToDraft(id) {
 
 ; ── Dialogs ──────────────────────────────────────────────────────
 ;
-; MsgBox and InputBox are unowned top-level windows, so against the panel's
-; +AlwaysOnTop they open *behind* it and look like a freeze. +OwnDialogs makes
-; every dialog raised later in the same thread owned by — and modal to — the
-; panel, which is the documented fix.
+; Every dialog in this addon goes through these three helpers rather than
+; calling MsgBox/InputBox itself, because two things have to be right at every
+; one of them and neither is obvious at the call site.
 ;
-; It only lasts for the current thread, so it has to be set again before each
-; dialog. That is why every dialog in this addon goes through these three
-; helpers instead of calling MsgBox/InputBox directly: one place to get right,
-; and a new dialog cannot quietly reintroduce the bug.
+; The first is which frontend answers: ShowMessage/ConfirmAction/PromptText
+; (dialogs.ahk) render the themed WebView2 dialog in enhanced mode and fall
+; back to MsgBox/InputBox in native mode, so a confirm raised from the pricing
+; panel matches the panel it came from.
+;
+; The second only bites the native fallback. MsgBox and InputBox are unowned
+; top-level windows, so against the panel's +AlwaysOnTop they open *behind* it
+; and look like a freeze. +OwnDialogs makes every dialog raised later in the
+; same thread owned by — and modal to — the panel, which is the documented fix.
+; It lasts only for the current thread, hence setting it again before each one.
+; The WebView2 path does its own owner handling and is unaffected.
 
-_ShopPrices_OwnDialogs() {
+_ShopPrices_OwnerGui() {
     global _ShopPrices_PanelMode, _ShopPrices_WebGui, _ShopPrices_NativeGui
 
     g := 0
@@ -1472,24 +1486,31 @@ _ShopPrices_OwnDialogs() {
         g := _ShopPrices_NativeGui
     ; No panel open (a tray-triggered dialog) means there is nothing to own it,
     ; which is correct rather than a failure.
-    if (IsObject(g) && g.Hwnd)
+    return (IsObject(g) && g.Hwnd) ? g : 0
+}
+
+_ShopPrices_DialogOpts(severity, extra := 0) {
+    o := IsObject(extra) ? extra : Map()
+    o["severity"] := severity
+    g := _ShopPrices_OwnerGui()
+    if IsObject(g) {
         try g.Opt("+OwnDialogs")
+        o["owner"] := g.Hwnd
+    }
+    return o
 }
 
-_ShopPrices_Say(text, icon := "Iconi", title := "Character Vendor") {
-    _ShopPrices_OwnDialogs()
-    return MsgBox(text, title, icon)
+_ShopPrices_Say(text, severity := "info", title := "Character Vendor", opts := 0) {
+    return ShowMessage(text, title, _ShopPrices_DialogOpts(severity, opts))
 }
 
-; Default2 = No, so the destructive answer is never one stray Enter away.
-_ShopPrices_Ask(text, icon := "Icon!", title := "Character Vendor") {
-    _ShopPrices_OwnDialogs()
-    return MsgBox(text, title, "YesNo Default2 " icon) = "Yes"
+_ShopPrices_Ask(text, severity := "warn", title := "Character Vendor", opts := 0) {
+    return ConfirmAction(text, title, _ShopPrices_DialogOpts(severity, opts))
 }
 
-_ShopPrices_Prompt(text, default) {
-    _ShopPrices_OwnDialogs()
-    return InputBox(text, "Character Vendor", "w320 h130", default)
+_ShopPrices_Prompt(text, defaultValue, opts := 0) {
+    return PromptText(text, "Character Vendor", defaultValue,
+        _ShopPrices_DialogOpts("info", opts))
 }
 
 ; ── Shared frontend helpers ──────────────────────────────────────
@@ -1513,10 +1534,23 @@ _ShopPrices_ConfirmHighPrice(prices) {
 
 ; A diff rendered as text, used by the native preview dialog. The web overlay
 ; renders the same rows as a table.
-_ShopPrices_DiffText(diff) {
+; Split in two because the dialog shows them differently: the summary is the
+; question being asked and the table is the evidence behind it, which is
+; column-aligned and so belongs in the monospace detail block.
+_ShopPrices_DiffSummary(diff) {
     if !diff.rows.Length
         return "This preset would not change anything in the grid."
+    out := diff.rows.Length " change" (diff.rows.Length = 1 ? "" : "s")
+    if diff.warnCount
+        out .= ", " diff.warnCount " warning" (diff.warnCount = 1 ? "" : "s")
+    if diff.noopCount
+        out .= " (" diff.noopCount " already match)"
+    return out ".`n`nThis only fills in the grid — you still have to press Apply."
+}
 
+_ShopPrices_DiffTable(diff) {
+    if !diff.rows.Length
+        return ""
     out := "Slot  Now              Preset`n"
          . "----  ---------------  ---------------`n"
     for row in diff.rows {
@@ -1531,13 +1565,6 @@ _ShopPrices_DiffText(diff) {
             _ShopPrices_FormatPrice(row.from),
             _ShopPrices_FormatPrice(row.to), note)
     }
-    out .= "`n" diff.rows.Length " change"
-        . (diff.rows.Length = 1 ? "" : "s")
-    if diff.warnCount
-        out .= ", " diff.warnCount " warning" (diff.warnCount = 1 ? "" : "s")
-    if diff.noopCount
-        out .= " (" diff.noopCount " already match)"
-    out .= ".`n`nThis only fills in the grid — you still have to press Apply."
     return out
 }
 
@@ -1835,12 +1862,12 @@ _ShopPrices_NativeSetOnSelected() {
 
     slots := _ShopPrices_NativeSelectedSlots()
     if !slots.Length {
-        _ShopPrices_Say("Select one or more slots first.", "Icon!")
+        _ShopPrices_Say("Select one or more slots first.", "warn")
         return
     }
     parsed := _ShopPrices_NormalizePrice(_ShopPrices_NativePriceEdit.Value)
     if !parsed.ok {
-        _ShopPrices_Say(parsed.reason, "Icon!")
+        _ShopPrices_Say(parsed.reason, "warn")
         return
     }
     n := _ShopPrices_DraftSetMany(slots, parsed.value)
@@ -1850,14 +1877,14 @@ _ShopPrices_NativeSetOnSelected() {
     if (parsed.value > 0 && n < slots.Length) {
         skipped := slots.Length - n
         _ShopPrices_Say("Skipped " skipped " empty slot" (skipped = 1 ? "" : "s")
-            . " with no item file ID.", "Icon!")
+            . " with no item file ID.", "warn")
     }
 }
 
 _ShopPrices_NativeClearSelected() {
     slots := _ShopPrices_NativeSelectedSlots()
     if !slots.Length {
-        _ShopPrices_Say("Select one or more slots first.", "Icon!")
+        _ShopPrices_Say("Select one or more slots first.", "warn")
         return
     }
     _ShopPrices_DraftSetMany(slots, 0)
@@ -1883,7 +1910,7 @@ _ShopPrices_NativeReload() {
     }
     state := _ShopPrices_LoadFromClient()
     if !state.ok {
-        _ShopPrices_Say(state.reason, "Iconx")
+        _ShopPrices_Say(state.reason, "danger")
         return
     }
     _ShopPrices_NativeRefresh()
@@ -1915,7 +1942,7 @@ _ShopPrices_NativeOnClientChange() {
     _ShopPrices_PinTarget(pid, hwnd)
     state := _ShopPrices_LoadFromClient()
     if !state.ok
-        _ShopPrices_Say(state.reason, "Iconx")
+        _ShopPrices_Say(state.reason, "danger")
     _ShopPrices_NativeRefresh()
 }
 
@@ -1928,7 +1955,7 @@ _ShopPrices_NativeApply() {
     }
     reason := _ShopPrices_CheckWritable()
     if (reason != "") {
-        _ShopPrices_Say(reason, "Icon!")
+        _ShopPrices_Say(reason, "warn")
         return
     }
     if !_ShopPrices_ConfirmHighPrice(_ShopPrices_Draft)
@@ -1937,7 +1964,7 @@ _ShopPrices_NativeApply() {
     res := _ShopPrices_ApplyPrices()
     _ShopPrices_NativeRefresh()
     if !res.ok {
-        _ShopPrices_Say(res.reason, "Iconx")
+        _ShopPrices_Say(res.reason, "danger")
         return
     }
     _ShopPrices_Say(res.listed " item(s) priced and the shop count updated.`n`n"
@@ -1948,17 +1975,18 @@ _ShopPrices_NativeSavePreset() {
     name := _ShopPresets_UniqueName(_ShopPrices_TargetLabel() " prices")
     ; Names are collected here rather than in a frontend so both panels get the
     ; same sanitising and duplicate checks.
-    ib := _ShopPrices_Prompt("Name this preset.", name)
+    ib := _ShopPrices_Prompt("Save the current grid as a preset you can load onto any character.",
+        name, Map("inputLabel", "Preset name", "okLabel", "Save"))
     if (ib.Result != "OK")
         return
     reason := _ShopPresets_ValidateName(ib.Value)
     if (reason != "") {
-        _ShopPrices_Say(reason, "Icon!")
+        _ShopPrices_Say(reason, "warn")
         return
     }
     preset := _ShopPrices_PresetFromDraft(ib.Value)
     if !preset.entries.Count {
-        _ShopPrices_Say("No slot has a price, so there is nothing to save.", "Icon!")
+        _ShopPrices_Say("No slot has a price, so there is nothing to save.", "warn")
         return
     }
     if !_ShopPresets_Save(preset)
@@ -1971,12 +1999,12 @@ _ShopPrices_NativeSavePreset() {
 _ShopPrices_NativeApplyPreset() {
     id := _ShopPrices_NativeSelectedPresetId()
     if !id {
-        _ShopPrices_Say("There are no saved presets yet.", "Icon!")
+        _ShopPrices_Say("There are no saved presets yet.", "warn")
         return
     }
     diff := _ShopPrices_DiffPreset(id)
     if !diff.ok {
-        _ShopPrices_Say(diff.reason, "Iconx")
+        _ShopPrices_Say(diff.reason, "danger")
         return
     }
     if !diff.rows.Length {
@@ -1985,8 +2013,9 @@ _ShopPrices_NativeApplyPreset() {
     }
     ; Slot-keyed presets repoint silently when the inventory is reordered, so
     ; the diff is always shown before anything is loaded.
-    if !_ShopPrices_Ask(_ShopPrices_DiffText(diff), "Icon?",
-        "Character Vendor — " diff.name)
+    if !_ShopPrices_Ask(_ShopPrices_DiffSummary(diff), "ask",
+        "Character Vendor — " diff.name,
+        Map("detail", _ShopPrices_DiffTable(diff), "okLabel", "Load"))
         return
     res := _ShopPrices_ApplyPresetToDraft(id)
     _ShopPrices_NativeRefresh()
@@ -1998,11 +2027,12 @@ _ShopPrices_NativeApplyPreset() {
 _ShopPrices_NativeDeletePreset() {
     id := _ShopPrices_NativeSelectedPresetId()
     if !id {
-        _ShopPrices_Say("There are no saved presets yet.", "Icon!")
+        _ShopPrices_Say("There are no saved presets yet.", "warn")
         return
     }
     name := _ShopPresets_NameForId(id)
-    if !_ShopPrices_Ask("Delete the preset '" name "'?")
+    if !_ShopPrices_Ask("Delete the preset “" name "”?", "danger", "Character Vendor",
+        Map("okLabel", "Delete", "danger", true))
         return
     if _ShopPresets_Delete(id)
         _ShopPrices_NativeRefreshPresets()
@@ -2406,7 +2436,8 @@ _ShopPrices_WebSelectClient(msg) {
 ; corrupt on the way back from JS.
 _ShopPrices_WebSavePreset() {
     name := _ShopPresets_UniqueName(_ShopPrices_TargetLabel() " prices")
-    ib := _ShopPrices_Prompt("Name this preset.", name)
+    ib := _ShopPrices_Prompt("Save the current grid as a preset you can load onto any character.",
+        name, Map("inputLabel", "Preset name", "okLabel", "Save"))
     if (ib.Result != "OK")
         return
     reason := _ShopPresets_ValidateName(ib.Value)
@@ -2441,7 +2472,8 @@ _ShopPrices_WebDeletePreset(id) {
     name := _ShopPresets_NameForId(id)
     if (name = "")
         return
-    if !_ShopPrices_Ask("Delete the preset '" name "'?")
+    if !_ShopPrices_Ask("Delete the preset “" name "”?", "danger", "Character Vendor",
+        Map("okLabel", "Delete", "danger", true))
         return
     if _ShopPresets_Delete(id)
         _ShopPrices_SendPresets()
@@ -2451,7 +2483,8 @@ _ShopPrices_WebRenamePreset(id) {
     current := _ShopPresets_NameForId(id)
     if (current = "")
         return
-    ib := _ShopPrices_Prompt("Rename this preset.", current)
+    ib := _ShopPrices_Prompt("Rename “" current "”.", current,
+        Map("inputLabel", "Preset name", "okLabel", "Rename"))
     if (ib.Result != "OK")
         return
     reason := _ShopPresets_Rename(id, ib.Value)

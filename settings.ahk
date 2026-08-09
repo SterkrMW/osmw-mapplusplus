@@ -498,8 +498,12 @@ _Settings_HandleSave(msg) {
 
 _Settings_SendSaveResult(ok, error := "") {
     global gSettingsGui
+    ; The native panel has nowhere in itself to put a save error, so it gets a
+    ; dialog; the WebView panel shows it inline and falls through below.
     if (!ok && error != "" && IsObject(gSettingsGui) && Type(gSettingsGui) = "Gui") {
-        MsgBox(error, "Maps++ — Settings", "Icon!")
+        try gSettingsGui.Opt("+OwnDialogs")
+        ShowMessage(error, "Maps++ — Settings",
+            Map("severity", "warn", "owner", gSettingsGui.Hwnd))
         return
     }
     json := '{"type":"save-result","ok":' (ok ? "true" : "false")

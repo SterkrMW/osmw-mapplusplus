@@ -189,6 +189,12 @@ tray and the radial rings prewarmed for immediate response. **Native (low memory
 standard Windows/AHK controls, does not preload WebView2, opens the client roster as a list and
 Quick Actions as a popup menu. Your selection is remembered in `config.ini`.
 
+Confirmations, name prompts and diagnostic read-outs follow the same choice. In enhanced mode
+they are Maps++'s own dialogs, matching the panel that raised them; in low-memory mode they are
+plain Windows message boxes. Either way **Esc** cancels, **Enter** accepts, and a dialog that
+asks before deleting something starts with the safe answer selected. Read-outs such as **Verify
+Signatures** put their table in a scrollable **Details** panel with a **Copy** button.
+
 > **Run on Windows start-up** is a per-user setting (no admin needed). When enabled, Maps++
 > registers itself to launch at login; disabling removes that entry. You can also remove it
 > from **Task Manager → Startup apps** — the checkbox reflects the real state either way.

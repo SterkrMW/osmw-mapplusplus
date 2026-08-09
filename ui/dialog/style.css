@@ -1,0 +1,121 @@
+/* Shared modal dialog — the themed replacement for MsgBox / InputBox.
+
+   Everything here is either a shared primitive from common/style.css
+   (.title-bar, .dialog-body, .field, .btn, .footer) or a token from it. The
+   point of this page is that a confirm looks like the panel that raised it, so
+   a colour invented here would defeat it. */
+
+/* One page serves every dialog by hiding the parts the current one does not
+   use, and every one of those parts is a shared primitive with an explicit
+   `display` (.field and .dlg-detail-wrap are flex, .btn is inline-flex). A
+   `display` rule in a stylesheet beats the UA sheet's `[hidden]`, so without
+   this the prompt's input box and a message's Cancel button stay on screen. */
+[hidden] { display: none !important; }
+
+/* Measuring pose, applied for one frame by main.js.
+
+   The window is parked at a placeholder height while the page decides how tall
+   it needs to be, so the body is shorter than its content and the flex children
+   inside it are compressed to fit. Height read in that state is the squashed
+   layout, not the wanted one. Releasing the column for the measurement — auto
+   height, children at their natural size — is what makes scrollHeight mean what
+   it says. .dlg-detail keeps its own max-height, so a long dump still reports
+   the capped height it will actually occupy. */
+body.measuring {
+    height: auto;
+    overflow: visible;
+}
+body.measuring .dialog-body {
+    flex: 0 0 auto;
+    overflow: visible;
+}
+
+/* The severity mark, reusing the title bar's icon chip. Round rather than the
+   chip's square so it reads as a status mark and not as an app logo, and it is
+   never the only signal — the message and the buttons say the same thing. */
+.dlg-glyph {
+    border-radius: 50%;
+    font-family: var(--font-ui);
+    font-size: 0.75rem;
+    font-weight: var(--weight-bold);
+    line-height: 1;
+    background: var(--info);
+}
+.dlg-glyph.is-warn    { background: var(--warning); }
+.dlg-glyph.is-danger  { background: var(--danger); color: var(--text); }
+.dlg-glyph.is-success { background: var(--success); }
+.dlg-glyph.is-ask     { background: var(--accent); }
+
+/* pre-wrap because these strings come from AHK with their own line breaks, and
+   selectable because MsgBox allowed Ctrl+C and people paste these into bug
+   reports. */
+.dlg-text {
+    font-size: var(--text-ui);
+    line-height: var(--leading-copy);
+    color: var(--text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+    -webkit-user-select: text;
+}
+.dlg-text:empty { display: none; }
+
+.dlg-field {
+    margin-top: 2px;
+}
+
+/* ── Detail block ───────────────────────────────────────────────
+   For the diagnostic dumps (signature verification, debug state) that used to
+   be a wall of text in a MsgBox. Capped and scrolled internally so a long dump
+   cannot grow the window past the screen; Copy is routed through AHK's
+   clipboard rather than the page's, which needs no permissions and cannot be
+   blocked by the WebView's origin. */
+.dlg-detail-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+}
+
+.dlg-detail-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.dlg-detail-label {
+    font-size: var(--text-caption);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+
+.dlg-detail {
+    max-height: 340px;
+    padding: 10px 12px;
+    overflow: auto;
+    font-family: var(--font-mono);
+    font-size: var(--text-secondary);
+    line-height: 1.5;
+    color: var(--text-muted);
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    white-space: pre;
+    user-select: text;
+    -webkit-user-select: text;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+.dlg-detail::-webkit-scrollbar { width: 6px; height: 6px; }
+.dlg-detail::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Footer ─────────────────────────────────────────────────────
+   OK then Cancel, right-aligned — the order every other window in this app
+   already uses. */
+.dlg-footer {
+    justify-content: flex-end;
+    gap: 8px;
+}

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maps++</title>
+    <script src="../common/theme.js"></script>
+    <link rel="stylesheet" href="../common/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- One page serves every dialog. AHK posts a spec, the page shows only the
+         parts that spec asked for, measures itself and reports the height it
+         needs — the window is sized to the content rather than the content
+         being squeezed into a fixed window. -->
+    <header class="title-bar">
+        <div class="title-bar-drag">
+            <span class="title-bar-icon dlg-glyph" id="glyph" aria-hidden="true">i</span>
+            <span class="title-bar-title" id="title">Maps++</span>
+        </div>
+        <div class="title-bar-controls">
+            <button class="title-btn title-btn-close" id="btnClose" title="Close" tabindex="-1">✕</button>
+        </div>
+    </header>
+
+    <main class="dialog-body" id="body" role="alertdialog" aria-labelledby="title" aria-describedby="text">
+        <p class="dlg-text" id="text"></p>
+
+        <label class="field dlg-field" id="field" hidden>
+            <span class="field-label" id="inputLabel" hidden></span>
+            <input class="input" id="input" type="text" spellcheck="false" autocomplete="off">
+        </label>
+
+        <section class="dlg-detail-wrap" id="detailWrap" hidden>
+            <div class="dlg-detail-bar">
+                <span class="dlg-detail-label">Details</span>
+                <button class="btn btn-sm" id="btnCopy">Copy</button>
+            </div>
+            <pre class="dlg-detail" id="detail"></pre>
+        </section>
+    </main>
+
+    <footer class="footer dlg-footer">
+        <button class="btn btn-primary" id="btnOk">OK</button>
+        <button class="btn" id="btnCancel" hidden>Cancel</button>
+    </footer>
+
+    <script src="main.js"></script>
+</body>
+</html>
