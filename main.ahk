@@ -439,6 +439,7 @@ _IconForLabel(lbl) {
         case "Settings…": return "settings"
         case "Reload": return "refresh"
         case "Debug", "Debug State": return "bug_report"
+        case "GUI Gallery…", "Close GUI Gallery": return "grid_view"
         case "Calibrate Signatures": return "track_changes"
         case "Verify Signatures": return "search"
         case "Exit": return "power_settings_new"
@@ -486,10 +487,21 @@ RebuildTrayMenu() {
     quickActionsMenu := Menu()
     clientsMenu := Menu()
     mapMenu := Menu()
+    ; Built here rather than beside its own trayMenu.Add() below so its core
+    ; entries come first and an addon's diagnostic tool can append to the group
+    ; the rest of them live in. It is attached at the same place as always.
+    debugMenu := Menu()
+    debugMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
+    debugMenu.Add("Copy Diagnostics", (*) => CopyDiagnosticsReport())
+    debugMenu.Add("Open Log Folder", (*) => OpenLogFolder())
+    debugMenu.Add()
+    debugMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
+    debugMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
     trayGroups := Map(
         "quickActions", quickActionsMenu,
         "clients", clientsMenu,
-        "map", mapMenu
+        "map", mapMenu,
+        "debug", debugMenu
     )
     quickActionsMenu.Add("Send Enter Until Ready`t" GetHotkeyDisplay("sendEnterUntilReady"), (*) => SendEnterUntilReady())
     FireAddonHook("OnTrayMenu", trayGroups)
@@ -514,13 +526,6 @@ RebuildTrayMenu() {
     interfaceMenu.Add(webLabel, (*) => SetInterfaceMode("webview"))
     trayMenu.Add("Interface", interfaceMenu)
     trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
-    debugMenu := Menu()
-    debugMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
-    debugMenu.Add("Copy Diagnostics", (*) => CopyDiagnosticsReport())
-    debugMenu.Add("Open Log Folder", (*) => OpenLogFolder())
-    debugMenu.Add()
-    debugMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
-    debugMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
     trayMenu.Add("Debug", debugMenu)
     trayMenu.Add("About Maps++…", (*) => ShowAboutDialog())
     trayMenu.Add()
