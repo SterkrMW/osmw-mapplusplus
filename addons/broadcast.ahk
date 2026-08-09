@@ -86,17 +86,17 @@ _Broadcast_LoadConfig() {
 
     ; Not named `mod`: Mod() is a built-in, and shadowing it is a
     ; load-time name conflict that Ahk2Exe rejects outright.
-    modChord := Trim(IniRead(CONFIG_INI, "Broadcast", "Modifier", "!"))
+    modChord := Trim(ConfigRead("Broadcast", "Modifier", "!"))
     _Broadcast_Modifier := _Broadcast_IsModifier(modChord) ? modChord : "!"
 
     _Broadcast_Keys := _Broadcast_ParseKeys(
-        IniRead(CONFIG_INI, "Broadcast", "Keys", _BROADCAST_KEYS_DEFAULT))
+        ConfigRead("Broadcast", "Keys", _BROADCAST_KEYS_DEFAULT))
 
-    target := StrLower(Trim(IniRead(CONFIG_INI, "Broadcast", "Target", "all")))
+    target := StrLower(Trim(ConfigRead("Broadcast", "Target", "all")))
     _Broadcast_Target := (target = "others") ? "others" : "all"
 
     _Broadcast_Excluded := _Broadcast_ParseNames(
-        IniRead(CONFIG_INI, "Broadcast", "Exclude", ""))
+        ConfigRead("Broadcast", "Exclude", ""))
 }
 
 _Broadcast_SaveConfig() {
@@ -356,6 +356,7 @@ _Broadcast_OnSettingsWeb() {
     global _Broadcast_Keys, _Broadcast_Modifier, _Broadcast_Target, _Broadcast_Excluded
     global _BROADCAST_MODIFIERS, _BROADCAST_MODIFIER_LABELS
     global _BROADCAST_TARGETS, _BROADCAST_TARGET_LABELS, _BROADCAST_MAX_KEYS
+    global _BROADCAST_KEYS_DEFAULT
 
     ; Offer the characters running now, so the usual case is a pick not a typo.
     running := []
@@ -373,6 +374,16 @@ _Broadcast_OnSettingsWeb() {
     }
     targetIdx := (_Broadcast_Target = "others") ? 1 : 0
 
+    defaultModIdx := 0
+    defaultModChord := DefaultRead("Broadcast", "Modifier", "!")
+    for i, m in _BROADCAST_MODIFIERS {
+        if (m = defaultModChord) {
+            defaultModIdx := i - 1
+            break
+        }
+    }
+    defaultTargetIdx := (DefaultRead("Broadcast", "Target", "all") = "others") ? 1 : 0
+
     fields := [
         Map("type", "info", "text",
             "Sends one keystroke to every running client at once.`n`n"
@@ -381,17 +392,19 @@ _Broadcast_OnSettingsWeb() {
             . "window is focused, and always use a modifier so typing in chat "
             . "never broadcasts."),
         Map("type", "dropdown", "id", "modifierIdx", "label", "Trigger:",
-            "options", _BROADCAST_MODIFIER_LABELS, "value", modIdx),
+            "options", _BROADCAST_MODIFIER_LABELS, "value", modIdx, "default", defaultModIdx),
         Map("type", "combo", "id", "keys",
             "label", "Keys to broadcast (comma separated):",
             "options", ["1,2,3,4,5", "1,2,3,4,5,6,7,8,9,0", "F1,F2,F3,F4"],
-            "value", _Broadcast_Join(_Broadcast_Keys)),
+            "value", _Broadcast_Join(_Broadcast_Keys),
+            "default", DefaultRead("Broadcast", "Keys", _BROADCAST_KEYS_DEFAULT)),
         Map("type", "dropdown", "id", "targetIdx", "label", "Send to:",
-            "options", _BROADCAST_TARGET_LABELS, "value", targetIdx),
+            "options", _BROADCAST_TARGET_LABELS, "value", targetIdx, "default", defaultTargetIdx),
         Map("type", "combo", "id", "exclude",
             "label", "Never send to these characters (comma separated):",
             "options", running,
-            "value", _Broadcast_Join(_Broadcast_Excluded)),
+            "value", _Broadcast_Join(_Broadcast_Excluded),
+            "default", DefaultRead("Broadcast", "Exclude", "")),
         Map("type", "info", "text",
             "Letters, digits, F1-F24 and named keys (Enter, Space, Tab, Up, "
             . "Numpad1 …) can be sent; up to " _BROADCAST_MAX_KEYS " of them. "
