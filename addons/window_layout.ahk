@@ -159,13 +159,24 @@ _WindowLayout_OnSettingsWeb() {
     monIdx := (_WindowLayout_TargetMonitor >= 1 && _WindowLayout_TargetMonitor <= MonitorGetCount())
         ? _WindowLayout_TargetMonitor : 0
 
+    ; Same guarded-parse shape as _WindowLayout_LoadConfig: a hand-edited
+    ; defaults.ini value must not throw here.
+    defaultLayoutName := DefaultRead("WindowLayout", "DefaultLayout", "Grid2x2")
+    defaultLayoutIdx := _WindowLayout_IndexOf(presets, defaultLayoutName, 3) - 1
+    defaultMon := 0
+    rawDefaultMon := Trim(DefaultRead("WindowLayout", "TargetMonitor", "0"))
+    if (IsInteger(rawDefaultMon) && Integer(rawDefaultMon) >= 0)
+        defaultMon := Integer(rawDefaultMon)
+    defaultMonIdx := (defaultMon >= 1 && defaultMon <= MonitorGetCount()) ? defaultMon : 0
+
     return [
         Map("type", "dropdown", "id", "layoutIdx", "label", "Default layout:",
-            "options", presets, "value", layoutIdx),
+            "options", presets, "value", layoutIdx, "default", defaultLayoutIdx),
         Map("type", "combo", "id", "mainChar", "label", "Main character:",
-            "options", names, "value", _WindowLayout_MainCharacter),
+            "options", names, "value", _WindowLayout_MainCharacter,
+            "default", DefaultRead("WindowLayout", "MainCharacter", "")),
         Map("type", "dropdown", "id", "targetMonitorIdx", "label", "Target display:",
-            "options", monChoices, "value", monIdx)
+            "options", monChoices, "value", monIdx, "default", defaultMonIdx)
     ]
 }
 
@@ -210,12 +221,12 @@ _WindowLayout_ArrayHas(arr, needle) {
 _WindowLayout_LoadConfig() {
     global _WindowLayout_DefaultLayout, _WindowLayout_MainCharacter, _WindowLayout_TargetMonitor
     global _WindowLayout_MainCharacterAsked, CONFIG_INI
-    _WindowLayout_DefaultLayout := Trim(IniRead(CONFIG_INI, "WindowLayout", "DefaultLayout", "Grid2x2"))
-    _WindowLayout_MainCharacter := Trim(IniRead(CONFIG_INI, "WindowLayout", "MainCharacter", ""))
+    _WindowLayout_DefaultLayout := Trim(ConfigRead("WindowLayout", "DefaultLayout", "Grid2x2"))
+    _WindowLayout_MainCharacter := Trim(ConfigRead("WindowLayout", "MainCharacter", ""))
     ; A bare Integer() throws on a hand-edited value, and this runs inside OnInit
     ; where FireAddonHook swallows the exception — the rest of the config would
     ; silently never load. Guarded like every other read in this file.
-    rawMon := Trim(IniRead(CONFIG_INI, "WindowLayout", "TargetMonitor", "0"))
+    rawMon := Trim(ConfigRead("WindowLayout", "TargetMonitor", "0"))
     _WindowLayout_TargetMonitor := (IsInteger(rawMon) && Integer(rawMon) >= 0) ? Integer(rawMon) : 0
     _WindowLayout_MainCharacterAsked :=
         (Trim(IniRead(CONFIG_INI, "WindowLayout", "MainCharacterAsked", "0")) = "1")
@@ -224,8 +235,7 @@ _WindowLayout_LoadConfig() {
 ; Core launcher settings use a dynamic lookup so builds without this addon still
 ; compile. Read the persisted value directly because disabled addons skip OnInit.
 _WindowLayout_GetDefaultLayoutName() {
-    global CONFIG_INI
-    name := Trim(IniRead(CONFIG_INI, "WindowLayout", "DefaultLayout", "Grid2x2"))
+    name := Trim(ConfigRead("WindowLayout", "DefaultLayout", "Grid2x2"))
     return (name != "") ? name : "Grid2x2"
 }
 
