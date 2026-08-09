@@ -626,10 +626,9 @@ MinimapMarkerSize() {
 
 LoadMinimapConfig() {
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
-    global gMinimapKeepOpen, MINIMAP_ANCHORS, CONFIG_INI, gShowHoverCoords
-    if !FileExist(CONFIG_INI) {
-        return
-    }
+    global gMinimapKeepOpen, MINIMAP_ANCHORS, gShowHoverCoords
+    ; Always run through ConfigRead so a missing config.ini still picks up
+    ; defaults.ini (IniRead returns its fallback when the file is absent).
     scale := Trim(ConfigRead("Minimap", "Scale", "100"))
     if IsInteger(scale) {
         gMinimapScale := Clamp(Integer(scale), 50, 200)
@@ -1312,46 +1311,48 @@ LoadLauncherConfig() {
         gGamePath := localExe
     }
 
-    ; 2. Read config.ini overrides (GamePath only used if local exe wasn't found).
-    if FileExist(CONFIG_INI) {
-        if (gGamePath = "") {
-            cfgPath := Trim(IniRead(CONFIG_INI, "Launcher", "GamePath", ""))
-            if (cfgPath != "" && FileExist(cfgPath)) {
-                gGamePath := cfgPath
-            }
+    ; 2. GamePath from config.ini only when that file exists (per-machine path,
+    ; not in defaults.ini). Used only if the local exe wasn't found above.
+    if (gGamePath = "" && FileExist(CONFIG_INI)) {
+        cfgPath := Trim(IniRead(CONFIG_INI, "Launcher", "GamePath", ""))
+        if (cfgPath != "" && FileExist(cfgPath)) {
+            gGamePath := cfgPath
         }
-        gGameArgs := Trim(ConfigRead("Launcher", "GameArgs", ""))
-        startupVal := Trim(ConfigRead("Launcher", "LaunchOnStartup", "__MISSING__"))
-        if (startupVal != "__MISSING__") {
-            gLaunchOnStartup := (startupVal = "1")
-        }
-        cnt := Trim(ConfigRead("Launcher", "MultiClientCount", "5"))
-        if (IsInteger(cnt) && Integer(cnt) >= 1)
-            gMultiClientCount := Integer(cnt)
-        dly := Trim(ConfigRead("Launcher", "MultiClientDelay", "0"))
-        if (IsInteger(dly) && Integer(dly) >= 0)
-            gMultiClientDelay := Integer(dly)
-        ; Monitor overrides (0 = auto). Validation against the live monitor count
-        ; happens at resolve time so a display that is temporarily disconnected
-        ; doesn't permanently discard the user's choice.
-        primMon := Trim(ConfigRead("Launcher", "PrimaryMonitor", "0"))
-        if (IsInteger(primMon) && Integer(primMon) >= 0)
-            gPrimaryMonitorOverride := Integer(primMon)
-        secMon := Trim(ConfigRead("Launcher", "SecondaryMonitor", "0"))
-        if (IsInteger(secMon) && Integer(secMon) >= 0)
-            gSecondaryMonitorOverride := Integer(secMon)
-        gPrimaryLaunchLayout := Trim(ConfigRead("Launcher", "PrimaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
-        gSecondaryLaunchLayout := Trim(ConfigRead("Launcher", "SecondaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
-
-        gVersionCheckEnabled :=
-            (Trim(ConfigRead("Launcher", "VersionCheck", "1")) != "0")
-
-        uiMode := StrLower(Trim(ConfigRead("UI", "Mode", "webview")))
-        gInterfaceMode := (uiMode = "native") ? "native" : "webview"
-        SetAccentScheme(ConfigRead("UI", "AccentScheme", "amber"), false)
     }
 
-    ; 3. Still no path — ask the user to locate it.
+    ; 3. Tunable launcher/UI settings — always via ConfigRead so a missing
+    ; config.ini still picks up defaults.ini.
+    gGameArgs := Trim(ConfigRead("Launcher", "GameArgs", ""))
+    startupVal := Trim(ConfigRead("Launcher", "LaunchOnStartup", "__MISSING__"))
+    if (startupVal != "__MISSING__") {
+        gLaunchOnStartup := (startupVal = "1")
+    }
+    cnt := Trim(ConfigRead("Launcher", "MultiClientCount", "5"))
+    if (IsInteger(cnt) && Integer(cnt) >= 1)
+        gMultiClientCount := Integer(cnt)
+    dly := Trim(ConfigRead("Launcher", "MultiClientDelay", "0"))
+    if (IsInteger(dly) && Integer(dly) >= 0)
+        gMultiClientDelay := Integer(dly)
+    ; Monitor overrides (0 = auto). Validation against the live monitor count
+    ; happens at resolve time so a display that is temporarily disconnected
+    ; doesn't permanently discard the user's choice.
+    primMon := Trim(ConfigRead("Launcher", "PrimaryMonitor", "0"))
+    if (IsInteger(primMon) && Integer(primMon) >= 0)
+        gPrimaryMonitorOverride := Integer(primMon)
+    secMon := Trim(ConfigRead("Launcher", "SecondaryMonitor", "0"))
+    if (IsInteger(secMon) && Integer(secMon) >= 0)
+        gSecondaryMonitorOverride := Integer(secMon)
+    gPrimaryLaunchLayout := Trim(ConfigRead("Launcher", "PrimaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
+    gSecondaryLaunchLayout := Trim(ConfigRead("Launcher", "SecondaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
+
+    gVersionCheckEnabled :=
+        (Trim(ConfigRead("Launcher", "VersionCheck", "1")) != "0")
+
+    uiMode := StrLower(Trim(ConfigRead("UI", "Mode", "webview")))
+    gInterfaceMode := (uiMode = "native") ? "native" : "webview"
+    SetAccentScheme(ConfigRead("UI", "AccentScheme", "amber"), false)
+
+    ; 4. Still no path — ask the user to locate it.
     if (gGamePath = "") {
         PromptForGamePath()
     }
@@ -3681,9 +3682,9 @@ HasEnabledAddonHook(hookName) {
 }
 
 LoadAddonEnabledStates() {
-    global gAddonHooks, gDisabledAddons, CONFIG_INI
-    if !FileExist(CONFIG_INI)
-        return
+    global gAddonHooks, gDisabledAddons
+    ; Always run through ConfigRead so a missing config.ini still picks up
+    ; defaults.ini (e.g. shipping an addon disabled by default).
     for _, addonMap in gAddonHooks {
         name := addonMap.Has("name") ? addonMap["name"] : ""
         if (name = "")
