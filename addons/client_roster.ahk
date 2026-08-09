@@ -99,10 +99,12 @@ _ClientRoster_OnSettingsWeb() {
             . openHint),
         Map("type", "checkbox", "id", "listView", "label",
             "Open the list view instead of the radial menu",
-            "value", (_ClientRoster_DefaultView = "list") ? true : false),
+            "value", (_ClientRoster_DefaultView = "list") ? true : false,
+            "default", (DefaultRead("ClientRoster", "DefaultView", "radial") = "list")),
         Map("type", "checkbox", "id", "autoShow", "label",
             "Also open the list automatically when 2 or more clients are running",
-            "value", _ClientRoster_AutoShow ? true : false)
+            "value", _ClientRoster_AutoShow ? true : false,
+            "default", (DefaultRead("ClientRoster", "AutoShowWithClients", "0") != "0"))
     ]
 }
 
@@ -122,8 +124,8 @@ _ClientRoster_ApplySettings(autoShow, defaultView := "radial") {
 _ClientRoster_LoadConfig() {
     global _ClientRoster_AutoShow, _ClientRoster_X, _ClientRoster_Y, CONFIG_INI
     global _ClientRoster_DefaultView
-    _ClientRoster_AutoShow := (Trim(IniRead(CONFIG_INI, "ClientRoster", "AutoShowWithClients", "0")) = "1")
-    _ClientRoster_DefaultView := (Trim(IniRead(CONFIG_INI, "ClientRoster", "DefaultView", "radial")) = "list")
+    _ClientRoster_AutoShow := (Trim(ConfigRead("ClientRoster", "AutoShowWithClients", "0")) = "1")
+    _ClientRoster_DefaultView := (Trim(ConfigRead("ClientRoster", "DefaultView", "radial")) = "list")
         ? "list" : "radial"
     x := Trim(IniRead(CONFIG_INI, "ClientRoster", "X", ""))
     y := Trim(IniRead(CONFIG_INI, "ClientRoster", "Y", ""))
