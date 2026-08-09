@@ -2771,6 +2771,22 @@ BuildKeyForStamp(stamp) {
     return "Build_" Format("{:08X}", stamp)
 }
 
+; ── Config with shipped defaults ─────────────────────────────────
+;
+; Precedence: config.ini (the user's own edits) > defaults.ini (what a
+; maintainer tunes) > the literal already at the call site (last-resort
+; safety net if defaults.ini is missing or a hand-edited mistake).
+
+DefaultRead(section, key, fallback) {
+    global DEFAULTS_INI
+    return IniRead(DEFAULTS_INI, section, key, fallback)
+}
+
+ConfigRead(section, key, fallback) {
+    global CONFIG_INI
+    return IniRead(CONFIG_INI, section, key, DefaultRead(section, key, fallback))
+}
+
 ResolveWritableIniPath(filename) {
     scriptPath := A_ScriptDir "\" filename
     if IsPathWritable(scriptPath) {

@@ -204,6 +204,10 @@ global gOverlayLastClickTick := 0
 
 ; === Launcher config ===
 global CONFIG_INI := ResolveWritableIniPath("config.ini")
+; Shipped, read-only defaults — never routed through ResolveWritableIniPath
+; (that function finds a writable location for user state; this file is
+; neither user state nor ever written). Always sits next to the script/exe.
+global DEFAULTS_INI := A_ScriptDir "\defaults.ini"
 global gGamePath := ""           ; Resolved path to the game executable.
 global gGameArgs := ""           ; Optional command-line arguments for the game.
 global gLaunchOnStartup := false ; Auto-launch one game instance on minimap startup.
