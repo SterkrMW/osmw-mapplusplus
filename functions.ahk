@@ -630,15 +630,15 @@ LoadMinimapConfig() {
     if !FileExist(CONFIG_INI) {
         return
     }
-    scale := Trim(IniRead(CONFIG_INI, "Minimap", "Scale", "100"))
+    scale := Trim(ConfigRead("Minimap", "Scale", "100"))
     if IsInteger(scale) {
         gMinimapScale := Clamp(Integer(scale), 50, 200)
     }
-    opacity := Trim(IniRead(CONFIG_INI, "Minimap", "Opacity", "100"))
+    opacity := Trim(ConfigRead("Minimap", "Opacity", "100"))
     if IsInteger(opacity) {
         gMinimapOpacity := Clamp(Integer(opacity), 30, 100)
     }
-    anchor := Trim(IniRead(CONFIG_INI, "Minimap", "Anchor", "Center"))
+    anchor := Trim(ConfigRead("Minimap", "Anchor", "Center"))
     for _, name in MINIMAP_ANCHORS {
         if (name = anchor) {
             gMinimapAnchor := name
@@ -647,16 +647,16 @@ LoadMinimapConfig() {
     }
     ; Offsets are unbounded on purpose — a multi-monitor user can legitimately
     ; push the overlay outside the client rect.
-    offX := Trim(IniRead(CONFIG_INI, "Minimap", "OffsetX", "0"))
+    offX := Trim(ConfigRead("Minimap", "OffsetX", "0"))
     if IsInteger(offX) {
         gMinimapOffsetX := Integer(offX)
     }
-    offY := Trim(IniRead(CONFIG_INI, "Minimap", "OffsetY", "0"))
+    offY := Trim(ConfigRead("Minimap", "OffsetY", "0"))
     if IsInteger(offY) {
         gMinimapOffsetY := Integer(offY)
     }
-    gMinimapKeepOpen := (Trim(IniRead(CONFIG_INI, "Minimap", "KeepOpenOnFocusLoss", "0")) = "1")
-    gShowHoverCoords := (Trim(IniRead(CONFIG_INI, "Minimap", "ShowHoverCoords", "1")) != "0")
+    gMinimapKeepOpen := (Trim(ConfigRead("Minimap", "KeepOpenOnFocusLoss", "0")) = "1")
+    gShowHoverCoords := (Trim(ConfigRead("Minimap", "ShowHoverCoords", "1")) != "0")
 }
 
 SaveMinimapConfig() {
@@ -1320,35 +1320,35 @@ LoadLauncherConfig() {
                 gGamePath := cfgPath
             }
         }
-        gGameArgs := Trim(IniRead(CONFIG_INI, "Launcher", "GameArgs", ""))
-        startupVal := Trim(IniRead(CONFIG_INI, "Launcher", "LaunchOnStartup", "__MISSING__"))
+        gGameArgs := Trim(ConfigRead("Launcher", "GameArgs", ""))
+        startupVal := Trim(ConfigRead("Launcher", "LaunchOnStartup", "__MISSING__"))
         if (startupVal != "__MISSING__") {
             gLaunchOnStartup := (startupVal = "1")
         }
-        cnt := Trim(IniRead(CONFIG_INI, "Launcher", "MultiClientCount", "5"))
+        cnt := Trim(ConfigRead("Launcher", "MultiClientCount", "5"))
         if (IsInteger(cnt) && Integer(cnt) >= 1)
             gMultiClientCount := Integer(cnt)
-        dly := Trim(IniRead(CONFIG_INI, "Launcher", "MultiClientDelay", "0"))
+        dly := Trim(ConfigRead("Launcher", "MultiClientDelay", "0"))
         if (IsInteger(dly) && Integer(dly) >= 0)
             gMultiClientDelay := Integer(dly)
         ; Monitor overrides (0 = auto). Validation against the live monitor count
         ; happens at resolve time so a display that is temporarily disconnected
         ; doesn't permanently discard the user's choice.
-        primMon := Trim(IniRead(CONFIG_INI, "Launcher", "PrimaryMonitor", "0"))
+        primMon := Trim(ConfigRead("Launcher", "PrimaryMonitor", "0"))
         if (IsInteger(primMon) && Integer(primMon) >= 0)
             gPrimaryMonitorOverride := Integer(primMon)
-        secMon := Trim(IniRead(CONFIG_INI, "Launcher", "SecondaryMonitor", "0"))
+        secMon := Trim(ConfigRead("Launcher", "SecondaryMonitor", "0"))
         if (IsInteger(secMon) && Integer(secMon) >= 0)
             gSecondaryMonitorOverride := Integer(secMon)
-        gPrimaryLaunchLayout := Trim(IniRead(CONFIG_INI, "Launcher", "PrimaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
-        gSecondaryLaunchLayout := Trim(IniRead(CONFIG_INI, "Launcher", "SecondaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
+        gPrimaryLaunchLayout := Trim(ConfigRead("Launcher", "PrimaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
+        gSecondaryLaunchLayout := Trim(ConfigRead("Launcher", "SecondaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
 
         gVersionCheckEnabled :=
-            (Trim(IniRead(CONFIG_INI, "Launcher", "VersionCheck", "1")) != "0")
+            (Trim(ConfigRead("Launcher", "VersionCheck", "1")) != "0")
 
-        uiMode := StrLower(Trim(IniRead(CONFIG_INI, "UI", "Mode", "webview")))
+        uiMode := StrLower(Trim(ConfigRead("UI", "Mode", "webview")))
         gInterfaceMode := (uiMode = "native") ? "native" : "webview"
-        SetAccentScheme(IniRead(CONFIG_INI, "UI", "AccentScheme", "amber"), false)
+        SetAccentScheme(ConfigRead("UI", "AccentScheme", "amber"), false)
     }
 
     ; 3. Still no path — ask the user to locate it.
@@ -3688,7 +3688,7 @@ LoadAddonEnabledStates() {
         name := addonMap.Has("name") ? addonMap["name"] : ""
         if (name = "")
             continue
-        val := Trim(IniRead(CONFIG_INI, "Addons", name, "1"))
+        val := Trim(ConfigRead("Addons", name, "1"))
         if (val = "0")
             gDisabledAddons[name] := true
     }
