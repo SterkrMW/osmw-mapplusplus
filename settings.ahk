@@ -620,13 +620,28 @@ _Settings_HandleCheckUpdate() {
 ; Shared by both frontends (the WebView button posts "reset-defaults"; the
 ; Native button's Click handler calls this directly) so the confirmation and
 ; behavior can never drift between them.
+;
+; WebView posts arrive inside WebMessageReceived. ConfirmAction's dialog is
+; another WebView whose Yes/No also arrives via WebMessageReceived — and that
+; nested COM callback does not run while the settings handler is still on the
+; stack, even across Sleep. The confirm wait then never ends, and the settings
+; owner stays EnableWindow(false). Leave the settings callback immediately and
+; run confirm + reset on a timer (native Click is already outside that path,
+; so the timer is a no-op delay there).
 _Settings_HandleResetDefaults() {
+    SetTimer(_Settings_ResetDefaultsBegin, -1)
+}
+
+_Settings_ResetDefaultsBegin() {
     global gSettingsGui
+    if !(IsObject(gSettingsGui) && gSettingsGui.Hwnd)
+        return
+    owner := gSettingsGui.Hwnd
     if !ConfirmAction(
         "Reset every Maps++ setting to its default? This includes addon "
         . "on/off state and all keyboard shortcuts.",
         "Maps++ — Settings",
-        Map("severity", "danger", "danger", true, "owner", gSettingsGui.Hwnd))
+        Map("severity", "danger", "danger", true, "owner", owner))
     {
         return
     }
