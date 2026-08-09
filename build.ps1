@@ -39,6 +39,27 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Every failure path here is a `throw`, which under 'Stop' unwinds straight out
+# of the script. Launched by double-click (or "Run with PowerShell") the window
+# closes with it and the message is never read. Print the failure plainly and
+# hold the window open when there is a console to hold -- a redirected stdin
+# means something is capturing the output, so pausing there would just hang.
+trap {
+    Write-Host ""
+    Write-Host "BUILD FAILED" -ForegroundColor Red
+    Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
+    if ($_.InvocationInfo -and $_.InvocationInfo.ScriptName) {
+        Write-Host ("  at {0}:{1}" -f $_.InvocationInfo.ScriptName,
+                                      $_.InvocationInfo.ScriptLineNumber) -ForegroundColor DarkGray
+    }
+    if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+        Write-Host ""
+        Write-Host "Press any key to close..." -ForegroundColor DarkGray
+        try { [void][Console]::ReadKey($true) } catch { }
+    }
+    exit 1
+}
+
 $RepoRoot      = $PSScriptRoot
 $AddonsDir     = Join-Path $RepoRoot 'addons'
 $VariantsDir   = Join-Path $RepoRoot 'variants'
@@ -54,7 +75,7 @@ $AvatarDir     = Join-Path $RepoRoot 'avatars'
 # The version lives in variables.ahk; main.ahk carries a matching
 # ;@Ahk2Exe-SetVersion literal so the compiled exe's file properties agree.
 # Ahk2Exe cannot read the constant, so the two are checked against each other
-# here — a silent drift would ship an exe whose properties disagree with what
+# here - a silent drift would ship an exe whose properties disagree with what
 # the app reports about itself, which is exactly what breaks bug triage.
 function Get-AppVersion {
     $varsPath = Join-Path $RepoRoot 'variables.ahk'

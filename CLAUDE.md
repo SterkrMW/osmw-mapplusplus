@@ -27,6 +27,10 @@ Ahk2Exe *does* discriminate (valid → exit 0 and an exe; invalid → exit 17, n
 
 `build.ps1` now runs `tools\check-shadowing.ps1` first and refuses to compile with a file and line number instead. Run it directly (`pwsh ./tools/check-shadowing.ps1`) when a build fails mysteriously. If it passes and the build still fails, bisect by stubbing function *bodies* — truncating the file removes functions that `RegisterAddon` references and produces a different error that sends you the wrong way.
 
+**Keep `build.ps1` and `tools\check-shadowing.ps1` pure ASCII.** They have no BOM, and Windows PowerShell 5.1 decodes a BOM-less file as the system codepage, not UTF-8 — so an em dash (`—`, `E2 80 94`) arrives as `â€"`, whose trailing `0x94` is a *smart closing quote* that 5.1 accepts as a string delimiter. Inside a string literal that ends the string early and the script dies at parse time with `The string is missing the terminator`, pointing at a line that looks fine; in a comment it is harmless, which is why the two can coexist for a while. `pwsh` (7+) always assumes UTF-8 and never sees it, so this reproduces only for whoever runs the build under 5.1 — which is what "Run with PowerShell" and a bare `powershell` prompt still use. The prose style everywhere else in this repo makes em dashes the default keystroke, so use `-` in these two files specifically.
+
+`build.ps1` has a script-scope `trap` for the other half of that problem: every failure path is a `throw` under `$ErrorActionPreference = 'Stop'`, which unwinds out of the script and takes the window with it when the script was double-clicked. The trap prints `BUILD FAILED` with the message and origin line, then pauses for a keypress — but only when `[Console]::IsInputRedirected` is false, so a captured or piped run exits instead of hanging forever.
+
 ## Architecture
 
 ### Load order and global state

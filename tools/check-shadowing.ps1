@@ -24,7 +24,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # Built-ins and keywords whose names are plausible as variables. Not the whole
-# API — only names someone would reasonably reach for, since flagging e.g.
+# API - only names someone would reasonably reach for, since flagging e.g.
 # WinGetPos as a variable name would be noise.
 $reserved = @(
     'mod', 'local', 'run', 'max', 'min', 'abs', 'round', 'floor', 'ceil',
@@ -74,5 +74,5 @@ foreach ($h in $hits) {
     Write-Host ("      {0}" -f $h.Text) -ForegroundColor DarkGray
 }
 Write-Host ""
-Write-Host "Rename these — Ahk2Exe will refuse to compile without saying why." -ForegroundColor Red
+Write-Host "Rename these - Ahk2Exe will refuse to compile without saying why." -ForegroundColor Red
 exit 1
