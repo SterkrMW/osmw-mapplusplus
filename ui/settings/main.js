@@ -926,6 +926,7 @@ if (btnTitleClose) {
 
 document.getElementById('btnSave').addEventListener('click', collectAndSave);
 document.getElementById('btnCancel').addEventListener('click', () => sendToAhk('cancel'));
+document.getElementById('btnResetDefaults').addEventListener('click', () => sendToAhk('reset-defaults'));
 
 function collectAndSave() {
     if (saving || !dirty) return;
