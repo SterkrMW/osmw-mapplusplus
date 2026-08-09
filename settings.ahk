@@ -93,6 +93,8 @@ _Settings_OnWebMessage(wv, args) {
             _Settings_HandleSave(msg)
         case "cancel":
             _Settings_Close()
+        case "reset-defaults":
+            _Settings_HandleResetDefaults()
         case "browse-game-path":
             _Settings_HandleBrowse()
         case "check-update":
@@ -613,6 +615,24 @@ _Settings_HandleCheckUpdate() {
         . ',"notes":' _JSON_Str(res.notes)
         . ',"reason":' _JSON_Str(res.reason)
         . ',"current":' _JSON_Str(APP_VERSION) '}')
+}
+
+; Shared by both frontends (the WebView button posts "reset-defaults"; the
+; Native button's Click handler calls this directly) so the confirmation and
+; behavior can never drift between them.
+_Settings_HandleResetDefaults() {
+    global gSettingsGui
+    if !ConfirmAction(
+        "Reset every Maps++ setting to its default? This includes addon "
+        . "on/off state and all keyboard shortcuts.",
+        "Maps++ — Settings",
+        Map("severity", "danger", "danger", true, "owner", gSettingsGui.Hwnd))
+    {
+        return
+    }
+    ResetAllSettingsToDefaults()
+    _Settings_Close()
+    ShowSettingsWindow()
 }
 
 _Settings_HandleBrowse() {
