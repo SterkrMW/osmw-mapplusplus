@@ -157,9 +157,9 @@ _PartyHealth_OnInit() {
 
 _PartyHealth_LoadConfig() {
     global _PartyHealth_Mode, _PartyHealth_ShowPets, _PartyHealth_PeekSeconds, CONFIG_INI
-    _PartyHealth_ShowPets := (Trim(IniRead(CONFIG_INI, "PartyHealth", "ShowPets", "1")) != "0")
-    _PartyHealth_Mode := _PartyHealth_NormalizeMode(Trim(IniRead(CONFIG_INI, "PartyHealth", "Mode", "peek")))
-    secs := Trim(IniRead(CONFIG_INI, "PartyHealth", "PeekSeconds", "5"))
+    _PartyHealth_ShowPets := (Trim(ConfigRead("PartyHealth", "ShowPets", "1")) != "0")
+    _PartyHealth_Mode := _PartyHealth_NormalizeMode(Trim(ConfigRead("PartyHealth", "Mode", "peek")))
+    secs := Trim(ConfigRead("PartyHealth", "PeekSeconds", "5"))
     if (IsInteger(secs) && Integer(secs) >= 1 && Integer(secs) <= 60) {
         _PartyHealth_PeekSeconds := Integer(secs)
     }
@@ -211,11 +211,14 @@ _PartyHealth_OnSettingsWeb() {
             . "click-through, so it never intercepts a click meant for the game."),
         Map("type", "dropdown", "id", "modeIdx", "label", "Show it:",
             "options", _PartyHealth_MODE_LABELS,
-            "value", _PartyHealth_ModeIndex(_PartyHealth_Mode) - 1),
+            "value", _PartyHealth_ModeIndex(_PartyHealth_Mode) - 1,
+            "default", _PartyHealth_ModeIndex(_PartyHealth_NormalizeMode(DefaultRead("PartyHealth", "Mode", "peek"))) - 1),
         Map("type", "number", "id", "peekSeconds", "label", "Seconds a peek lasts:",
-            "min", 1, "max", 60, "value", _PartyHealth_PeekSeconds),
+            "min", 1, "max", 60, "value", _PartyHealth_PeekSeconds,
+            "default", Integer(DefaultRead("PartyHealth", "PeekSeconds", 5))),
         Map("type", "checkbox", "id", "showPets", "label", "Include pet health",
-            "value", _PartyHealth_ShowPets ? true : false)
+            "value", _PartyHealth_ShowPets ? true : false,
+            "default", (DefaultRead("PartyHealth", "ShowPets", "1") != "0"))
     ]
 }
 
