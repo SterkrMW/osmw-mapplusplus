@@ -98,10 +98,14 @@ _PartyMarkers_OnSettingsWeb() {
             "Shows your other running clients on the minimap, each in its own colour.`n"
             . "Your own character keeps the standard marker."),
         Map("type", "checkbox", "id", "layerVisible", "label", "Show the party marker layer",
-            "value", _PartyMarkers_LayerVisible ? true : false),
+            "value", _PartyMarkers_LayerVisible ? true : false,
+            "default", (DefaultRead("PartyMarkers", "LayerVisible", "1") != "0")),
+        ; LabelMode is not in defaults.ini — same migration-sentinel reason as
+        ; Map POIs. Default matches this addon's compiled initial value.
         Map("type", "dropdown", "id", "labelModeIdx", "label", "Show names:",
             "options", MARKER_LABEL_MODE_LABELS,
-            "value", MarkerLabelModeIndex(_PartyMarkers_LabelMode) - 1)
+            "value", MarkerLabelModeIndex(_PartyMarkers_LabelMode) - 1,
+            "default", MarkerLabelModeIndex("autohide") - 1)
     ]
 }
 
@@ -124,7 +128,7 @@ _PartyMarkers_ApplySettings(labelMode, layerVisible) {
 
 _PartyMarkers_LoadConfig() {
     global _PartyMarkers_LabelMode, _PartyMarkers_LayerVisible, CONFIG_INI
-    _PartyMarkers_LayerVisible := (Trim(IniRead(CONFIG_INI, "PartyMarkers", "LayerVisible", "1")) != "0")
+    _PartyMarkers_LayerVisible := (Trim(ConfigRead("PartyMarkers", "LayerVisible", "1")) != "0")
     mode := Trim(IniRead(CONFIG_INI, "PartyMarkers", "LabelMode", ""))
     if (mode != "") {
         _PartyMarkers_LabelMode := NormalizeMarkerLabelMode(mode)
