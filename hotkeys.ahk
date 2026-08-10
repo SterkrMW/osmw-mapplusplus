@@ -81,6 +81,24 @@ ToHotkeyApiName(chord) {
     return NormalizeHotkeyChord(chord)
 }
 
+; The key a chord ends on, with its modifiers stripped — "!+e" → "e". Returns
+; "" for an unbound or modifier-only chord.
+;
+; Exists for handlers that want to act on the *release* of the key that fired
+; them (see addons\inventory_toggle.ahk): the chord is rebindable, so they
+; cannot hardcode the key name and must ask the registry what it currently is.
+HotkeyTriggerKey(chord) {
+    chord := NormalizeHotkeyChord(chord)
+    modChars := "^!+#<>"
+    i := 1
+    while (i <= StrLen(chord)) {
+        if !InStr(modChars, SubStr(chord, i, 1))
+            break
+        i++
+    }
+    return SubStr(chord, i)
+}
+
 IsHotkeyChordValid(chord) {
     chord := NormalizeHotkeyChord(chord)
     ; An empty chord is a deliberate, valid "unbound" setting. Binding code
@@ -88,14 +106,7 @@ IsHotkeyChordValid(chord) {
     ; action's default on the next launch.
     if (chord = "")
         return true
-    modChars := "^!+#"
-    i := 1
-    while (i <= StrLen(chord)) {
-        if !InStr(modChars, SubStr(chord, i, 1))
-            break
-        i++
-    }
-    key := SubStr(chord, i)
+    key := HotkeyTriggerKey(chord)
     if (key = "")
         return false
     if RegExMatch(key, "i)^(Control|Alt|Shift|LShift|RShift|LControl|RControl|LAlt|RAlt|LWin|RWin)$")

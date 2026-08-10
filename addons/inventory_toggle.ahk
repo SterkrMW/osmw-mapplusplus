@@ -40,7 +40,8 @@ _InventoryToggle_OpenInventory() {
     activeHwnd := WinActive(GAME_WIN_FILTER)
     if !activeHwnd
         return
-    KeyWait("Alt")
+    key := _InventoryToggle_TriggerKey("inventoryOpenClick")
+    _InventoryToggle_AwaitRelease(key)
     BlockInput("Mouse")
     try {
         ControlClick("x425 y569", "ahk_id " activeHwnd, , "Left", 1, "NA")
@@ -49,26 +50,54 @@ _InventoryToggle_OpenInventory() {
     } finally {
         BlockInput("Default")
     }
+    ; Holding the key past the timeout above lets auto-repeat re-enter this
+    ; handler, which would toggle the panel open and shut. Absorb the repeats.
+    _InventoryToggle_AwaitRelease(key)
 }
 
 ; Sends Alt+I, which is what the action says it does.
 ;
 ; This used to be SendEvent("{Blind}{i}"): {Blind} passes the modifiers that are
-; physically down straight through, and the chord that triggers this is Alt+Shift+E,
-; so the client actually received Alt+SHIFT+I. Our own modifiers are released
-; first and the combination is then stated outright.
+; physically down straight through, and the chord that triggers this is
+; Alt+Shift+E, so the client actually received Alt+SHIFT+I.
+;
+; Stating the combination outright is the whole fix. The KeyWait loop that also
+; came with it — waiting out Alt, Shift and Control, up to 0.9s of dead time —
+; was belt and braces: Send in any mode but {Blind} already forces the modifier
+; state to exactly what the keystroke asks for, lifting a physically-held Shift
+; for the duration and putting it back afterwards. Opting out of that is what
+; {Blind} did wrong, so with it gone there is nothing left to wait for.
 _InventoryToggle_OpenInventoryAlt() {
     activeHwnd := WinActive(GAME_WIN_FILTER)
     if !activeHwnd
         return
-    _InventoryToggle_ReleaseModifiers()
+    key := _InventoryToggle_TriggerKey("inventoryOpenSend")
+    _InventoryToggle_AwaitRelease(key)
     SetKeyDelay 0, 100
     SendEvent("!i")
+    _InventoryToggle_AwaitRelease(key)
 }
 
-; A held modifier from our own chord must not ride along on the Send. Bounded so
-; a stuck key can never park a hotkey thread.
-_InventoryToggle_ReleaseModifiers() {
-    for key in ["Alt", "Shift", "Control"]
-        KeyWait(key, "T0.3")
+; Both actions fire on the press of their chord but act on the *release* of its
+; key, and deliberately do not care what the modifiers are doing.
+;
+; The click used to KeyWait("Alt"), which stalled it for as long as Alt stayed
+; down. Players hold Alt across a whole sequence (Alt+E to open the bag, then
+; Alt+G to give), so that read as an uncomfortable delay on every press and an
+; indefinite one mid-sequence. Alt being held is now simply irrelevant: the
+; click is posted straight to the control and carries no modifier state.
+;
+; The chord is rebindable, so the key to wait on comes from the registry.
+_InventoryToggle_TriggerKey(actionId) {
+    return HotkeyTriggerKey(GetHotkeyChord(actionId))
+}
+
+; Bounded, so a key the hook believes is stuck can never park the hotkey thread,
+; and tolerant of a key name KeyWait does not accept (a mouse or wheel binding).
+; Both are why the tray and radial entries, which arrive with nothing held, pass
+; through this at no cost.
+_InventoryToggle_AwaitRelease(key) {
+    if (key = "")
+        return
+    try KeyWait(key, "T1.0")
 }
