@@ -4,7 +4,7 @@
 ; The one place the version is written. main.ahk carries a matching
 ; ;@Ahk2Exe-SetVersion literal so the compiled exe's file properties agree, and
 ; build.ps1 fails the build if the two ever drift apart.
-global APP_VERSION := "0.9.0-beta.2"
+global APP_VERSION := "1.0.0"
 global PROCESS_EXE := "main.exe"
 global GAME_WIN_FILTER := "ahk_exe " PROCESS_EXE
 ; RVAs from main.exe — do not use fixed absolute addresses (bases differ per process / ASLR).
