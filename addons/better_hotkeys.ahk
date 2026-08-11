@@ -681,7 +681,7 @@ _BH_ShowWeb() {
         DefaultWidth: 1020, DefaultHeight: 700}
     g := WebViewGui("-Caption +AlwaysOnTop +Resize", "Maps++ — Better Hotkeys", , settings)
     g.OnEvent("Close", (*) => _BH_WebRequestClose())
-    g.WebMessageReceived(_BH_OnWebMessage)
+    g.WebMessageReceived(WebMsgHandler(_BH_OnWebMessage))
     g.DOMContentLoaded((*) => SetTimer(_BH_SendWebState, -50))
     g.Navigate(UiPageUrl("ui/better_hotkeys/index.html"))
     _BH_WebGui := g
@@ -762,8 +762,11 @@ _BH_OnWebMessage(wv, args) {
             _BH_CancelCapture()
         case "save":
             _BH_WebSave(msg)
+        ; The page's own X. Its discard prompt cannot be raised from inside this
+        ; COM callback (see the dialogs.ahk header), and unlike the
+        ; OnEvent("Close") entry it has no return value to honour, so it defers.
         case "close":
-            _BH_WebRequestClose()
+            DeferFromWebMessage(_BH_WebRequestClose)
     }
 }
 
@@ -783,8 +786,13 @@ _BH_WebSave(msg) {
     _BH_SendWebState()
 }
 
+; Two entries, as in shop_prices: OnEvent("Close") calls this directly because
+; it needs the return of 1 to veto, and the page's X reaches it deferred, which
+; discards that return.
 _BH_WebRequestClose() {
     global _BH_WebGui, _BH_WebDirty, _BH_PanelMode
+    if !(IsObject(_BH_WebGui) && _BH_WebGui.Hwnd)
+        return 1
     if _BH_WebDirty {
         if !_BH_Ask("Close and discard your unsaved Better Hotkeys changes?")
             return 1

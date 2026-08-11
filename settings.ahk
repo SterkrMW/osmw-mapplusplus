@@ -60,7 +60,7 @@ _Settings_BuildWebView() {
     g.OnEvent("Close", (*) => _Settings_Close())
 
     ; Listen for messages from the JS frontend.
-    g.WebMessageReceived(_Settings_OnWebMessage)
+    g.WebMessageReceived(WebMsgHandler(_Settings_OnWebMessage))
 
     ; Navigate to the settings page. WebViewToo routes via ahk.localhost.
     g.Navigate(UiPageUrl("ui/settings/index.html"))

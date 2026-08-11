@@ -265,7 +265,7 @@ _ClientRoster_EnsureGui() {
 
     g := WebViewGui("-Caption +AlwaysOnTop +ToolWindow -MaximizeBox +E0x08000000", "Maps++ Clients",, wvSettings)
     g.OnEvent("Close", (*) => _ClientRoster_UserHide())
-    g.WebMessageReceived(_ClientRoster_OnWebMessage)
+    g.WebMessageReceived(WebMsgHandler(_ClientRoster_OnWebMessage))
     g.DOMContentLoaded((*) => SetTimer(_ClientRoster_PushSnapshot, -50))
     g.Navigate(UiPageUrl("ui/client_roster/index.html"))
 

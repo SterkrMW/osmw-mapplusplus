@@ -4,7 +4,7 @@
 ;@Ahk2Exe-SetProductName Maps++
 ;@Ahk2Exe-SetCompanyName osMW
 ; Must match APP_VERSION in variables.ahk — build.ps1 fails the build if it does not.
-;@Ahk2Exe-SetVersion 0.9.0-beta.1
+;@Ahk2Exe-SetVersion 0.9.0-beta.2
 #SingleInstance Force
 #Warn
 
@@ -137,7 +137,7 @@ _EnsureWebTrayGui() {
     gWebTrayGui := g
 
     g.OnEvent("Close", (*) => _CloseWebTrayMenu())
-    g.WebMessageReceived(_OnWebTrayMessage)
+    g.WebMessageReceived(WebMsgHandler(_OnWebTrayMessage))
     g.DOMContentLoaded((*) => SetTimer(_PushTrayMenuState, -50))
     g.Navigate(UiPageUrl("ui/tray/index.html"))
 
@@ -947,7 +947,7 @@ ShowCalibrationPanel() {
                     DefaultWidth: 560, DefaultHeight: 640 }
     g := WebViewGui("-Caption +AlwaysOnTop +Resize", "Maps++ — Map Calibration", , wvSettings)
     g.OnEvent("Close", (*) => _Calib_Close())
-    g.WebMessageReceived(_Calib_OnWebMessage)
+    g.WebMessageReceived(WebMsgHandler(_Calib_OnWebMessage))
     g.DOMContentLoaded((*) => SetTimer(_Calib_Push, -50))
     g.Navigate(UiPageUrl("ui/calibration/index.html"))
     gCalibGui := g
@@ -1073,8 +1073,11 @@ _Calib_OnWebMessage(wv, args) {
     switch msg["type"] {
         case "init-request":
             _Calib_Push()
+        ; Applying always ends in a ShowMessage reporting the round-trip, and a
+        ; dialog raised from inside this COM callback could never be answered —
+        ; see the dialogs.ahk header.
         case "apply":
-            _Calib_Apply()
+            DeferFromWebMessage(_Calib_Apply)
         case "reset":
             _Calib_ResetPoints()
         case "open-maps-folder":
@@ -1096,6 +1099,9 @@ _Calib_ResetPoints() {
 ; back, so a calibration that does not round-trip is visible at once.
 _Calib_Apply() {
     global gCalibGui, gCalibIsNative
+    ; The WebView entry arrives a tick late, by which time the panel may be gone.
+    if !(IsObject(gCalibGui) && gCalibGui.Hwnd)
+        return
     st := _Calib_State()
     if !st.canApply {
         _Calib_Toast("error", st.blocker)

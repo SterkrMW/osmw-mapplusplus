@@ -722,7 +722,7 @@ DefaultKind=npc
 LayerVisible=1
 
 [ShopPrices]
-ConfirmHigh=1
+ConfirmHigh=0
 WarnAbove=10000000
 PresetClears=0
 IconBase=0
@@ -778,8 +778,8 @@ BetterHotkeys=1
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |
 | `MainCharacterAsked` | `1` once the first-run "which is your main character?" prompt has been shown. Set whether you answered or dismissed it, so it is only ever asked once — clear it to be asked again |
 | `VersionCheck` | `0` disables the startup update check, after which Maps++ makes no network requests at all |
-| `ConfirmHigh` | `1` = ask for confirmation before applying a large vendor price |
-| `WarnAbove` | The price at which that confirmation kicks in |
+| `ConfirmHigh` | `1` = ask for confirmation before applying a large vendor price. Off by default; the panel already colours prices by magnitude and never opens your vendor for you |
+| `WarnAbove` | The price at which that confirmation kicks in, once `ConfirmHigh` is on |
 | `PresetClears` | `1` = loading a shop preset also clears prices on slots the preset doesn’t mention. Off by default, so presets only add |
 | `IconBase` | Whether the client’s item id is `0`- or `1`-based, which decides how thumbnails are matched. Set it from **Settings → Character Vendor** after comparing one known item |
 | `ItemIdOffset` | Override for the inventory item-id address, e.g. `0x2E2028`. Only needed if a game update moves it; blank uses the built-in value (or whatever signature calibration resolves), `0` turns thumbnails off. When set, it wins over signature calibration — which is the point, since the case it exists for is calibration landing on the wrong address |

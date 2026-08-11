@@ -176,7 +176,7 @@ _Radial_EnsureGui(ring) {
         "UInt", 34, "Ptr*", 0xFFFFFFFE, "UInt", 4)    ; BORDER_COLOR = NONE
 
     g.OnEvent("Close", (*) => RadialClose())
-    g.WebMessageReceived(_Radial_MakeMessageHandler(ring.name))
+    g.WebMessageReceived(WebMsgHandler(_Radial_MakeMessageHandler(ring.name)))
     g.DOMContentLoaded(_Radial_MakeLoadHandler(ring.name))
     g.Navigate(UiPageUrl(page))
 

@@ -44,12 +44,36 @@
 ; ready, or a dialog already on screen. A dialog that silently never returns
 ; would hang the whole single-threaded app, so every wait here has a deadline
 ; and every deadline ends in a MsgBox rather than in a spin.
+;
+; ── The one place blocking is not allowed ────────────────────────
+; A page's message arrives as an inbound cross-process COM call. While one is
+; on the stack the STA will not deliver another, *even across Sleep* — which is
+; where the "AHK pumps messages during Sleep" intuition above stops holding.
+; Outbound calls (PostWebMessageAsJson) still work, so a dialog raised from
+; inside a WebMessageReceived handler visibly appears and then does nothing: its
+; own Yes/No is another WebMessage and can never arrive. The caller spins
+; forever with the panel left EnableWindow(false) and no way out but a restart.
+;
+; Two things keep that from happening, and both are needed:
+;
+;   • Every WebMessageReceived registration wraps its router in WebMsgHandler,
+;     so _Dlg_Run can see a COM callback on the stack and take the native path
+;     instead of blocking. This is the net: it makes the hang impossible rather
+;     than merely unlikely, and logs when it catches something.
+;   • Handlers that mean to raise a dialog call DeferFromWebMessage first, which
+;     re-enters from AHK's own message loop after the COM call has returned.
+;     That is what keeps the themed dialog instead of a Win32 one, so it is the
+;     fix and the guard above is the backstop.
+;
+; settings.ahk:624 hit this first and fixed it in one place; the guard here is
+; what stops the next one being found by a user.
 
 global DIALOG_W          := 420     ; message / prompt width, CSS px
 global DIALOG_W_DETAIL   := 620     ; wider when a monospace block is present
 global DIALOG_MIN_H      := 140
 global DIALOG_MAX_H      := 620
 global DIALOG_READY_MS   := 4000    ; page load budget before falling back
+global DIALOG_ACK_MS     := 800     ; page silence that proves the reply channel is dead
 global DIALOG_SIZE_MS    := 900     ; self-measure budget before showing anyway
 
 global gDlgGui     := 0        ; built once, then parked off-screen
@@ -58,8 +82,11 @@ global gDlgBusy    := false    ; a dialog is on screen right now
 global gDlgToken   := 0        ; increments per dialog; stale replies are ignored
 global gDlgAnswer  := 0        ; Map once the page (or the window) answered
 global gDlgShown   := false    ; moved on screen for the current dialog
+global gDlgHeard   := false    ; page has said anything at all about this dialog
 global gDlgSpec    := 0        ; the dialog being shown, for geometry on reveal
 global gDlgOwner   := 0        ; window disabled for it, and centred on
+
+global gWebMsgDepth := 0       ; > 0 while a WebMessageReceived handler is on the stack
 
 ; ── Entry points ─────────────────────────────────────────────────
 
@@ -133,11 +160,53 @@ _Dlg_NativeIcon(severity) {
     }
 }
 
+; ── WebView message re-entrancy ──────────────────────────────────
+; See the header. These two live here rather than in functions.ahk because the
+; problem they exist for is modality: dialogs.ahk owns every blocking wait in
+; the app, so it owns knowing when blocking is safe.
+
+; Wraps a WebMessageReceived router so the dialog layer can tell that a COM
+; callback is on the stack. Every registration in the app goes through this —
+; a closure is a valid handler, as radial.ahk's per-ring handlers already show.
+;
+; The two parameters are declared rather than taken variadically on purpose:
+; the COM sink sizes its callback from the handler's MinParams (WebView2.ahk's
+; `cb.MinParams || 2`), and a variadic closure reports 0 there. Every router in
+; the app takes (wv, args), so this matches them exactly.
+WebMsgHandler(fn) {
+    return (wv, args) => _WebMsgDispatch(fn, wv, args)
+}
+
+_WebMsgDispatch(fn, wv, args) {
+    global gWebMsgDepth
+    gWebMsgDepth += 1
+    try
+        fn(wv, args)
+    finally
+        gWebMsgDepth -= 1
+}
+
+InWebMessageCallback() {
+    global gWebMsgDepth
+    return gWebMsgDepth > 0
+}
+
+; Leaves the current WebView message handler before doing anything that can
+; raise a dialog. A negative period fires the callback once from AHK's own
+; message loop, after the COM call has returned — which is where blocking is
+; safe. Callers must re-check that their window still exists when they land:
+; the panel can be gone by then. Outside a message handler this is a harmless
+; one-tick delay, so a shared entry point may use it unconditionally.
+DeferFromWebMessage(fn, params*) {
+    SetTimer(fn.Bind(params*), -1)
+}
+
 ; ── Runner ───────────────────────────────────────────────────────
 
 ; Returns the answer Map, or 0 to mean "use the native dialog instead".
 _Dlg_Run(spec) {
-    global gDlgGui, gDlgBusy, gDlgToken, gDlgAnswer, gDlgShown, gDlgSpec, gDlgOwner
+    global gDlgGui, gDlgBusy, gDlgToken, gDlgAnswer, gDlgShown, gDlgHeard
+    global gDlgSpec, gDlgOwner
 
     if !_Dlg_CanUseWebView()
         return 0
@@ -146,32 +215,53 @@ _Dlg_Run(spec) {
     ; like a freeze. It gets a MsgBox — rare, and honest about being nested.
     if gDlgBusy
         return 0
-    if !_Dlg_EnsureGui()
+    ; Blocking here could never end — see the header. A MsgBox is worse-looking
+    ; and entirely functional. Logged, because a handler reaching this has a
+    ; missing DeferFromWebMessage and the log is where that becomes findable.
+    if InWebMessageCallback() {
+        LogWarn("Dialog", "raised inside a WebView message handler — using native")
         return 0
+    }
 
-    ; Resolved once and remembered: the reveal needs the same window to centre
-    ; on that was disabled here, and re-resolving it there would consult a
-    ; foreground window that this dialog has meanwhile changed.
-    ownerHwnd := _Dlg_ResolveOwner(spec)
+    ownerHwnd := 0
     ownerDisabled := false
-
+    ; Claimed before the page is stood up, not after: _Dlg_EnsureGui sleeps for
+    ; up to DIALOG_READY_MS, and a timer firing in that window would otherwise
+    ; re-enter, build a second WebViewGui and overwrite gDlgGui with it.
     gDlgBusy := true
-    gDlgAnswer := 0
-    gDlgShown := false
-    gDlgSpec := spec
-    gDlgOwner := ownerHwnd
-    gDlgToken += 1
 
     try {
+        if !_Dlg_EnsureGui()
+            return 0
+
+        ; Resolved once and remembered: the reveal needs the same window to
+        ; centre on that was disabled here, and re-resolving it there would
+        ; consult a foreground window that this dialog has meanwhile changed.
+        ownerHwnd := _Dlg_ResolveOwner(spec)
+
+        gDlgAnswer := 0
+        gDlgShown := false
+        gDlgHeard := false
+        gDlgSpec := spec
+        gDlgOwner := ownerHwnd
+        gDlgToken += 1
+
         if (ownerHwnd && _Dlg_SetEnabled(ownerHwnd, false))
             ownerDisabled := true
 
-        _Dlg_Post(spec)
+        ; A page that was never told to show anything will never answer.
+        if !_Dlg_Post(spec)
+            return 0
 
-        ; The page answers "dlg-size" with its measured height and the message
-        ; handler reveals the window. This deadline covers a page that renders
-        ; but never reports — show it at a default height rather than leave the
-        ; user staring at a disabled panel and nothing else.
+        ; Only the machine's half of the wait is bounded. The page answers
+        ; "dlg-size" long before the user can reach a button, so silence past
+        ; ACK_MS means the reply channel is dead and no answer is coming — bail
+        ; to the native dialog rather than spin with the owner disabled. It sits
+        ; below SIZE_MS deliberately, so a dead channel bails before the reveal
+        ; backstop puts a dialog on screen that is about to be replaced.
+        ; Once the page has spoken the wait is open-ended again: a human may
+        ; take as long as they like to answer.
+        ackDeadline := A_TickCount + DIALOG_ACK_MS
         sizeDeadline := A_TickCount + DIALOG_SIZE_MS
         while !IsObject(gDlgAnswer) {
             if (!IsObject(gDlgGui) || !gDlgGui.Hwnd) {
@@ -179,6 +269,14 @@ _Dlg_Run(spec) {
                 gDlgAnswer := Map("result", "cancel", "value", "")
                 break
             }
+            if (!gDlgHeard && A_TickCount > ackDeadline) {
+                LogWarn("Dialog", "page did not acknowledge within "
+                    . DIALOG_ACK_MS "ms — using native")
+                return 0
+            }
+            ; Covers a page that renders but never reports its height — show it
+            ; at a default rather than leave the user staring at a disabled
+            ; panel and nothing else.
             if (!gDlgShown && A_TickCount > sizeDeadline)
                 _Dlg_Reveal(0)
             Sleep(10)
@@ -289,7 +387,7 @@ _Dlg_EnsureGui() {
     ; The X button and Alt+F4 are a cancel, never a silent dismissal that
     ; leaves the caller waiting.
     g.OnEvent("Close", (*) => _Dlg_Answer("cancel", ""))
-    g.WebMessageReceived(_Dlg_OnWebMessage)
+    g.WebMessageReceived(WebMsgHandler(_Dlg_OnWebMessage))
     g.DOMContentLoaded((*) => _Dlg_MarkReady())
     g.Navigate(UiPageUrl("ui/dialog/index.html"))
     g.Show("x-30000 y-30000 w" DIALOG_W " h" DIALOG_MIN_H " NoActivate")
@@ -316,10 +414,13 @@ _Dlg_MarkReady() {
     gDlgReady := true
 }
 
+; Returns false when the page could not be told to show anything, so the caller
+; can fall back at the cause rather than waiting out the acknowledgement
+; deadline for an answer that was never asked for.
 _Dlg_Post(spec) {
     global gDlgGui, gDlgToken
     if !IsObject(gDlgGui)
-        return
+        return false
     json := '{"type":"dlg-show"'
         . ',"token":' gDlgToken
         . ',"kind":' _JSON_Str(spec["kind"])
@@ -334,11 +435,17 @@ _Dlg_Post(spec) {
         . ',"placeholder":' _JSON_Str(spec["placeholder"])
         . ',"value":' _JSON_Str(spec["value"])
         . '}'
-    try gDlgGui.PostWebMessageAsJson(json)
+    try {
+        gDlgGui.PostWebMessageAsJson(json)
+        return true
+    } catch as err {
+        LogWarn("Dialog", "could not post to the dialog page: " err.Message)
+        return false
+    }
 }
 
 _Dlg_OnWebMessage(wv, args) {
-    global gDlgToken
+    global gDlgToken, gDlgHeard
     msgStr := ""
     try msgStr := args.TryGetWebMessageAsString()
     if (msgStr = "") {
@@ -356,6 +463,10 @@ _Dlg_OnWebMessage(wv, args) {
     ; whichever dialog happens to be up now.
     if (msg.Has("token") && msg["token"] != gDlgToken)
         return
+
+    ; Anything at all from the page for this dialog proves the reply channel is
+    ; open, which is what the acknowledgement deadline in _Dlg_Run waits on.
+    gDlgHeard := true
 
     switch msg["type"] {
         case "dlg-size":

@@ -307,7 +307,7 @@ _WindowLayout_PromptMainCharacter() {
     namesJson := "[" namesJson "]"
     _WindowLayout_PromptNamesJson := namesJson
 
-    dlg.WebMessageReceived(_WindowLayout_OnPromptWebMsg)
+    dlg.WebMessageReceived(WebMsgHandler(_WindowLayout_OnPromptWebMsg))
     dlg.DOMContentLoaded((*) => SetTimer(_WindowLayout_SendPromptState, -50))
 
     dlg.Navigate(UiPageUrl("ui/window_layout/prompt.html"))
@@ -1489,7 +1489,7 @@ _WindowLayout_ShowManagerWeb() {
 
     g := WebViewGui("-Caption +AlwaysOnTop +Resize", "Maps++ — Window Layouts", , wvSettings)
     g.OnEvent("Close", (*) => _WindowLayout_WebClose())
-    g.WebMessageReceived(_WindowLayout_OnManagerWebMsg)
+    g.WebMessageReceived(WebMsgHandler(_WindowLayout_OnManagerWebMsg))
     g.DOMContentLoaded((*) => SetTimer(_WindowLayout_SendState, -50))
     g.Navigate(UiPageUrl("ui/window_layout/index.html"))
 

@@ -425,7 +425,7 @@ _Pois_PromptForEntry(zone, x, y) {
 
     coordStr := GameCoordText(x, y)
 
-    dlg.WebMessageReceived(OnWebMsg)
+    dlg.WebMessageReceived(WebMsgHandler(OnWebMsg))
     dlg.DOMContentLoaded((*) => _SafePostMsg(dlg, '{"type":"init-add-poi"'
         . ',"zoneName":' _JSON_Str(zone)
         . ',"coordText":' _JSON_Str(coordStr)
@@ -510,7 +510,7 @@ _Pois_ShowManageWindow() {
     _Pois_ManageGui := g
 
     g.OnEvent("Close", (*) => (_Pois_ManageGui := 0))
-    g.WebMessageReceived(_Pois_OnManageWebMsg)
+    g.WebMessageReceived(WebMsgHandler(_Pois_OnManageWebMsg))
     g.DOMContentLoaded((*) => SetTimer(_Pois_SendManageState, -50))
     g.Navigate(UiPageUrl("ui/map_pois/index.html"))
 

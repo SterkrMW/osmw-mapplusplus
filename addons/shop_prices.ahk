@@ -51,7 +51,7 @@ global _ShopPrices_PROCESS_ACCESS := 0x0008 | 0x0010 | 0x0020 | 0x0400
 ; -1 means "no override set" — distinct from an explicit 0, which is a real
 ; setting that switches the id-dependent features off.
 global _ShopPrices_ItemIdOverride := -1
-global _ShopPrices_ConfirmHigh    := true
+global _ShopPrices_ConfirmHigh    := false
 global _ShopPrices_WarnAbove      := 10000000
 global _ShopPrices_PresetClears   := false
 ; 0 = the file id is 0-based, 1 = 1-based. Cannot be auto-detected: item icons
@@ -162,7 +162,7 @@ _ShopPrices_OnSettingsWeb() {
         Map("type", "checkbox", "id", "confirmHigh",
             "label", "Ask before applying a large price",
             "value", _ShopPrices_ConfirmHigh ? true : false,
-            "default", (DefaultRead("ShopPrices", "ConfirmHigh", "1") != "0")),
+            "default", (DefaultRead("ShopPrices", "ConfirmHigh", "0") != "0")),
         ; WarnAbove/IconBase/ItemIdOffset are not in defaults.ini — each is an
         ; opt-in advanced override where "unset" is the meaningful state (see
         ; the design doc). Their "default" is this addon's own compiled
@@ -245,7 +245,7 @@ _ShopPrices_LoadConfig() {
     global _ShopPrices_ItemIdOverride, _ShopPrices_ConfirmHigh, _ShopPrices_WarnAbove
     global _ShopPrices_PresetClears, _ShopPrices_IconBase
 
-    _ShopPrices_ConfirmHigh  := (Trim(ConfigRead("ShopPrices", "ConfirmHigh", "1")) != "0")
+    _ShopPrices_ConfirmHigh  := (Trim(ConfigRead("ShopPrices", "ConfirmHigh", "0")) != "0")
     _ShopPrices_PresetClears := (Trim(ConfigRead("ShopPrices", "PresetClears", "0")) != "0")
 
     warn := Trim(IniRead(CONFIG_INI, "ShopPrices", "WarnAbove", ""))
@@ -2069,7 +2069,7 @@ _ShopPrices_ShowPanelWeb() {
     g := WebViewGui("-Caption +AlwaysOnTop +Resize",
         "Maps++ — Character Vendor", , wvSettings)
     g.OnEvent("Close", (*) => _ShopPrices_WebRequestClose())
-    g.WebMessageReceived(_ShopPrices_OnWebMsg)
+    g.WebMessageReceived(WebMsgHandler(_ShopPrices_OnWebMsg))
     g.DOMContentLoaded((*) => SetTimer(_ShopPrices_SendState, -50))
     g.Navigate(UiPageUrl("ui/shop_prices/index.html"))
 
@@ -2090,7 +2090,14 @@ _ShopPrices_WebClose() {
 ; same question in the same words. Returns non-zero either way: 1 on cancel to
 ; veto the close, and 1 after destroying so the default action does not run
 ; against a window that no longer exists.
+;
+; Two entries: OnEvent("Close") calls it directly because it needs that return
+; value, and the page's own X reaches it through DeferFromWebMessage because the
+; confirm cannot be raised from inside a message handler. The deferred entry
+; discards the return, which is why only the direct one can veto.
 _ShopPrices_WebRequestClose() {
+    if !_ShopPrices_WebAlive()
+        return 1
     if _ShopPrices_DraftIsDirty() {
         if !_ShopPrices_Ask("You have " _ShopPrices_DirtyCount()
             . " unapplied price change(s).`n`nClose and discard them?")
@@ -2287,12 +2294,18 @@ _ShopPrices_OnWebMsg(wv, args) {
     if !IsObject(msg) || !msg.Has("type")
         return
 
+    ; Anything that can raise a dialog is handed to DeferFromWebMessage rather
+    ; than called here: this runs inside a WebMessageReceived COM callback, and
+    ; a confirm raised from one can never be answered — its own Yes/No is
+    ; another WebMessage, which will not be delivered while this handler is on
+    ; the stack. See the dialogs.ahk header. The rest run inline, as they only
+    ; touch the draft and post back.
     switch msg["type"] {
         case "init-request":
             _ShopPrices_SendState()
 
         case "refresh":
-            _ShopPrices_WebRefresh(msg)
+            DeferFromWebMessage(_ShopPrices_WebRefresh, msg)
 
         case "set-price":
             _ShopPrices_WebSetPrice(msg)
@@ -2310,13 +2323,13 @@ _ShopPrices_OnWebMsg(wv, args) {
             _ShopPrices_WebToast("info", "Reverted to the prices in the client.")
 
         case "apply":
-            _ShopPrices_WebApply()
+            DeferFromWebMessage(_ShopPrices_WebApply)
 
         case "select-client":
-            _ShopPrices_WebSelectClient(msg)
+            DeferFromWebMessage(_ShopPrices_WebSelectClient, msg)
 
         case "preset-save-request":
-            _ShopPrices_WebSavePreset()
+            DeferFromWebMessage(_ShopPrices_WebSavePreset)
 
         case "preset-preview":
             _ShopPrices_SendDiff(_ShopPrices_MsgInt(msg, "id"))
@@ -2325,17 +2338,29 @@ _ShopPrices_OnWebMsg(wv, args) {
             _ShopPrices_WebApplyPreset(_ShopPrices_MsgInt(msg, "id"))
 
         case "preset-delete":
-            _ShopPrices_WebDeletePreset(_ShopPrices_MsgInt(msg, "id"))
+            DeferFromWebMessage(_ShopPrices_WebDeletePreset, _ShopPrices_MsgInt(msg, "id"))
 
         case "preset-rename":
-            _ShopPrices_WebRenamePreset(_ShopPrices_MsgInt(msg, "id"))
+            DeferFromWebMessage(_ShopPrices_WebRenamePreset, _ShopPrices_MsgInt(msg, "id"))
 
+        ; The page's own X. Unlike the OnEvent("Close") entry below it has no
+        ; return value to honour, so it can be deferred; that entry must stay
+        ; synchronous because it needs the veto.
         case "close":
-            _ShopPrices_WebRequestClose()
+            DeferFromWebMessage(_ShopPrices_WebRequestClose)
     }
 }
 
+; Deferred handlers land a tick later, by which time the user may have closed
+; the panel — every one of them starts here.
+_ShopPrices_WebAlive() {
+    global _ShopPrices_WebGui
+    return IsObject(_ShopPrices_WebGui) && _ShopPrices_WebGui.Hwnd
+}
+
 _ShopPrices_WebRefresh(msg) {
+    if !_ShopPrices_WebAlive()
+        return
     if (_ShopPrices_DraftIsDirty() && !_ShopPrices_MsgInt(msg, "force")) {
         if !_ShopPrices_Ask("Re-reading the client will discard " _ShopPrices_DirtyCount()
             . " unapplied change(s).`n`nContinue?")
@@ -2385,35 +2410,50 @@ _ShopPrices_WebBulkSet(msg) {
         . " on " n " slot" (n = 1 ? "" : "s") ".")
 }
 
+; `running` is not the same guard as _ShopPrices_ApplyPrices' own `busy`: this
+; one covers the confirmation too. Arriving on a timer means a second Apply can
+; land while the first is still parked in the confirm, and the second would find
+; a dialog already up and get a bare MsgBox for it.
 _ShopPrices_WebApply() {
     global _ShopPrices_Draft
+    static running := false
 
+    if (running || !_ShopPrices_WebAlive())
+        return
     if !_ShopPrices_DraftIsDirty() {
         _ShopPrices_WebToast("warn", "Nothing has changed since the grid was read.")
         return
     }
-    if !_ShopPrices_ConfirmHighPrice(_ShopPrices_Draft) {
-        _ShopPrices_WebToast("info", "Nothing was written.")
-        return
-    }
 
-    res := _ShopPrices_ApplyPrices()
-    _ShopPrices_SendGrid()
-    if res.ok {
-        _ShopPrices_WebPost('{"type":"save-result","ok":true'
-            . ',"listed":' res.listed
-            . ',"written":' res.written
-            . ',"message":' _JSON_Str(res.listed
-                . " item(s) priced. Make sure you check your item prices before you open Vendor!") '}')
-    } else {
-        _ShopPrices_WebPost('{"type":"save-result","ok":false,"listed":0,"written":0'
-            . ',"message":' _JSON_Str(res.reason) '}')
+    running := true
+    try {
+        if !_ShopPrices_ConfirmHighPrice(_ShopPrices_Draft) {
+            _ShopPrices_WebToast("info", "Nothing was written.")
+            return
+        }
+
+        res := _ShopPrices_ApplyPrices()
+        _ShopPrices_SendGrid()
+        if res.ok {
+            _ShopPrices_WebPost('{"type":"save-result","ok":true'
+                . ',"listed":' res.listed
+                . ',"written":' res.written
+                . ',"message":' _JSON_Str(res.listed
+                    . " item(s) priced. Make sure you check your item prices before you open Vendor!") '}')
+        } else {
+            _ShopPrices_WebPost('{"type":"save-result","ok":false,"listed":0,"written":0'
+                . ',"message":' _JSON_Str(res.reason) '}')
+        }
+    } finally {
+        running := false
     }
 }
 
 _ShopPrices_WebSelectClient(msg) {
     global _ShopPrices_TargetPid
 
+    if !_ShopPrices_WebAlive()
+        return
     pid := _ShopPrices_MsgInt(msg, "pid")
     if (!pid || pid = _ShopPrices_TargetPid)
         return
@@ -2442,6 +2482,8 @@ _ShopPrices_WebSelectClient(msg) {
 ; does not decode \uXXXX escapes, so a name with any non-ASCII character would
 ; corrupt on the way back from JS.
 _ShopPrices_WebSavePreset() {
+    if !_ShopPrices_WebAlive()
+        return
     name := _ShopPresets_UniqueName(_ShopPrices_TargetLabel() " prices")
     ib := _ShopPrices_Prompt("Save the current grid as a preset you can load onto any character.",
         name, Map("inputLabel", "Preset name", "okLabel", "Save"))
@@ -2476,6 +2518,8 @@ _ShopPrices_WebApplyPreset(id) {
 }
 
 _ShopPrices_WebDeletePreset(id) {
+    if !_ShopPrices_WebAlive()
+        return
     name := _ShopPresets_NameForId(id)
     if (name = "")
         return
@@ -2487,6 +2531,8 @@ _ShopPrices_WebDeletePreset(id) {
 }
 
 _ShopPrices_WebRenamePreset(id) {
+    if !_ShopPrices_WebAlive()
+        return
     current := _ShopPresets_NameForId(id)
     if (current = "")
         return
