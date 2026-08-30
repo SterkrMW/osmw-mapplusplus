@@ -1,4 +1,5 @@
 # Lite variant — minimap, launcher and window layout only.
+auto_login.ahk
 map_pois.ahk
 quick_actions.ahk
 window_layout.ahk

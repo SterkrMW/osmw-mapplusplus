@@ -446,6 +446,7 @@ _IconForLabel(lbl) {
         case "Chat": return "chat"
         case "Client Roster": return "group"
         case "Client Roster (list)": return "format_list_bulleted"
+        case "Auto-login roster…": return "group"
         case "Quick Actions": return "tune"
         case "Clients & Windows": return "group"
         case "Map & Overlay": return "location_on"

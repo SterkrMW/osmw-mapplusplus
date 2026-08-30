@@ -211,6 +211,7 @@ global DEFAULTS_INI := A_ScriptDir "\defaults.ini"
 global gGamePath := ""           ; Resolved path to the game executable.
 global gGameArgs := ""           ; Optional command-line arguments for the game.
 global gLaunchOnStartup := false ; Auto-launch one game instance on minimap startup.
+global gLaunchAutoLogin := true  ; Launch shortcuts skip intros and log in from the roster.
 ; Windows "run on login" registry entry (per-user, no admin). The registry is the
 ; source of truth for this setting — not config.ini — so it can't drift from the
 ; Task Manager Startup tab.

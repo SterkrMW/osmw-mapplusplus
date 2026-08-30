@@ -189,6 +189,9 @@ function populateLauncher() {
     document.getElementById('gameArgs').value = state.launcher.gameArgs || '';
     document.getElementById('autoStart').checked = !!state.launcher.autoStart;
     document.getElementById('launchOnStartup').checked = !!state.launcher.launchOnStartup;
+    const launchAutoLogin = document.getElementById('launchAutoLogin');
+    if (launchAutoLogin)
+        launchAutoLogin.checked = state.launcher.launchAutoLogin !== false;
 
     // Version, so a screenshot of this window identifies the build.
     const versionEl = document.getElementById('appVersion');
@@ -909,7 +912,7 @@ function populateAddons() {
 
         const name = document.createElement('span');
         name.className = 'addon-name';
-        name.textContent = addon.name;
+        name.textContent = addon.label || addon.name;
 
         row.appendChild(cb);
         row.appendChild(name);
@@ -944,6 +947,8 @@ function collectAndSave() {
         gameArgs:           document.getElementById('gameArgs').value,
         autoStart:          document.getElementById('autoStart').checked,
         launchOnStartup:    document.getElementById('launchOnStartup').checked,
+        launchAutoLogin:    document.getElementById('launchAutoLogin')
+            ? document.getElementById('launchAutoLogin').checked : true,
         versionCheck:       document.getElementById('versionCheck').checked,
         multiClientCount:   parseInt(document.getElementById('multiClientCount').value, 10) || 5,
         multiClientDelay:   parseInt(document.getElementById('multiClientDelay').value, 10) || 0,
@@ -1068,7 +1073,7 @@ if (previewTab !== null && !window.chrome?.webview) {
         tabNames: ['Launcher', 'Minimap', 'Appearance', 'Hotkeys', 'Map POIs', 'Addons'],
         launcher: {
             gamePath: 'C:\\Games\\MythWar\\mythwar.exe', gameArgs: '-windowed',
-            autoStart: true, launchOnStartup: false, multiClientCount: 4, multiClientDelay: 650,
+            autoStart: true, launchOnStartup: false, launchAutoLogin: true, multiClientCount: 4, multiClientDelay: 650,
             monitorChoices: ['Display 1 · 1920 × 1080', 'Display 2 · 2560 × 1440'],
             primaryMonitorChoice: 0, secondaryMonitorChoice: 1, layoutAvailable: true,
             launchLayoutOptions: [{ value: '', label: 'Default layout' }, { value: 'Four box', label: 'Four box' }],

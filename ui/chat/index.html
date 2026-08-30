@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maps++ Chat</title>
+    <script src="../common/theme.js"></script>
+    <link rel="stylesheet" href="../common/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="title-bar" id="title-bar">
+        <div class="title-bar-drag">
+            <span class="material-symbols-outlined title-bar-icon">chat</span>
+            <span class="title-bar-title">Maps++ Chat</span>
+        </div>
+        <div class="title-bar-controls">
+            <button class="title-btn title-btn-close" id="btnTitleClose" title="Close">✕</button>
+        </div>
+    </header>
+
+    <div class="page">
+
+        <section class="section">
+            <h2 class="section-title">Text size</h2>
+
+            <div class="field">
+                <label class="field-label" for="preset">Preset</label>
+                <select class="select" id="preset">
+                    <option value="stock">Default — the client's own Courier New</option>
+                    <option value="crisp">Crisp — same size, cleaner glyphs</option>
+                    <option value="large">Large — the biggest the client draws in full</option>
+                    <option value="wide">Wide — same size, a wider-looking face</option>
+                    <option value="custom">Custom…</option>
+                </select>
+                <p class="field-hint" id="presetHint"></p>
+            </div>
+
+            <div id="customFont" hidden>
+                <div class="field">
+                    <label class="field-label" for="fontFace">Font</label>
+                    <input class="input" id="fontFace" placeholder="Consolas" spellcheck="false">
+                    <p class="field-hint">
+                        Use a fixed-width font. With a proportional one a line of
+                        wide capitals can still run off the edge.
+                    </p>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="field-label" for="fontSize">Size</label>
+                        <input class="input" id="fontSize" inputmode="numeric" placeholder="18">
+                    </div>
+                    <div class="field">
+                        <label class="field-label" for="fontWidth">Character width</label>
+                        <input class="input" id="fontWidth" inputmode="numeric" placeholder="-1">
+                        <p class="field-hint">−1 fits the font. 8 narrows it to
+                            the client's own cell, which lets any size wrap.</p>
+                    </div>
+                </div>
+                <p class="note" id="customWarning" hidden></p>
+            </div>
+
+            <p class="note note-info">
+                The client puts two ceilings on this. It breaks lines assuming
+                every character is 8 pixels wide and never re-checks, so wider
+                text runs off the right edge. And past 18 pixels tall it cuts
+                the bottom of every line — underscores go first, then the tails
+                of y, g and q. Nothing can be set to avoid that one, which is
+                why the presets stop where they do.
+            </p>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">Tabs</h2>
+
+            <div class="field">
+                <label class="field-label" for="tabs">Tab set</label>
+                <input class="input" id="tabs" spellcheck="false"
+                       placeholder="All:*|Chat:*,-system,-info|System:system,info">
+                <p class="field-hint">
+                    <code>Name:channels</code>, separated by <code>|</code>.
+                    <code>*</code> is everything, a leading <code>-</code> removes one.
+                    Channels: local, party, pm, guild, market, world, system, info, fd, gm.
+                </p>
+                <p class="note note-warn" id="tabsError" hidden></p>
+            </div>
+
+            <div class="field field-inline">
+                <input type="checkbox" id="tabStrip">
+                <label for="tabStrip">Show the clickable tab strip in the chat window</label>
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="tabHotkey">Hotkey to cycle tabs</label>
+                <input class="input" id="tabHotkey" spellcheck="false" placeholder="none">
+                <p class="field-hint">e.g. CTRL+SHIFT+X. System-wide, so it is
+                    taken from every application. Leave empty for none.</p>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">Timestamps</h2>
+
+            <div class="field field-inline">
+                <input type="checkbox" id="timestamps">
+                <label for="timestamps">Show the time each message arrived</label>
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="timestampFormat">Format</label>
+                <select class="select" id="timestampFormat">
+                    <option value="#c808080[%H:%M]#N">[12:34] — dim grey</option>
+                    <option value="#c808080%H:%M#N">12:34 — dim grey, no brackets</option>
+                    <option value="%H:%M">12:34 — same colour as the message</option>
+                    <option value="#c808080[%H:%M:%S]#N">[12:34:56] — with seconds</option>
+                </select>
+                <p class="field-hint">
+                    The stamp sits at the start of the line, before the
+                    sender's name, so every channel lines up the same way.
+                    Colour only — the client's markup has no size code.
+                </p>
+            </div>
+
+            <p class="note note-info">
+                The client does not record when a message arrived, so the mod
+                notes it as each one comes in. Anything already in the chat
+                when the client started has no time to show and stays
+                unstamped.
+            </p>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">Mentions</h2>
+
+            <div class="field field-inline">
+                <input type="checkbox" id="highlightMentions">
+                <label for="highlightMentions">Mark messages that name me, and any PM</label>
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="myName">My character name</label>
+                <input class="input" id="myName" spellcheck="false" placeholder="read from the game window">
+                <p class="field-hint">Normally detected automatically. Set this
+                    only if that stops working.</p>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">Window</h2>
+
+            <div class="field field-inline">
+                <input type="checkbox" id="freePosition">
+                <label for="freePosition">Let me move the chat window freely</label>
+            </div>
+            <div class="field field-inline">
+                <input type="checkbox" id="unlockSize">
+                <label for="unlockSize">Let me resize it</label>
+            </div>
+            <div class="field field-inline">
+                <input type="checkbox" id="rememberGeometry">
+                <label for="rememberGeometry">Remember where I put it</label>
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="clearHotkey">Hotkey to clear the chat</label>
+                <input class="input" id="clearHotkey" spellcheck="false" placeholder="none">
+                <p class="field-hint">Clears the message history, so the in-game
+                    overlay empties too. Leave empty for none.</p>
+            </div>
+        </section>
+
+    </div>
+
+    <footer class="footer">
+        <span class="footer-hint" id="status">Changes apply within a couple of seconds — no restart.</span>
+        <button class="btn btn-sm" id="btnClose">Close</button>
+        <button class="btn btn-sm btn-primary" id="btnSave">Save</button>
+    </footer>
+
+    <script src="main.js"></script>
+</body>
+</html>

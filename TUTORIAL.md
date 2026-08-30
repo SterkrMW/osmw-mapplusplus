@@ -13,11 +13,12 @@ Maps++ runs in the background and appears in your system tray as **osMW Maps++**
 | **Custom minimap** | Press **Tab** to overlay a high-resolution map on top of the game window. |
 | **Live position marker** | A dot on the map tracks your character as you move. |
 | **Game launcher** | Launch new game clients from the tray menu or a hotkey, centered on your chosen monitor. |
+| **Auto-login** | Fill a roster of accounts; each launched client claims the next enabled row and logs in. |
 | **Better Hotkeys** | Give each character any number of persistent battle-skill shortcuts, including different skills on the same key. |
 | **Multi-box helpers** | Optional addons arrange windows, toggle chat, open inventory, and send battle commands to all fighting characters. |
 | **Radial menus** | **Ctrl+Alt+A** rings your common actions around the cursor; choose **Clients** there to jump between alts. One click each. |
 
-Maps++ reads information from the running game client (`main.exe`). It does not modify game files and works alongside the normal client.
+Maps++ reads information from the running game client (`main.exe`). It never patches `main.exe`. Launching can copy inject helpers (`osmw_login.dll`, `osmw_chat.dll`, `osmw_chat_launch.exe`) into the game folder if they are not already there, then start the helper instead of `main.exe` directly so those mods load before the client initialises.
 
 ---
 
@@ -26,9 +27,9 @@ Maps++ reads information from the running game client (`main.exe`). It does not 
 ### 1. Install and run
 
 1. Download the release that matches how you play:
-   - **Full** — minimap, launcher, window layout, chat, inventory, Better Hotkeys, battle helpers, map POIs, and the multi-client roster and party markers.
-   - **Lite** — minimap, map POIs, launcher, and window layout only.
-   - **Battle** — minimap, launcher, chat, Better Hotkeys, battle helpers, roster and party markers (no inventory or window layout).
+   - **Full** — minimap, launcher, auto-login, window layout, chat, inventory, Better Hotkeys, battle helpers, map POIs, and the multi-client roster and party markers.
+   - **Lite** — minimap, map POIs, launcher, auto-login, and window layout only.
+   - **Battle** — minimap, launcher, auto-login, chat, Better Hotkeys, battle helpers, roster and party markers (no inventory or window layout).
 2. Extract the folder somewhere convenient (Desktop, a games folder, etc.).
 3. Run **`mapsplusplus.exe`**.
 
@@ -54,6 +55,8 @@ page can leave the new windows centered, apply the current default layout, or as
 preset/custom layout to each display.
 
 If **Launch on startup** is enabled in `config.ini`, Maps++ opens a game client for you when the app starts.
+
+To skip the stock login screen, add accounts under **Tray → Clients & Windows → Auto-login roster…** and leave **Settings → Launcher → Auto-login launched clients** on. Each launched client claims the next enabled row; Maps++ clicks through the intro, then the injected login fills the roster account. Passwords stay on this Windows user and are never stored in `config.ini`. Turn that launcher setting off when you want the stock login screen.
 
 ---
 
@@ -163,7 +166,7 @@ Right-click the tray icon for the main menu:
 | **Launch (Primary)** | Start the configured clients on the primary target, then optionally apply its layout |
 | **Launch (Secondary)** | Start the configured clients on the secondary target, then optionally apply its layout |
 | **Quick Actions** | Open the action ring and access game controls such as Send Enter, battle send, chat, inventory and view mode |
-| **Clients & Windows** | Open the client roster, arrange game windows and access character tools available in the current build |
+| **Clients & Windows** | Open the client roster, edit the auto-login roster, arrange game windows and access character tools available in the current build |
 | **Map & Overlay** | Add or manage map POIs and toggle map-related overlay features available in the current build |
 | **Interface** | Switch between Native (low memory) and WebView2 (enhanced); Maps++ reloads automatically |
 | **Settings…** | Open the settings window (game path, launcher, monitors, Window Layout, addons) |
@@ -254,7 +257,7 @@ Global shortcuts work while the game or minimap overlay is focused.
 | **Right-click** | Close minimap (while overlay is open) |
 | **Ctrl+Alt+L** | Launch the configured clients on the primary target |
 | **Ctrl+Alt+K** | Launch the configured clients on the secondary target |
-| **Ctrl+Alt+E** | Send Enter to clients until each one reaches the game |
+| **Ctrl+Alt+E** | Send Enter to clients still at intro/login until each one is ready |
 | **Ctrl+Alt+A** | Open the Quick Actions ring |
 | **Ctrl+Alt+,** | Open the Settings window |
 | **Ctrl+Alt+R** | Reload Maps++ |
@@ -463,6 +466,24 @@ support, but pet bindings are not shown until Maps++ can reliably identify a pet
 | **Not bound** | Toggle view mode 0/1 on **all** clients (0→1; 1/2/3→0) |
 
 Echoes the in-game **F2** view-mode cycle across every open client without focusing each window.
+
+### Auto-login (Full / Lite / Battle)
+
+| Hotkey | Action |
+|--------|--------|
+| **Not bound** | Open the auto-login roster editor |
+
+This is **not** the Client Roster (live HP of running windows). The auto-login roster is the list of *accounts to log in as*.
+
+Choose **Tray → Clients & Windows → Auto-login roster…**. Add a row per character: account name, password, and character (`#1`–`#5` for the slot on that account, or the numeric display ID). Each Maps++ launch claims the next **enabled** row in file order — five windows get five different characters. Extra clients past the number of enabled rows show the stock login screen; that is expected.
+
+Passwords are write-only. After save the field is empty and the hint says the password is stored. They are encrypted for **this Windows user** in `login_roster.dat` next to `main.exe`. Another Windows account on the same PC cannot read them, and they never appear in `config.ini`, `mapsplusplus.log`, or the roster page after save.
+
+**Settings → Launcher → Auto-login launched clients** is what the launch shortcuts honour. On (the default) writes the game's `[Addons] AutoLogin=1`, clicks through the intro on the new windows only, and lets each client claim the next roster row. Off writes `AutoLogin=0` and leaves the stock login — already-playing clients are not sent Enter. An empty roster (or every row disabled) also leaves the stock login. **Settings → Addons → Auto-login** only hides the roster editor; it does not change how launch behaves.
+
+Use a distinct account per window. If the client says the account is already logged in, that is a server rule — Maps++ will not work around it.
+
+When you launch from Maps++, it copies `osmw_login.dll`, `osmw_chat.dll` and `osmw_chat_launch.exe` from Maps++'s `Lib\` folder into the game folder **if they are not already there**, then starts the helper. Browse in Settings still points at `main.exe`; overlay attach is still `main.exe`. Already-deployed helpers are not overwritten while clients may have them loaded.
 
 ### Client Roster (Full / Battle)
 
@@ -688,6 +709,7 @@ Common settings:
 GamePath=C:\Path\To\Your\main.exe
 GameArgs=
 LaunchOnStartup=0
+LaunchAutoLogin=1
 MultiClientCount=5
 MultiClientDelay=0
 PrimaryMonitor=0
@@ -747,13 +769,15 @@ MapPois=1
 QuickActions=1
 ShopPrices=1
 BetterHotkeys=1
+AutoLogin=1
 ```
 
 | Setting | Meaning |
 |---------|---------|
-| `GamePath` | Full path to `main.exe` |
+| `GamePath` | Full path to `main.exe`. Launch still starts `osmw_chat_launch.exe` from that folder when the helper is present |
 | `GameArgs` | Extra command-line arguments passed when launching the game |
 | `LaunchOnStartup` | `1` = launch a game client when Maps++ starts |
+| `LaunchAutoLogin` | `1` = launch shortcuts skip the intro and log in from the roster; `0` = stock login |
 | `MultiClientCount` | How many clients **Ctrl+Alt+L/K** launches |
 | `MultiClientDelay` | Milliseconds between each client in a launch batch |
 | `PrimaryMonitor` | Display for **Ctrl+Alt+L**. `0` = OS primary; `1`, `2`, … = specific display |
@@ -814,6 +838,10 @@ Binding2Skill=11
 `Class` is the client class ID (`0`–`7`), `Skill` is the server/client skill enum, and `Chord`
 uses AutoHotkey syntax. Edit through the visual editor where possible so class restrictions and
 conflicts with Maps++ shortcuts are checked before saving.
+
+### Auto-login roster (`login_roster.dat`)
+
+Owned by the Auto-login editor, stored **next to `main.exe`** (not beside Maps++ and not in AppData). Binary, DPAPI-bound to the current Windows user — do not copy this file between machines or Windows accounts. Edit it from **Tray → Clients & Windows → Auto-login roster…**. Passwords are never written to `config.ini`. Whether launch shortcuts use the roster is **Settings → Launcher → Auto-login launched clients** (`LaunchAutoLogin` in Maps++ `config.ini`), not this file.
 
 ### Shop presets (`shop_presets.ini`)
 

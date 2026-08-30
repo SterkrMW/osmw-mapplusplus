@@ -112,7 +112,7 @@ _Settings_OnWebMessage(wv, args) {
 
 _Settings_SendState() {
     global gSettingsGui, gAddonHooks, gDisabledAddons
-    global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
+    global gGamePath, gGameArgs, gLaunchOnStartup, gLaunchAutoLogin, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
@@ -167,6 +167,7 @@ _Settings_SendState() {
             . ',"gameArgs":' _JSON_Str(gGameArgs)
             . ',"autoStart":' (IsRunOnStartupEnabled() ? "true" : "false")
             . ',"launchOnStartup":' (gLaunchOnStartup ? "true" : "false")
+            . ',"launchAutoLogin":' (gLaunchAutoLogin ? "true" : "false")
             . ',"multiClientCount":' gMultiClientCount
             . ',"multiClientDelay":' gMultiClientDelay
             . ',"monitorChoices":' monArr
@@ -354,7 +355,10 @@ _Settings_AddonsListToJson() {
             json .= ","
         first := false
         enabled := !(gDisabledAddons.Has(nm) && gDisabledAddons[nm])
-        json .= '{"name":' _JSON_Str(nm) ',"enabled":' (enabled ? "true" : "false") '}'
+        label := am.Has("settingsLabel") ? am["settingsLabel"] : nm
+        json .= '{"name":' _JSON_Str(nm)
+            . ',"label":' _JSON_Str(label)
+            . ',"enabled":' (enabled ? "true" : "false") '}'
     }
     json .= "]"
     return json
@@ -363,7 +367,7 @@ _Settings_AddonsListToJson() {
 ; ── Handle save ──────────────────────────────────────────────
 
 _Settings_HandleSave(msg) {
-    global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
+    global gGamePath, gGameArgs, gLaunchOnStartup, gLaunchAutoLogin, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
@@ -375,6 +379,8 @@ _Settings_HandleSave(msg) {
     gGamePath := launcher["gamePath"]
     gGameArgs := Trim(launcher["gameArgs"])
     gLaunchOnStartup := launcher["launchOnStartup"] ? true : false
+    if launcher.Has("launchAutoLogin")
+        gLaunchAutoLogin := launcher["launchAutoLogin"] ? true : false
     cnt := launcher["multiClientCount"]
     dly := launcher["multiClientDelay"]
     if (!IsInteger(cnt) || Integer(cnt) < 1) {
@@ -509,7 +515,7 @@ _Settings_HandleSave(msg) {
 ; alone) and the WebView-vs-Native interface mode. A reset scoped to settings
 ; defaults shouldn't reach into either.
 ResetAllSettingsToDefaults() {
-    global gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
+    global gGameArgs, gLaunchOnStartup, gLaunchAutoLogin, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout, gVersionCheckEnabled
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
@@ -519,6 +525,7 @@ ResetAllSettingsToDefaults() {
     ; ── Launcher ──
     gGameArgs := DefaultRead("Launcher", "GameArgs", "")
     gLaunchOnStartup := (DefaultRead("Launcher", "LaunchOnStartup", "0") = "1")
+    gLaunchAutoLogin := (DefaultRead("Launcher", "LaunchAutoLogin", "1") != "0")
     gMultiClientCount := Integer(DefaultRead("Launcher", "MultiClientCount", "5"))
     gMultiClientDelay := Integer(DefaultRead("Launcher", "MultiClientDelay", "0"))
     gPrimaryMonitorOverride := Integer(DefaultRead("Launcher", "PrimaryMonitor", "0"))

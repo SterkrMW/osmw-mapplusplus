@@ -1,4 +1,5 @@
 # Full variant — all addons bundled.
+auto_login.ahk
 battle_send.ahk
 better_hotkeys.ahk
 chat_toggle.ahk

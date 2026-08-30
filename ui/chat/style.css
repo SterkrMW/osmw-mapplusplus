@@ -1,0 +1,78 @@
+/* Chat settings page. Layout only — colours, controls and the title bar all
+   come from ../common/style.css so this matches the other Maps++ pages. */
+
+.page {
+    padding: 12px 14px 4px;
+    overflow-y: auto;
+}
+
+.section {
+    margin-bottom: 18px;
+}
+
+.section-title {
+    margin: 0 0 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    opacity: .62;
+}
+
+/* Two controls side by side, collapsing when there is no room. */
+.field-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.field-row > .field {
+    flex: 1 1 130px;
+    min-width: 0;
+}
+
+/* A checkbox and its label on one line, aligned on the control not the text. */
+.field-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.field-inline label {
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.field-inline input[type="checkbox"] {
+    flex: none;
+    cursor: pointer;
+}
+
+/* Explanatory blocks. note-info explains a client limitation the user cannot
+   change; note-warn flags a choice that will probably look wrong. */
+.note {
+    margin: 8px 0 0;
+    padding: 7px 9px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 1.45;
+    border-left: 2px solid transparent;
+}
+
+.note-info {
+    background: rgba(127, 127, 127, .10);
+    border-left-color: rgba(127, 127, 127, .45);
+    opacity: .85;
+}
+
+.note-warn {
+    background: rgba(224, 150, 40, .12);
+    border-left-color: rgba(224, 150, 40, .75);
+}
+
+code {
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(127, 127, 127, .16);
+    font-size: 10.5px;
+}

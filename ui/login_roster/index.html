@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maps++ Auto-login</title>
+    <script src="../common/theme.js"></script>
+    <link rel="stylesheet" href="../common/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="title-bar" id="title-bar">
+        <div class="title-bar-drag">
+            <span class="material-symbols-outlined title-bar-icon">group</span>
+            <span class="title-bar-title">Maps++ Auto-login</span>
+        </div>
+        <div class="title-bar-controls">
+            <button class="title-btn title-btn-close" id="btnTitleClose" title="Close">✕</button>
+        </div>
+    </header>
+
+    <div class="page">
+        <p class="note note-info">
+            Each launched client claims the next enabled row, so five windows
+            get five different characters. Use <code>#1</code>–<code>#5</code>
+            for the slot on that account, or the display ID. Passwords stay on
+            this Windows user and never come back to this page after save.
+            Turn auto-login off under <strong>Settings → Launcher</strong> when
+            you want the stock login screen.
+        </p>
+
+        <section class="section">
+            <h2 class="section-title">Launch roster</h2>
+            <div class="table-container">
+                <table class="table" id="rosterTable">
+                    <thead>
+                        <tr>
+                            <th>Account</th>
+                            <th>Character</th>
+                            <th>On</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rosterBody"></tbody>
+                </table>
+                <div class="empty-state" id="emptyState">No rows yet — add an account below.</div>
+            </div>
+            <div class="row-actions">
+                <button class="btn btn-sm" id="btnUp">Up</button>
+                <button class="btn btn-sm" id="btnDown">Down</button>
+                <button class="btn btn-sm" id="btnRemove">Remove</button>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">Row</h2>
+            <div class="field">
+                <label class="field-label" for="account">Account</label>
+                <input class="input" id="account" maxlength="31" autocomplete="username" spellcheck="false">
+            </div>
+            <div class="field">
+                <label class="field-label" for="password">Password</label>
+                <input class="input" id="password" type="password" maxlength="63" autocomplete="new-password"
+                       placeholder="leave blank to keep">
+                <p class="field-hint" id="passwordHint">Write-only. Blank keeps the stored password.</p>
+            </div>
+            <div class="field">
+                <label class="field-label" for="character">Character</label>
+                <input class="input" id="character" maxlength="31" spellcheck="false" placeholder="#1">
+                <p class="field-hint">Slot <code>#1</code>–<code>#5</code>, or the numeric display ID.</p>
+            </div>
+            <div class="field field-inline">
+                <input type="checkbox" id="enabled" checked>
+                <label for="enabled">Enabled — claim this row on launch</label>
+            </div>
+            <div class="row-actions">
+                <button class="btn btn-sm" id="btnAdd">Add</button>
+                <button class="btn btn-sm" id="btnApply">Apply to selected</button>
+            </div>
+        </section>
+    </div>
+
+    <footer class="footer">
+        <span class="footer-hint" id="status">Changes are written when you save.</span>
+        <button class="btn btn-sm" id="btnClose">Close</button>
+        <button class="btn btn-sm btn-primary" id="btnSave">Save</button>
+    </footer>
+
+    <script src="main.js"></script>
+</body>
+</html>

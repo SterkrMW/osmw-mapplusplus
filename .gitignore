@@ -1,5 +1,7 @@
 /release
 *.exe
+!Lib/osmw_chat_launch.exe
+!Lib/osmw_login_launch.exe
 *.zip
 config.ini
 layouts.ini

@@ -6,7 +6,7 @@
 
 _Settings_BuildNative() {
     global gSettingsGui, gAddonHooks, gDisabledAddons, gSettingsHotkeyRows
-    global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
+    global gGamePath, gGameArgs, gLaunchOnStartup, gLaunchAutoLogin, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
@@ -52,6 +52,9 @@ _Settings_BuildNative() {
     launchOnStartupCb := g.Add("CheckBox", "x" contentX " y+10 w520",
         "Launch a game client when Maps++ starts")
     launchOnStartupCb.Value := gLaunchOnStartup ? 1 : 0
+    launchAutoLoginCb := g.Add("CheckBox", "x" contentX " y+10 w520",
+        "Auto-login launched clients (intro click-through + roster)")
+    launchAutoLoginCb.Value := gLaunchAutoLogin ? 1 : 0
 
     g.Add("Text", "x" contentX " y+22 w130", "Clients per launch:")
     countEdit := g.Add("Edit", "x158 yp-3 w90 Number", String(gMultiClientCount))
@@ -218,7 +221,8 @@ _Settings_BuildNative() {
         name := am.Has("name") ? am["name"] : ""
         if (name = "")
             continue
-        cb := g.Add("CheckBox", "x" contentX " y" y " w430", name)
+        label := am.Has("settingsLabel") ? am["settingsLabel"] : name
+        cb := g.Add("CheckBox", "x" contentX " y" y " w430", label)
         cb.Value := (gDisabledAddons.Has(name) && gDisabledAddons[name]) ? 0 : 1
         addonChecks.Push(Map("name", name, "control", cb))
         y += 28
@@ -332,6 +336,7 @@ _Settings_BuildNative() {
                 "gameArgs", gameArgsEdit.Value,
                 "autoStart", autoStartCb.Value ? true : false,
                 "launchOnStartup", launchOnStartupCb.Value ? true : false,
+                "launchAutoLogin", launchAutoLoginCb.Value ? true : false,
                 "multiClientCount", Trim(countEdit.Value),
                 "multiClientDelay", Trim(delayEdit.Value),
                 "primaryMonitor", primaryDdl.Value - 1,

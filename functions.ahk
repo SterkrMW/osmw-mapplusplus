@@ -1300,7 +1300,7 @@ EnsureMarkerControl() {
 ; Resolves the game executable path.
 ; Priority: A_ScriptDir\main.exe → config.ini GamePath → file picker prompt.
 LoadLauncherConfig() {
-    global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay, CONFIG_INI, PROCESS_EXE
+    global gGamePath, gGameArgs, gLaunchOnStartup, gLaunchAutoLogin, gMultiClientCount, gMultiClientDelay, CONFIG_INI, PROCESS_EXE
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout, LAUNCH_LAYOUT_DEFAULT
     global gInterfaceMode, gAccentScheme, gVersionCheckEnabled
@@ -1327,6 +1327,7 @@ LoadLauncherConfig() {
     if (startupVal != "__MISSING__") {
         gLaunchOnStartup := (startupVal = "1")
     }
+    gLaunchAutoLogin := (Trim(ConfigRead("Launcher", "LaunchAutoLogin", "1")) != "0")
     cnt := Trim(ConfigRead("Launcher", "MultiClientCount", "5"))
     if (IsInteger(cnt) && Integer(cnt) >= 1)
         gMultiClientCount := Integer(cnt)
@@ -1566,11 +1567,80 @@ CenterWindowOnMonitor(hwnd, monIdx) {
     WinMove(x, y, , , "ahk_id " hwnd)
 }
 
+; Folder that contains main.exe, derived from GamePath (which may be main.exe
+; or osmw_chat_launch.exe). Roster files and inject payloads live here.
+ResolveGameDirectory() {
+    global gGamePath
+    if (gGamePath = "")
+        return ""
+    dir := ""
+    SplitPath(gGamePath, , &dir)
+    return dir
+}
+
+; Copies inject helpers from Maps++\Lib into the game folder when they are
+; missing there. Never overwrites — a loaded DLL is locked while clients run.
+EnsureInjectPayload(gameDir) {
+    if (gameDir = "" || !DirExist(gameDir))
+        return
+    payloadNames := ["osmw_login.dll", "osmw_chat.dll", "osmw_chat_launch.exe"]
+    for payloadName in payloadNames {
+        src := A_ScriptDir "\Lib\" payloadName
+        dst := gameDir "\" payloadName
+        if !FileExist(src) || FileExist(dst)
+            continue
+        try {
+            FileCopy(src, dst)
+            LogInfo("Launch", "Deployed " payloadName " into the game folder")
+        } catch as err {
+            LogWarn("Launch", "Could not deploy " payloadName ": " err.Message)
+        }
+    }
+}
+
+; Prefer the 32-bit inject helper when it is present; overlay attach still
+; waits for main.exe. GamePath in config.ini stays pointing at main.exe.
+ResolveLaunchExecutable(gameDir) {
+    global PROCESS_EXE
+    helper := gameDir "\osmw_chat_launch.exe"
+    mainExe := gameDir "\" PROCESS_EXE
+    if FileExist(helper)
+        return helper
+    if FileExist(mainExe) {
+        LogWarn("Launch", "osmw_chat_launch.exe missing — launching main.exe without inject")
+        return mainExe
+    }
+    return ""
+}
+
+; Shared by single- and multi-client launch. workDir is ByRef so callers Run
+; with the game folder as cwd (the helper looks for main.exe beside itself).
+BuildGameLaunchCommand(&workDir) {
+    global gGamePath, gGameArgs
+    workDir := ""
+    if (gGamePath = "" || !FileExist(gGamePath))
+        return ""
+    gameDir := ResolveGameDirectory()
+    if (gameDir = "")
+        return ""
+    EnsureInjectPayload(gameDir)
+    beforeFn := GetFuncByName("_AutoLogin_BeforeLaunch")
+    if beforeFn
+        beforeFn(gameDir)
+    exePath := ResolveLaunchExecutable(gameDir)
+    if (exePath = "" || !FileExist(exePath))
+        return ""
+    workDir := gameDir
+    if (gGameArgs != "")
+        return '"' exePath '" ' gGameArgs
+    return '"' exePath '"'
+}
+
 ; Launches a new game client instance.
 ; Uses the game executable's parent directory as the working directory.
 ; monitorWhich: "primary" (default) or "secondary" — centers the new window on that display.
 LaunchGameInstance(monitorWhich := "primary") {
-    global gGamePath, gGameArgs
+    global gGamePath
 
     if (gGamePath = "" || !FileExist(gGamePath)) {
         settingsShortcut := GetHotkeyDisplay("openSettings")
@@ -1581,13 +1651,13 @@ LaunchGameInstance(monitorWhich := "primary") {
 
     before := GetTopLevelGameWindows()
     workDir := ""
-    SplitPath(gGamePath, , &workDir)
+    launchCmd := BuildGameLaunchCommand(&workDir)
+    if (launchCmd = "") {
+        TrayTip("Could not resolve a game executable to launch.", "Maps++", "Iconx")
+        return
+    }
     try {
-        if (gGameArgs != "") {
-            Run('"' gGamePath '" ' gGameArgs, workDir)
-        } else {
-            Run('"' gGamePath '"', workDir)
-        }
+        Run(launchCmd, workDir)
     } catch as err {
         TrayTip("Failed to launch game:`n" err.Message, "Maps++", "Iconx")
         return
@@ -1606,6 +1676,7 @@ LaunchGameInstance(monitorWhich := "primary") {
 
     CenterWindowOnMonitor(hwnd, monIdx)
     TrayTip("Game instance launched.", "Maps++", "Iconi")
+    MaybeSendEnterAfterLaunch([hwnd])
 }
 
 ; Returns the Func object for a globally-defined function name, or "" when no
@@ -1666,7 +1737,7 @@ ResolveLaunchLayoutName(monitorWhich) {
 ; target as it appears, ensuring the layout pass sees the complete launch batch.
 ; count defaults to gMultiClientCount and is exposed for internal one-off callers.
 LaunchConfiguredClients(monitorWhich := "primary", count := 0) {
-    global gGamePath, gGameArgs, gMultiClientCount, gMultiClientDelay
+    global gGamePath, gMultiClientCount, gMultiClientDelay
 
     if (count < 1)
         count := gMultiClientCount
@@ -1679,7 +1750,11 @@ LaunchConfiguredClients(monitorWhich := "primary", count := 0) {
     }
 
     workDir := ""
-    SplitPath(gGamePath, , &workDir)
+    launchCmd := BuildGameLaunchCommand(&workDir)
+    if (launchCmd = "") {
+        TrayTip("Could not resolve a game executable to launch.", "Maps++", "Iconx")
+        return
+    }
     monIdx := ResolveMonitorForHotkey(monitorWhich)
     layoutName := ResolveLaunchLayoutName(monitorWhich)
 
@@ -1689,8 +1764,6 @@ LaunchConfiguredClients(monitorWhich := "primary", count := 0) {
     before := Map()
     for hwnd in GetTopLevelGameWindows()
         before[hwnd] := true
-
-    launchCmd := (gGameArgs != "") ? '"' gGamePath '" ' gGameArgs : '"' gGamePath '"'
     started := 0
     Loop count {
         try {
@@ -1735,17 +1808,19 @@ LaunchConfiguredClients(monitorWhich := "primary", count := 0) {
     } else {
         TrayTip(launched.Length " client(s) launched and centered.", "Maps++", "Iconi")
     }
+    MaybeSendEnterAfterLaunch(launched)
 }
 
 ; Persists all [Launcher] settings into config.ini from the current globals.
 SaveLauncherConfig() {
-    global gGamePath, gGameArgs, gLaunchOnStartup, gMultiClientCount, gMultiClientDelay
+    global gGamePath, gGameArgs, gLaunchOnStartup, gLaunchAutoLogin, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride, CONFIG_INI
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout, gVersionCheckEnabled
     IniWrite(gVersionCheckEnabled ? "1" : "0", CONFIG_INI, "Launcher", "VersionCheck")
     IniWrite(gGamePath, CONFIG_INI, "Launcher", "GamePath")
     IniWrite(gGameArgs, CONFIG_INI, "Launcher", "GameArgs")
     IniWrite(gLaunchOnStartup ? "1" : "0", CONFIG_INI, "Launcher", "LaunchOnStartup")
+    IniWrite(gLaunchAutoLogin ? "1" : "0", CONFIG_INI, "Launcher", "LaunchAutoLogin")
     IniWrite(gMultiClientCount, CONFIG_INI, "Launcher", "MultiClientCount")
     IniWrite(gMultiClientDelay, CONFIG_INI, "Launcher", "MultiClientDelay")
     IniWrite(gPrimaryMonitorOverride, CONFIG_INI, "Launcher", "PrimaryMonitor")
@@ -1783,23 +1858,30 @@ ReadGameStateForWindow(hwnd, stateRva) {
 
 ; Sends Enter to each game client whose game state is below GAME_STATE_READY,
 ; repeating until every client reaches that state (or a timeout fires). Used to
-; click through intro/login prompts on freshly launched clients.
-SendEnterUntilReady() {
+; click through intro screens on freshly launched clients so auto-login can
+; take the stock login. targetHwnds, when an array, limits the walk to those
+; windows so already-playing clients are not mashed. quiet skips the success
+; TrayTip (launch already announced the batch).
+SendEnterUntilReady(targetHwnds := 0, quiet := false, timeoutMs := 30000) {
+    global GAME_STATE_READY
     SetKeyDelay 0, 100
-    static GAME_STATE_READY := 5
     rva := GetResolvedOffset("GAME_STATE_OFFSET")
-    deadline := A_TickCount + 30000
+    deadline := A_TickCount + timeoutMs
+    scoped := IsObject(targetHwnds)
 
     Loop {
-        windows := GetTopLevelGameWindows()
+        windows := scoped ? targetHwnds : GetTopLevelGameWindows()
         if (windows.Length = 0) {
-            TrayTip("No game windows found.", "Maps++", "Iconx")
+            if !quiet
+                TrayTip("No game windows found.", "Maps++", "Iconx")
             return
         }
         pending := 0
         for hwnd in windows {
+            if !WinExist("ahk_id " hwnd)
+                continue
             state := ReadGameStateForWindow(hwnd, rva)
-            if (state < 0 || state >= GAME_STATE_READY)  ; read failed or already ready
+            if (state < 0 || state >= GAME_STATE_READY)
                 continue
             pending++
             try ControlSend("{Enter}", , "ahk_id " hwnd)
@@ -1812,7 +1894,20 @@ SendEnterUntilReady() {
         }
         Sleep 100
     }
-    TrayTip("All clients ready (game state " GAME_STATE_READY "+).", "Maps++", "Iconi")
+    if !quiet
+        TrayTip("All clients ready (game state " GAME_STATE_READY "+).", "Maps++", "Iconi")
+}
+
+; After a Maps++ launch with auto-login on, click through intros on just the
+; new windows so the injected DLL can fill the stock login.
+MaybeSendEnterAfterLaunch(hwnds) {
+    global gLaunchAutoLogin
+    if !gLaunchAutoLogin || !IsObject(hwnds) || hwnds.Length = 0
+        return
+    ; Do not block launch or Maps++ startup — intro click-through can take
+    ; tens of seconds and would otherwise delay the tray icon.
+    captured := hwnds.Clone()
+    SetTimer(() => SendEnterUntilReady(captured, true, 45000), -1)
 }
 
 ; Returns the number of windows matching the game process name.
