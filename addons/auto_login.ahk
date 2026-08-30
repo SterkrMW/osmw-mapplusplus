@@ -1,6 +1,6 @@
 #Requires AutoHotkey v2.0
 
-; Auto-login roster editor and the game-folder [Addons] AutoLogin gate.
+; Auto-login roster editor and the per-launch consent the DLL checks.
 ;
 ; The DLL (osmw_login.dll, injected by osmw_chat_launch.exe) does the in-process
 ; fill/submit/character-select. This addon never types into the client. Each
@@ -17,6 +17,8 @@ global _AUTOLOGIN_MAGIC := "OSMWROS1"
 global _AUTOLOGIN_DPAPI_DESC := "osmw_login"
 global _AUTOLOGIN_UI_FORBIDDEN := 1
 global _AUTOLOGIN_BLOB_MAX := 65536
+; Must match LG_CONSENT_VAR in patches\login\src\dllmain.c.
+global _AUTOLOGIN_CONSENT_VAR := "OSMW_AUTOLOGIN"
 
 global _AutoLogin_PanelMode := ""
 global _AutoLogin_WebGui := 0
@@ -52,19 +54,39 @@ _AutoLogin_OnTrayMenu(trayGroups) {
         (*) => _AutoLogin_OpenEditor())
 }
 
+; Per-launch consent, carried to the DLL in the environment rather than in the
+; ini.
+;
+; This used to write [Addons] AutoLogin. That key is persistent, so the value
+; Maps++ wrote for its own launch was still there for a client the player
+; started by hand afterwards — running osmw_chat_launch.exe on its own would log
+; itself in, using whatever Maps++ last decided. The key could not simply be
+; parked at 0 between launches either, because it doubles as this addon's own
+; enable flag in Maps++'s [Addons] list.
+;
+; An environment variable answers the question the ini could not: not "is
+; auto-login enabled" but "did the user ask for it for THIS process". Both
+; launchers pass NULL for lpEnvironment in CreateProcess, so main.exe inherits
+; it through the injection chain and no launcher change was needed. A client
+; started from Explorer inherits Explorer's environment, has no such variable,
+; and logs in normally.
+;
 ; Called from BuildGameLaunchCommand via GetFuncByName so the launcher setting
 ; still reaches the DLL when the roster editor addon is disabled.
 _AutoLogin_BeforeLaunch(gameDir) {
-    global gLaunchAutoLogin
+    global gLaunchAutoLogin, _AUTOLOGIN_CONSENT_VAR
     if (gameDir = "")
         return
-    iniPath := gameDir "\config.ini"
-    if !FileExist(iniPath)
-        EnsureIniUtf16(iniPath)
-    gate := gLaunchAutoLogin ? "1" : "0"
-    try IniWrite(gate, iniPath, "Addons", "AutoLogin")
-    catch as err
-        LogWarn("AutoLogin", "Could not write game AutoLogin gate: " err.Message)
+    ; Set for a wanted launch, cleared otherwise, so a toggle turned off mid
+    ; session cannot leave consent behind from an earlier launch.
+    EnvSet(_AUTOLOGIN_CONSENT_VAR, gLaunchAutoLogin ? "1" : "")
+}
+
+; Called after the launch batch's Run() calls, so the variable exists only for
+; the moment it takes to spawn the clients that are meant to have it.
+_AutoLogin_AfterLaunch() {
+    global _AUTOLOGIN_CONSENT_VAR
+    EnvSet(_AUTOLOGIN_CONSENT_VAR, "")
 }
 
 ; ── Paths ───────────────────────────────────────────────────────

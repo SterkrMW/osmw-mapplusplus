@@ -1627,6 +1627,9 @@ BuildGameLaunchCommand(&workDir) {
     beforeFn := GetFuncByName("_AutoLogin_BeforeLaunch")
     if beforeFn
         beforeFn(gameDir)
+    chatFn := GetFuncByName("_ChatMod_BeforeLaunch")
+    if chatFn
+        chatFn(gameDir)
     exePath := ResolveLaunchExecutable(gameDir)
     if (exePath = "" || !FileExist(exePath))
         return ""
@@ -1659,9 +1662,11 @@ LaunchGameInstance(monitorWhich := "primary") {
     try {
         Run(launchCmd, workDir)
     } catch as err {
+        AfterLaunchSpawned()
         TrayTip("Failed to launch game:`n" err.Message, "Maps++", "Iconx")
         return
     }
+    AfterLaunchSpawned()
 
     monIdx := ResolveMonitorForHotkey(monitorWhich)
     if (monitorWhich = "secondary" && monIdx = MonitorGetPrimary() && MonitorGetCount() = 1) {
@@ -1677,6 +1682,16 @@ LaunchGameInstance(monitorWhich := "primary") {
     CenterWindowOnMonitor(hwnd, monIdx)
     TrayTip("Game instance launched.", "Maps++", "Iconi")
     MaybeSendEnterAfterLaunch([hwnd])
+}
+
+; Counterpart to the OnBeforeLaunch hooks in BuildGameLaunchCommand, called once
+; every client of a launch has been spawned. Auto-login uses it to drop the
+; environment variable that carries per-launch consent, so the variable exists
+; only across the Run() calls that are meant to inherit it.
+AfterLaunchSpawned() {
+    afterFn := GetFuncByName("_AutoLogin_AfterLaunch")
+    if afterFn
+        afterFn()
 }
 
 ; Returns the Func object for a globally-defined function name, or "" when no
@@ -1776,6 +1791,8 @@ LaunchConfiguredClients(monitorWhich := "primary", count := 0) {
         if (A_Index < count && gMultiClientDelay > 0)
             Sleep gMultiClientDelay
     }
+    ; Every client that should carry launch consent has now been spawned.
+    AfterLaunchSpawned()
     if (started = 0)
         return
 

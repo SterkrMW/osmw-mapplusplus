@@ -1,0 +1,3 @@
+LIBRARY osmw_login
+EXPORTS
+    osmw_prepare_unload

@@ -115,6 +115,28 @@ function validateTabs() {
     return bad.length === 0;
 }
 
+/* The DLL feeds this string to the CRT's sprintf with a fixed argument list:
+   an int, then two strings. Warn rather than block, as with the font size —
+   but the warning has to be read, because the wrong specifier order here is
+   passed straight through to a printf inside the game process. */
+function validateCooldownFormat() {
+    const spec = $('cooldownFormat').value;
+    const error = $('cooldownError');
+    const found = spec.match(/%[a-zA-Z]/g) || [];
+    const problems = [];
+
+    if (found.join(',') !== '%d,%s,%s') {
+        problems.push(found.length === 0
+            ? 'No placeholders, so the message will never say a number.'
+            : 'Placeholders must be %d, then %s, then %s — found '
+              + found.join(' ') + '.');
+    }
+
+    error.hidden = problems.length === 0;
+    error.textContent = problems.join(' ');
+    return problems.length === 0;
+}
+
 /* Pick an option, keeping a hand-edited ini value that is not in the list
    rather than silently rewriting it to the first entry on the next save. */
 function setSelect(id, value) {
@@ -143,6 +165,13 @@ function populate(settings) {
     $('timestamps').checked = s.Timestamps === '1';
     setSelect('timestampFormat', s.TimestampFormat || '#c808080[%H:%M]#N');
 
+    $('wheelScroll').checked = s.WheelScroll !== '0';
+    $('wheelScrollLines').value = String(parseInt(s.WheelScrollLines, 10) || 0);
+
+    $('cooldownMessage').checked = s.CooldownMessage !== '0';
+    $('cooldownFormat').value = s.CooldownFormat
+        || '#R#S Wait %d more second%s before posting in %s again!#N';
+
     $('highlightMentions').checked = s.HighlightMentions !== '0';
     $('myName').value = s.MyName || '';
 
@@ -152,6 +181,7 @@ function populate(settings) {
     $('clearHotkey').value = s.ClearHotkey || '';
 
     refreshFontUi();
+    validateCooldownFormat();
 }
 
 function collect() {
@@ -167,6 +197,10 @@ function collect() {
         TabHotkey: $('tabHotkey').value.trim(),
         Timestamps: $('timestamps').checked ? '1' : '0',
         TimestampFormat: $('timestampFormat').value,
+        WheelScroll: $('wheelScroll').checked ? '1' : '0',
+        WheelScrollLines: String(parseInt($('wheelScrollLines').value, 10) || 0),
+        CooldownMessage: $('cooldownMessage').checked ? '1' : '0',
+        CooldownFormat: $('cooldownFormat').value.trim(),
         HighlightMentions: $('highlightMentions').checked ? '1' : '0',
         MyName: $('myName').value.trim(),
         FreePosition: $('freePosition').checked ? '1' : '0',
@@ -179,6 +213,13 @@ function collect() {
 function save() {
     if (!validateTabs()) {
         $('status').textContent = 'Fix the tab set before saving.';
+        return;
+    }
+    /* Blocking, unlike the font-size warning: this string is handed to a
+       sprintf inside the game process, so a mismatched specifier list is a
+       crash rather than something that merely looks wrong. */
+    if (!validateCooldownFormat()) {
+        $('status').textContent = 'Fix the cooldown wording before saving.';
         return;
     }
     sendToAhk('chat-settings-save', { settings: collect() });
@@ -202,6 +243,7 @@ $('preset').addEventListener('change', refreshFontUi);
 ['fontSize', 'fontWidth'].forEach((id) =>
     $(id).addEventListener('input', validateCustomFont));
 $('tabs').addEventListener('input', validateTabs);
+$('cooldownFormat').addEventListener('input', validateCooldownFormat);
 $('btnSave').addEventListener('click', save);
 $('btnClose').addEventListener('click', () => sendToAhk('close'));
 $('btnTitleClose').addEventListener('click', () => sendToAhk('close'));

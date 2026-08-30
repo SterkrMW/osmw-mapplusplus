@@ -2,6 +2,7 @@
 auto_login.ahk
 battle_send.ahk
 better_hotkeys.ahk
+chat_mod.ahk
 chat_toggle.ahk
 client_roster.ahk
 discord_rpc.ahk

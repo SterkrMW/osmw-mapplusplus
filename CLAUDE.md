@@ -19,9 +19,26 @@ Windows-only. Requires AutoHotkey v2.0.
 **`pwsh ./build.ps1` is the only reliable syntax gate.** Two traps make the obvious alternatives lie:
 
 - `AutoHotkey64.exe /validate main.ahk` returns **exit 2 for valid and invalid scripts alike**, and `/ErrorStdOut` prints nothing with it. Its exit code carries no signal — do not gate on it.
-- `AutoHotkey64.exe` and `Ahk2Exe.exe` are **GUI-subsystem** binaries, so PowerShell's `&` operator does not wait for them and leaves `$LASTEXITCODE` stale from an earlier command. `build.ps1` already uses `Start-Process -Wait -PassThru` for exactly this reason; anything invoking them directly must do the same, or run them from Bash where `$?` is real.
+- `AutoHotkey64.exe` and `Ahk2Exe.exe` are **GUI-subsystem** binaries, so PowerShell's `&` operator does not wait for them and leaves `$LASTEXITCODE` stale from an earlier command. `build.ps1` waits on the process object for exactly this reason; anything invoking them directly must do the same, or run them from Bash where `$?` is real.
 
 Ahk2Exe *does* discriminate (valid → exit 0 and an exe; invalid → exit 17, no exe), which is why the build is the gate.
+
+**But a syntax error does not take the exit-17 path — it hangs.** Ahk2Exe opens a modal `Ahk2Exe Error` window naming the file, the line and the offending text, and then waits for someone to click OK. Nothing is written to stdout, so under a plain `Start-Process -Wait` the build blocks forever with an empty log, and the one thing that would tell you what is wrong is sitting in a window off to the side. A backgrounded or CI run never sees it at all. This cost an eight-minute stall before it was understood, and it is *not* the shadowing failure described below — that one exits.
+
+`build.ps1`'s `Invoke-Ahk2Exe` now polls for exit instead of blocking, watches for that window, reads it via UI Automation and rethrows the text as an ordinary build failure (240s backstop). So a syntax error looks like:
+
+```
+BUILD FAILED
+  Ahk2Exe reported an error:
+
+Error: The script contains syntax errors.
+
+Namely:
+...\addons\chat_mod.ahk (526) : ==> Missing "}"
+     Specifically: BrokenFn( {
+```
+
+If you ever invoke Ahk2Exe yourself rather than through `build.ps1`, wrap it the same way or you will reproduce the hang. When a build does stall, check for an `Ahk2Exe Error` window before assuming anything else.
 
 **Its most common failure here is a variable shadowing a built-in.** `mod`, `local`, `run` and `max` have all caused it — natural-looking names colliding with `Mod()`, the `local` keyword, `Run()` and `Max()`. The build fails with no message while the script still runs fine under `AutoHotkey64.exe`, so the error gives no hint.
 
@@ -142,6 +159,18 @@ Column-aligned output (signature dumps, debug state, slot tables) belongs in the
 
 **Any save path that writes user text to an ini must call `EnsureIniUtf16(path)` before its first `IniWrite`/`IniDelete`** (`functions.ahk`, near `ResolveWritableIniPath`). Windows fixes an ini's encoding from what is already on disk, and AHK only creates a UTF-16 one when `IniWrite` is what creates the file — a store whose first call is `IniDelete` (deleting a section it is about to rewrite, as `_Pois_Save` and `_BH_SaveProfiles` do) instead gets an ANSI file, and from then on every write through it silently replaces characters outside the system codepage with `?`. Character names and POI labels are exactly the affected values.
 - `maps\*.jpg` — one custom minimap image per supported zone, named `MAP<id>.jpg` matching the in-game map filename.
+
+### Native mods (`patches\`)
+
+Two 32-bit C mods injected into the client — `chatmod` (the chat window: font, tabs, timestamps, mentions, wheel scroll, cooldown text) and `login` (auto-login and character select) — plus the launchers that load them. `patches\README.md` covers the build; each mod's `NOTES.txt` is the authority on its internals, hook addresses and measured limits.
+
+They live here because they used to live in the game folder, unversioned, while their compiled output was committed to `Lib\` — and the two drifted silently. A fix went into the C source while `Lib\` kept shipping the build from before it, so a fresh install got the old behaviour with nothing to indicate why. Sources and shipped binaries now share one history.
+
+**`Lib\osmw_*.dll` is a build artifact, not something to hand-edit or hand-copy.** `build.ps1` runs `patches\common\modhash.py --check` before compiling and rebuilds any mod whose sources no longer match what produced `Lib\`. That check hashes source *content*, never mtimes — git does not preserve mtimes, so a newer-than test would fire at random on a fresh clone. Python and the MSVC x86 build tools are needed only to rebuild; without them the check degrades to a warning so the AHK side still builds. `-SkipMods` opts out.
+
+Since the sources left the game folder, every path in the Python tools belongs to one of two roots, and `patches\common\paths.py` is the only place that decides which: `PROJ` (this repo — sources, `sigs.h`, `Lib\`) or `GAME` (the install — `main.exe`, `signatures.ini`, `offsets_cache.ini`, per-pid logs, deployed DLLs). `GAME` comes from `--game-root`, then `$OSMW_GAME_ROOT`, then `[Launcher] GamePath` in this repo's `config.ini`, and a directory only counts if `main.exe` is in it — a stale config entry must report as missing rather than silently target another install.
+
+**Auto-login consent is per-process, not a setting.** `[Addons] AutoLogin` is persistent and so cannot express "this launch": whatever Maps++ last wrote applied to a client the player then started by hand, which is why `osmw_chat_launch.exe` used to log itself in. It also doubles as Maps++'s own addon-enable flag, so it cannot be parked at `0` between launches either. Maps++ now sets `OSMW_AUTOLOGIN` in the environment immediately before `Run()` and clears it once the batch is spawned (`_AutoLogin_BeforeLaunch` / `AfterLaunchSpawned`); the DLL requires both that variable and the ini key. Both launchers pass `NULL` for `lpEnvironment`, so it reaches `main.exe` through the injection chain with no launcher change. The name is duplicated in `dllmain.c` (`LG_CONSENT_VAR`) and `auto_login.ahk` (`_AUTOLOGIN_CONSENT_VAR`) — change both together.
 
 ### Variant system
 

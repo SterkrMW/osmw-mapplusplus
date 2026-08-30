@@ -1,0 +1,148 @@
+osmw_login — auto-login mod
+===========================
+
+Goal: each launched client fills the stock login screen, submits credentials,
+picks a roster character, and enters the world. main.exe is never modified on
+disk.
+
+Status: in-game verified 2026-08-30 (account fill, password +0x7C, submit
++0xA0, character select). Maps++ UI/launch wiring is a separate repo — see
+docs/superpowers/plans/2026-08-30-mapsplusplus-autologin.md (copy that file
+into the Maps++ tree). This repo is done for the DLL.
+
+Delivery: 32-bit DLL injected at launch (same path as osmw_chat). Hook points
+are pattern-scanned at runtime.
+
+Delivery: 32-bit DLL injected at launch (same path as osmw_chat). Hook points
+are pattern-scanned at runtime.
+
+Reference build: TimeDateStamp 0x45650696, ImageBase 0x00400000, no ASLR.
+SHA-256 285C3BE50304E3B70A817E5089477F3E18774C16357C8BB394CA6B308F8E034E
+
+
+Static probe (build 0x45650696)
+-------------------------------
+
+Login is not Win32 EDIT controls. The JPEG system\c1meu008.jpg is the art;
+the two boxes are derived widgets sitting on the login-loop stack.
+
+  Account widget vtable   0x004D7278   (written at 0x40157A)
+  Password widget vtable  0x004D73C8   (written at 0x4015AD, masks with '*')
+  Focused widget          [0x0065EE18]
+  Insert-char             vtable+0x18 = 0x0047AE20 (account glyphs)
+                          __thiscall, 3 extra args (ch, 0, 0), ret 0x0C
+  Password char           vtable+0x7C = 0x004023D0
+                          __thiscall, 1 stack arg, ret 4. Draws '*' via
+                          0x47B740 and appends the real char to the CUtlString
+                          at widget+0x138 (length at +0x144). Shared +0x18 does
+                          not advance password +0xD8.
+  Submit                  password vtable+0xA0 = 0x00401350
+                          copies account (inner +0x14C, +0x6C) and the
+                          CUtlString, send4(0x00020000), Result=0. Refuses
+                          empty glyphs ("Please enter the correct username
+                          and password"). 0x47BFA0 sums glyph cells at +0xCC.
+  Leave / back            [0x0065EE08] = 1, [0x0065EE14] = -2 (0x401D97).
+                          Loop tail then send4(0x00030007) and return -2 --
+                          the parent goes back to the start task. This is NOT
+                          login submit.
+  Login loop tick         0x00401A53   mov [0x65EE08], ebx  then call 0x45F3F0
+                          0x00401A62   cmp [0x65EE08], ebx  (hook here, after
+                          the input pump). Widgets exist by then.
+
+Do not memcpy a C string into widget+0xCC — that is a 16-byte-per-glyph cell
+array. Account: call +0x18. Password: call +0x7C, then +0xA0.
+
+Character select (TASK_SELECT_CHARACTER 0x004378E0, art system\c1meu011.*):
+
+  Count                   [0x007430D8]   max 5 (cmp esi, 5 at 0x438210)
+  Array                   [0x007430D4]   stride 0x1C, malloc'd at 0x454616
+  Record +0x00            dword sent as the enter-world id
+  Record +0x08            dword drawn as "ID: %d"
+  Record +0x13, +0x14     signed bytes used as portrait MainCommand indices
+  Nickname                not a C string in the 0x1C record (static read).
+                          Match by slot ("#1".."#5") or by the display id.
+                          Live dump: python patches/login/tools/probe_charlist.py
+
+  Next / enter world      jump-table cmd 7 at 0x004384EA
+                          push 0; push 0; push record[+0x00]; push 0x00030008
+                          call 0x00454060
+  Back                    cmd 6, [esp+0x28] = -2
+  Create character        cmd 5 (blocked when count >= 5)
+
+Same-account second session: client can show "The account has been logged in!"
+(handler 0x454A52). OSMW currently allows one account on several characters;
+if that error returns, put more accounts in the roster.
+
+
+Files
+-----
+  src/                 DLL, roster, claim, editor, launcher
+  tools/scan_offsets.py
+  tools/build.py
+  tools/probe_charlist.py
+  tests/test_roster.c  DPAPI + file round-trip + claim mutex
+
+Shipped into the game root: osmw_login.dll, osmw_login_launch.exe
+(osmw_chat_launch.exe also injects the login DLL when it is present).
+
+Settings: TWO gates, both must pass, checked in dllmain.c's worker.
+
+  [Addons] AutoLogin in config.ini / defaults.ini -- the persistent master
+  enable, as before.
+
+  OSMW_AUTOLOGIN in the environment -- per-launch consent. Absent, or "0",
+  means no.
+
+The second exists because the first cannot express "this launch". It is
+persistent, so whatever Maps++ last wrote for its own launch was still sitting
+there for a client the player started by hand afterwards: running
+osmw_chat_launch.exe on its own would log itself in. It could not simply be
+parked at 0 between launches either, because that same key doubles as Maps++'s
+addon-enable flag for its roster editor -- one key, two meanings, which is the
+actual defect. Maps++ no longer writes [Addons] AutoLogin at launch at all.
+
+An environment variable is carried by the process tree rather than by the disk.
+Maps++ sets it immediately before Run() and clears it once the batch is
+spawned; both launchers already pass NULL for lpEnvironment in CreateProcess,
+so main.exe inherits it through the injection chain and NEITHER LAUNCHER NEEDED
+CHANGING. A client started from Explorer inherits Explorer's environment, has
+no such variable, and logs in normally.
+
+Verified both ways against a live client, 2026-08-30: with no variable the log
+reads "OSMW_AUTOLOGIN not set -- this client was not launched with auto-login,
+standing down, client untouched"; with it set, all 10 signatures resolve and
+the claim proceeds as before.
+
+Empty roster is a no-op. Roster: login_roster.dat beside main.exe (DPAPI,
+description L"osmw_login"). Edit with osmw_login_launch.exe --roster (Win32)
+or, once Maps++ hosts it, ui/login_roster/.
+
+Maps++ (same repo, since the move)
+----------------------------------
+Do not re-implement login in AHK. Maps++ keeps GamePath on main.exe and starts
+osmw_chat_launch.exe beside it (ResolveLaunchExecutable), which injects
+osmw_login.dll then osmw_chat.dll. Each process claims a row; Maps++ only
+launches N clients and sets OSMW_AUTOLOGIN for them.
+
+Sources moved into the Maps++ repo, so the DLL in Lib/ and the code that built
+it now share one history and build.ps1 checks they agree. Build with
+python patches/login/tools/build.py -- see patches/README.md.
+
+
+Commands
+--------
+  python patches/login/tools/scan_offsets.py
+  python patches/login/tools/scan_offsets.py --write
+  python patches/login/tools/build.py
+  python patches/login/tools/build.py --test
+  python patches/login/tools/probe_charlist.py
+  osmw_login_launch.exe --roster
+  osmw_login_launch.exe
+
+
+Do not
+------
+  - Patch main.exe on disk.
+  - Log passwords.
+  - Put secrets in config.ini.
+  - Hook without a unique signature.

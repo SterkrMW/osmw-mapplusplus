@@ -362,6 +362,24 @@ Made a mess? **Undo Last Apply** puts every window back where the last apply fou
 
 Useful when multi-boxing: hide chat on alts to reduce clutter, or shrink chat globally.
 
+### Chat mod (all variants)
+
+Configured from **Settings → Chat Mod**.
+
+`osmw_chat.dll` is a separate mod that Maps++ loads into the client for you: launching from Maps++ copies it into the game folder and starts `osmw_chat_launch.exe`, which injects it before the client initialises. This panel is how you configure it. It improves the game's own chat window rather than drawing a new one:
+
+- A readable font, at a size you pick. **18 pixels is a hard ceiling** — above it the client cuts the bottom of every line, underscores first. Nothing can be set to avoid that, which is why the presets stop where they do.
+- Channel tabs with a clickable strip, so you can watch trade without the rest.
+- Highlighting for messages that name you, and for any PM.
+- Inline timestamps, mouse-wheel scrolling, and a cooldown message that says how many seconds are left instead of “Please do not flood !”.
+- Moving and resizing the chat window freely, with the position remembered.
+
+Changes apply within about two seconds — there is nothing to restart. Settings are stored under `[Chat]` in the game folder's `config.ini` (see below); the mod reads that file itself.
+
+Two of its settings are **system-wide hotkeys registered by the mod, not by Maps++**: *Clear chat* and *Cycle tabs*. Leave the matching entries in `[Hotkeys]` alone — binding the same chord in both places means one of them silently fails to register.
+
+Turning the **Chat mod** addon off in Settings → Addons leaves the client's chat completely stock. The launcher still loads the mod, but the mod stands down.
+
 ### Inventory (Full only)
 
 | Hotkey | Action |
@@ -479,7 +497,9 @@ Choose **Tray → Clients & Windows → Auto-login roster…**. Add a row per ch
 
 Passwords are write-only. After save the field is empty and the hint says the password is stored. They are encrypted for **this Windows user** in `login_roster.dat` next to `main.exe`. Another Windows account on the same PC cannot read them, and they never appear in `config.ini`, `mapsplusplus.log`, or the roster page after save.
 
-**Settings → Launcher → Auto-login launched clients** is what the launch shortcuts honour. On (the default) writes the game's `[Addons] AutoLogin=1`, clicks through the intro on the new windows only, and lets each client claim the next roster row. Off writes `AutoLogin=0` and leaves the stock login — already-playing clients are not sent Enter. An empty roster (or every row disabled) also leaves the stock login. **Settings → Addons → Auto-login** only hides the roster editor; it does not change how launch behaves.
+**Settings → Launcher → Auto-login launched clients** is what the launch shortcuts honour. On (the default) clicks through the intro on the new windows only and lets each client claim the next roster row. Off leaves the stock login — already-playing clients are not sent Enter. An empty roster (or every row disabled) also leaves the stock login. **Settings → Addons → Auto-login** is a master switch: off hides the roster editor *and* stops auto-login entirely.
+
+**Auto-login only ever applies to clients Maps++ itself launched.** Consent travels to the mod in an environment variable that exists only for the moment Maps++ spawns the clients, so a client you start yourself — running `osmw_chat_launch.exe` from Explorer, say — always gets the stock login screen, whatever your Maps++ settings say. Each client writes an `osmw_login.<pid>.log` in the game folder that names which of the two gates stopped it, if either did.
 
 Use a distinct account per window. If the client says the account is already logged in, that is a server rule — Maps++ will not work around it.
 
@@ -770,6 +790,7 @@ QuickActions=1
 ShopPrices=1
 BetterHotkeys=1
 AutoLogin=1
+ChatMod=1
 ```
 
 | Setting | Meaning |
@@ -811,6 +832,35 @@ AutoLogin=1
 | `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
 
 After editing `config.ini`, use **Reload** from the tray menu or **Ctrl+Alt+R**.
+
+### Chat mod settings (`[Chat]`)
+
+These belong to `osmw_chat.dll`, not to Maps++, and live in the `config.ini` **next to `main.exe`** — not in Maps++'s own `config.ini` if the two have been separated. Set them from **Settings → Chat Mod**; the mod re-reads the file about every two seconds and applies changes live, so there is nothing to reload or restart.
+
+| Setting | Meaning |
+|---------|---------|
+| `FontFace` | Chat font. Empty = the client's own Courier New |
+| `FontSize` | Pixel height. `0` = the client's own (16). **18 is the hard ceiling** — above it the client clips every line |
+| `FontWidth` | Forced character cell width. `-1` lets GDI choose; `8` matches the client's own cell |
+| `Tabs` | Tab set, `Name:channels` separated by `\|`. `*` is every channel, a leading `-` removes one. Channels: `local party pm guild market world system info fd gm` |
+| `TabStrip` | `1` = draw the clickable tab strip across the top of the chat pane |
+| `TabHotkey` | System-wide hotkey that cycles tabs. Empty = unbound |
+| `Timestamps` | `1` = show the time each message arrived |
+| `TimestampFormat` | `%H` `%M` `%S` plus the client's colour markup, e.g. `#c808080[%H:%M]#N` |
+| `WheelScroll` | `1` = scroll the chat with the mouse wheel |
+| `WheelScrollLines` | Lines per notch. `0` follows your Windows mouse setting |
+| `CooldownMessage` | `1` = say how many seconds are left instead of "Please do not flood !" |
+| `CooldownFormat` | The wording. `%d` seconds, then `%s` plural, then `%s` channel — **in that order** |
+| `HighlightMentions` | `1` = mark messages naming you, and every PM |
+| `MyName` | Override for your character name; normally read from the game window caption |
+| `FreePosition` | `1` = stop the chat window snapping to the client's edge |
+| `UnlockSize` | `1` = allow resizing |
+| `RememberGeometry` | `1` = persist position and size across restarts |
+| `ClearHotkey` | System-wide hotkey that empties the chat. Empty = unbound |
+
+`ClearHotkey` and `TabHotkey` are registered by the mod itself, not through `[Hotkeys]` — do not bind the same chord in both places or one will silently fail to register.
+
+`[Chat]` also holds keys this panel deliberately never touches: `WinX`/`WinY`/`WinW`/`WinH`, which the mod writes for you when you finish dragging or resizing, the chip and tab-strip font keys, `MentionPrefix`, and the `Probe*` diagnostics. Every one of them is documented inline in `defaults.ini`.
 
 ### Better Hotkeys profiles (`better_hotkeys.ini`)
 

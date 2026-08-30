@@ -34,7 +34,8 @@ param(
     [string] $Variant,
     [string] $Ahk2ExePath,
     [string] $Base,
-    [switch] $Clean
+    [switch] $Clean,
+    [switch] $SkipMods
 )
 
 $ErrorActionPreference = 'Stop'
@@ -170,6 +171,85 @@ function Write-AddonsInclude {
     Set-Content -LiteralPath $AddonsInclude -Value $sb.ToString() -Encoding UTF8 -NoNewline
 }
 
+# Reads the text out of an Ahk2Exe error window. That window is where the only
+# useful diagnosis lives - it names the file and the line - and none of it ever
+# reaches stdout, so without this a syntax error looks like a hang with an empty
+# log. Best effort: if UI Automation is unavailable, the caller still reports
+# the failure, just without the message.
+function Read-Ahk2ExeDialog {
+    param([System.Diagnostics.Process] $Process)
+
+    try {
+        Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes -ErrorAction Stop
+        $handle = $Process.MainWindowHandle
+        if ($handle -eq [IntPtr]::Zero) { return $null }
+        $root = [System.Windows.Automation.AutomationElement]::FromHandle($handle)
+        if (-not $root) { return $null }
+
+        $all = $root.FindAll([System.Windows.Automation.TreeScope]::Subtree,
+                             [System.Windows.Automation.Condition]::TrueCondition)
+        $parts = @()
+        foreach ($e in $all) {
+            $text = $e.Current.Name
+            # Skip the caption and the OK button; everything else is the message.
+            if ($text -and $text -ne 'OK' -and $text -notlike 'Ahk2Exe*') {
+                $parts += $text
+            }
+        }
+        if ($parts.Count -eq 0) { return $null }
+        return (($parts -join "`n").Trim())
+    } catch {
+        return $null
+    }
+}
+
+# Runs the compiler and waits, but never unboundedly.
+#
+# Ahk2Exe is documented as exiting 17 on a bad script, and it usually does. It
+# does NOT when the script has a syntax error: it opens a modal "Ahk2Exe Error"
+# window naming the file and line, and then waits for a human to click OK. Under
+# Start-Process -Wait that is a hang with no output at all, which is a very
+# expensive way to be told about a missing bracket. Poll for exit instead, watch
+# for that window, and turn it into a normal build failure.
+function Invoke-Ahk2Exe {
+    param(
+        [string]   $Compiler,
+        [string[]] $CompilerArgs,
+        [int]      $TimeoutSeconds = 240
+    )
+
+    $proc = Start-Process -FilePath $Compiler -ArgumentList $CompilerArgs `
+                          -NoNewWindow -PassThru
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+    while (-not $proc.HasExited) {
+        if ((Get-Date) -gt $deadline) {
+            $note = Read-Ahk2ExeDialog -Process $proc
+            try { $proc.Kill() } catch { }
+            if ($note) {
+                throw "Ahk2Exe stalled for ${TimeoutSeconds}s on a dialog:`n`n$note"
+            }
+            throw "Ahk2Exe did not finish within ${TimeoutSeconds}s and was killed. No error window was found - check whether a compiler dialog is waiting on another desktop or session."
+        }
+
+        $proc.Refresh()
+        if (-not $proc.HasExited -and $proc.MainWindowTitle -like '*Error*') {
+            # Let the window finish populating before reading it.
+            Start-Sleep -Milliseconds 300
+            $note = Read-Ahk2ExeDialog -Process $proc
+            try { $proc.Kill() } catch { }
+            if ($note) {
+                throw "Ahk2Exe reported an error:`n`n$note"
+            }
+            throw "Ahk2Exe opened an error window but its text could not be read. Run the compiler by hand to see it: $Compiler $($CompilerArgs -join ' ')"
+        }
+
+        Start-Sleep -Milliseconds 200
+    }
+
+    return $proc.ExitCode
+}
+
 function Build-Variant {
     param(
         [string] $Name,
@@ -207,10 +287,9 @@ function Build-Variant {
 
         Write-Host "  Compiling -> $outExe" -ForegroundColor DarkGray
         # Ahk2Exe is a GUI-subsystem exe; the call operator doesn't wait for it
-        # and $LASTEXITCODE is unreliable. Start-Process -Wait blocks until exit.
-        $proc = Start-Process -FilePath $Compiler -ArgumentList $compilerArgs `
-                              -Wait -NoNewWindow -PassThru
-        $compilerExit = $proc.ExitCode
+        # and $LASTEXITCODE is unreliable. Invoke-Ahk2Exe waits properly and
+        # turns the compiler's modal error window into a thrown message.
+        $compilerExit = Invoke-Ahk2Exe -Compiler $Compiler -CompilerArgs $compilerArgs
 
         if (-not (Test-Path -LiteralPath $outExe)) {
             throw "Compile failed for variant '$Name' (Ahk2Exe exit=$compilerExit): output not created."
@@ -290,6 +369,43 @@ if (Test-Path -LiteralPath $shadowCheck) {
     & $shadowCheck -Root $RepoRoot
     if ($LASTEXITCODE -ne 0) {
         throw "A local variable shadows an AutoHotkey built-in (listed above). Rename it and build again."
+    }
+}
+
+# The native mods (patches\chatmod, patches\login) compile to the DLLs in Lib\,
+# which every release copies and which Maps++ deploys into a game folder. Their
+# sources live here now, so a release must not be cut from Lib\ binaries that
+# predate them -- that drift is exactly what moving the sources in was meant to
+# end. modhash.py compares recorded source hashes rather than mtimes, because
+# git does not preserve mtimes and a fresh clone would trip any newer-than test.
+#
+# Rebuilding needs Python and the MSVC x86 build tools. Maps++ itself needs
+# neither, so their absence is a warning and not a failure: you can still build
+# the AHK side from a checkout on a machine that cannot compile C.
+if (-not $SkipMods) {
+    $modHash = Join-Path $RepoRoot 'patches\common\modhash.py'
+    $python  = Get-Command python -ErrorAction SilentlyContinue
+    if (-not (Test-Path -LiteralPath $modHash)) {
+        # patches\ is optional; a checkout without it just ships Lib\ as-is.
+    } elseif (-not $python) {
+        Write-Warning "Python not found -- cannot verify Lib\osmw_*.dll match patches\*\src. Shipping Lib\ as-is."
+    } else {
+        & $python.Source $modHash --check | Write-Host
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Rebuilding the native mods..." -ForegroundColor Cyan
+            foreach ($mod in @('chatmod', 'login')) {
+                $modBuild = Join-Path $RepoRoot "patches\$mod\tools\build.py"
+                if (-not (Test-Path -LiteralPath $modBuild)) { continue }
+                & $python.Source $modBuild --no-deploy | Write-Host
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Building the $mod DLL failed (above). Fix it, or pass -SkipMods to ship the existing Lib\ binaries."
+                }
+            }
+            & $python.Source $modHash --check | Write-Host
+            if ($LASTEXITCODE -ne 0) {
+                throw "The native mods still look stale after a rebuild. Something is wrong with patches\common\modhash.py."
+            }
+        }
     }
 }
 
