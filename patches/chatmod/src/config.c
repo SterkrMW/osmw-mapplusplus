@@ -79,8 +79,13 @@ int mw_cfg_int_in(const char *section, const char *key, int fallback)
 
 const char *mw_cfg_str(const char *key, const char *fallback)
 {
-    /* Small rotating set of buffers so a caller can hold a few values at once. */
-    static char bufs[4][128];
+    /* Small rotating set of buffers so a caller can hold a few values at once.
+     *
+     * 256 to match g_tab_spec in tabs.c. At 128 this was the real ceiling on
+     * the Tabs setting -- GetPrivateProfileStringA truncates to the buffer, so
+     * a longer tab spec was silently cut mid-channel and the strip came back
+     * wrong with nothing in the log to say why. */
+    static char bufs[4][256];
     static int  next = 0;
     char *out = bufs[next];
     next = (next + 1) & 3;
@@ -107,6 +112,20 @@ void mw_cfg_set_int(const char *key, int value)
     buf[sizeof(buf) - 1] = '\0';
     if (!WritePrivateProfileStringA(MW_SECTION, key, buf, g_ini))
         mw_log("config: failed to write %s=%s (%lu)", key, buf, GetLastError());
+}
+
+/* Deleting a key: WritePrivateProfileStringA with a NULL value removes it.
+ *
+ * The Maps++ side deliberately never IniDeletes anything in [Chat] -- it would
+ * race this DLL for the file, and rewriting the section would destroy the
+ * geometry keys we own. So the rule is that whichever side owns a key is the
+ * side that clears it, and the geometry keys are ours. */
+void mw_cfg_clear(const char *key)
+{
+    if (!g_ini[0])
+        return;
+    if (!WritePrivateProfileStringA(MW_SECTION, key, NULL, g_ini))
+        mw_log("config: failed to clear %s (%lu)", key, GetLastError());
 }
 
 int mw_cfg_int(const char *key, int fallback)

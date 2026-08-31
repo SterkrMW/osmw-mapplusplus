@@ -251,6 +251,7 @@ void        mw_config_load(void);
 int         mw_cfg_int(const char *key, int fallback);
 int         mw_cfg_int_in(const char *section, const char *key, int fallback);
 void        mw_cfg_set_int(const char *key, int value);
+void        mw_cfg_clear(const char *key);
 const char *mw_cfg_str(const char *key, const char *fallback);
 const char *mw_game_dir(void);
 

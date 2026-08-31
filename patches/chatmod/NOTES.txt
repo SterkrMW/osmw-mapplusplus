@@ -810,12 +810,40 @@ channel histogram from the message array.
 
 The Maps++ settings page
 ------------------------
-SUPERSEDED. ui/chat/ was a standalone page (index.html + main.js + style.css)
-speaking the host contract below. It is no longer used: the settings are now a
-tab in the Maps++ Settings window, built by addons/chat_mod.ahk from field
+SUPERSEDED, and now DELETED. ui/chat/ was a standalone page (index.html +
+main.js + style.css) speaking the host contract below. The settings are a tab
+in the Maps++ Settings window, built by addons/chat_mod.ahk from field
 descriptors that both of Maps++'s frontends render. That removed the bespoke
 page, its message router and a hand-built native fallback, and made the tab
 match every other settings pane for free.
+
+The directory itself was removed once it had sat there long enough to become a
+liability: it still shipped in every release (build.ps1 copies ui/ wholesale),
+and it held a third copy of the font preset table that had already drifted out
+of step with the other two. The presets now live in exactly two places --
+patches/chatmod/tools/fontpresets.py, which is the source of truth because it
+measures against the real renderer, and _CHATMOD_FONT_PRESETS in
+addons/chat_mod.ahk, which mirrors it.
+
+ui/chat_tabs/ is a NEW standalone page and is not the same thing. It is the
+channel-tab editor, opened from a button on the settings tab, and it exists
+because tabs are the one chat-mod setting that is a language rather than a
+value. Its contract:
+
+  host -> page   { type: 'init-tabs', rows, channels, layouts,
+                   maxTabs, nameMax, notice }
+                 { type: 'set-rows',     rows }
+                 { type: 'tabs-preview', spec, length, max, error }
+  page -> host   { type: 'init-request' }
+                 { type: 'preview', rows }   { type: 'layout', index }
+                 { type: 'accept',  rows }   { type: 'cancel' }
+
+A row is { name, channels: [bool x 10] }. The page never builds or measures a
+tab spec: it sends rows and is told what they came to. Parsing, formatting and
+validation are all in addons/chat_mod.ahk, in one copy, and the preview the
+page shows is produced by the same functions the OK button runs -- so it cannot
+promise a result the save would not produce. The AHK parser is a deliberate
+port of parse_tabs() below, for the same reason.
 
 The keys are unchanged, and are still exactly the [Chat] names in config.ini.
 The contract is kept here because it is what any future standalone page would
@@ -830,8 +858,9 @@ Keys are exactly the [Chat] names in config.ini, so the host writes them
 straight through with no translation table. Nothing needs to be told to the
 game: the DLL's own settings poll picks the file up within about two seconds.
 
-The font presets are duplicated in ui/chat/main.js and in fontpresets.py.
-Keep them in step; the tool is the source of truth because it measures.
+The font presets are duplicated in _CHATMOD_FONT_PRESETS (addons/chat_mod.ahk)
+and in fontpresets.py. Keep them in step; the tool is the source of truth
+because it measures.
 
 
 Deferred, with reasons
@@ -850,6 +879,62 @@ Deferred, with reasons
     Worth doing only if someone wants a chat font above 18.
 
 
+Window placement
+----------------
+Once FreePosition is on, placement is a ONE-SHOT decision taken on the first
+reposition pass and never revisited:
+
+    saved geometry?  -> put it back where the player left it
+    nothing saved?   -> call the original, which docks it beside the client
+
+Everything after that skips the move, which is what free positioning is for.
+
+The second branch is what was missing. The latch used to be called g_restored
+and guarded only the restore, so FreePosition=1 with RememberGeometry=0 hit
+neither branch: nothing restored it and nothing docked it, and the window sat
+wherever CreateWindowExA had put it. That is a fixed screen position with no
+relationship to where the client is, so on a second monitor -- or any client
+not at the default spot -- it looked exactly like the window going to the wrong
+place, because it was. Renaming the latch to g_positioned ("has this window
+been placed yet") is most of the fix; the rest is the else.
+
+mw_settings_refresh re-arms the latch when FreePosition or RememberGeometry
+actually changes, so a toggle takes effect within a settings poll instead of at
+the next restart. UnlockSize is deliberately not in that test -- it has nothing
+to do with position. A consequence worth knowing: turning RememberGeometry OFF
+re-docks the window, which is the honest reading of "stop remembering where I
+put it" and is documented as such in defaults.ini.
+
+Saved position is RELATIVE (WinRelX/WinRelY), size is absolute (WinW/WinH).
+Every client shares one config.ini, so an absolute pair put every multi-boxed
+client's chat window at the same screen coordinates, stacked; an offset from
+the game window puts each beside its own client and survives the player moving
+that client. WinX/WinY are the legacy absolute pair: restore_geometry uses them
+verbatim once (so nothing visibly moves on the first launch after an update),
+converts them against the game window, and clears them. If there is no game
+window at that moment nothing is migrated and the absolute pair is kept, so the
+migration simply retries next launch. The restored rect is then clamped into
+the nearest monitor's work area, via MonitorFromRect -- not MonitorFromWindow,
+because the question is where the window is about to be, not where it is.
+
+ResetPosition is a one-shot COMMAND key, not a setting. Maps++ writes 1;
+mw_settings_refresh clears the geometry keys, re-arms g_positioned and writes 0
+back, and the next pass docks. It is a command because the ini is the only
+channel there is -- there is no way to tell the DLL to do something except to
+leave a note it will read within two seconds. It is deliberately absent from
+_CHATMOD_SPEC on the Maps++ side, so the settings tab cannot re-issue it on
+every Save.
+
+Clearing keys is the DLL's job, always. The Maps++ side never IniDeletes
+anything in [Chat]: it would race this DLL for the file, and a section rewrite
+would destroy the geometry keys outright. mw_cfg_clear exists for this.
+
+Also here: mw_cfg_str's buffer went 128 -> 256 bytes. At 128 it, not
+g_tab_spec[256], was the real ceiling on the Tabs setting, and
+GetPrivateProfileStringA truncates to the buffer -- so a long tab spec was cut
+mid-channel and the strip came back wrong with nothing in the log to say why.
+
+
 Do not
 ------
   - Patch main.exe on disk. If something seems to need it, re-scope.
@@ -863,6 +948,12 @@ Do not
     is also the legitimate "owner window moved" follow, and the render and
     hit-test paths read the rects it caches. The Phase 3 detour skips only the
     move and still refreshes those rects itself.
+  - Use `force` as the "this is the show pass" cue in reposition_detour. It
+    reads like one and is not: force=1 is set by the SNAP-BACK path as well as
+    by the show path, so acting on it re-docks the window on exactly the event
+    FreePosition exists to suppress. The two cannot be told apart from inside
+    the detour. The g_positioned one-shot answers "has this window been placed
+    yet", which is both answerable and the question that actually matters.
   - Scan a whole prologue for relative-branch opcodes. Byte scanning cannot
     tell an opcode from an operand: `mov eax,[0x7E6870]` is A1 70 68 7E 00,
     and the 0x70 in its address reads as a jcc rel8. Only the first byte is

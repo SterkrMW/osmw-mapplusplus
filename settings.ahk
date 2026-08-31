@@ -105,6 +105,8 @@ _Settings_OnWebMessage(wv, args) {
             _Settings_HandleStartCapture(msg)
         case "cancel-hotkey-capture":
             CancelHotkeyCapture()
+        case "addon-action":
+            _Settings_HandleAddonAction(msg)
     }
 }
 
@@ -305,6 +307,25 @@ _Settings_FieldToJson(f) {
         else
             json .= ',"value":' _JSON_Str(String(v))
     }
+
+    ; The value a fresh install would hold. Emitted only when the addon
+    ; supplied one, so the page can tell "no default" from a default that is
+    ; itself "", 0 or false — all three are real defaults on the Chat Mod tab.
+    ; Booleans reach here as AHK integers 1/0 and are compared loosely on the
+    ; page, so they need no special case beyond the one "value" already has.
+    if f.Has("default") {
+        d := f["default"]
+        if (d is Integer) || (d is Float)
+            json .= ',"default":' d
+        else if (d == "true" || d == "false")
+            json .= ',"default":' d
+        else
+            json .= ',"default":' _JSON_Str(String(d))
+    }
+
+    ; Explanatory line under a button field
+    if f.Has("hint")
+        json .= ',"hint":' _JSON_Str(String(f["hint"]))
 
     ; Options array
     if f.Has("options") {
@@ -808,6 +829,72 @@ _Settings_ResetDefaultsBegin() {
     ShowSettingsWindow()
 }
 
+; ── Addon button fields ────────────────────────────────────────────
+;
+; A "button" field carries no value; clicking it asks the addon to *do*
+; something — open its own editor, reset something it owns. The work runs
+; OUTSIDE this callback for the reason documented above
+; _Settings_HandleResetDefaults: opening a WebView2 window or raising a
+; blocking dialog from inside WebMessageReceived can never complete, because
+; the STA will not deliver the new window's messages while this COM call is
+; still on the stack. The native frontend's Click is already outside that
+; path, so it calls _Settings_RunAddonAction directly.
+_Settings_HandleAddonAction(msg) {
+    addonName := msg.Has("addon") ? msg["addon"] : ""
+    actionId := msg.Has("action") ? msg["action"] : ""
+    if (addonName = "" || actionId = "")
+        return
+    DeferFromWebMessage(_Settings_RunAddonAction, addonName, actionId)
+}
+
+_Settings_RunAddonAction(addonName, actionId) {
+    global gAddonHooks
+    for _, am in gAddonHooks {
+        if (!am.Has("name") || am["name"] != addonName)
+            continue
+        if !am.Has("OnSettingsAction")
+            return
+        try {
+            updates := am["OnSettingsAction"](actionId)
+            if (IsObject(updates) && updates.Count > 0)
+                _Settings_PushAddonFieldValues(addonName, updates)
+        } catch as err {
+            LogWarn("Settings", "Addon action " addonName "/" actionId
+                . " failed: " err.Message)
+        }
+        return
+    }
+}
+
+; An action may change fields the panel is already showing — the tab editor
+; hands back a new Tabs string. Push it into the live draft rather than writing
+; it to disk from inside the action, so Cancel still means cancel and a later
+; Save cannot overwrite the editor's work with the value the panel rendered
+; with. One function for both frontends, so the two cannot drift.
+_Settings_PushAddonFieldValues(addonName, updates) {
+    global gSettingsNativeFieldSetter
+    if (gSettingsNativeFieldSetter != 0) {
+        for fieldId, value in updates
+            try gSettingsNativeFieldSetter.Call(addonName, fieldId, value)
+        return
+    }
+    json := '{"type":"addon-field-update","addonName":' _JSON_Str(addonName)
+        . ',"values":{'
+    first := true
+    for fieldId, value in updates {
+        if !first
+            json .= ","
+        first := false
+        json .= _JSON_Str(String(fieldId)) ":"
+        if (value is Integer) || (value is Float)
+            json .= value
+        else
+            json .= _JSON_Str(String(value))
+    }
+    json .= "}}"
+    _Settings_PostMessage(json)
+}
+
 _Settings_HandleBrowse() {
     global PROCESS_EXE
     selected := FileSelect(1, A_ScriptDir, "Locate " PROCESS_EXE " (game executable)", "Executables (*.exe)")
@@ -902,9 +989,11 @@ _Settings_OnCaptureCancel(actionId) {
 ; ── Close ────────────────────────────────────────────────────
 
 _Settings_Close() {
-    global gSettingsGui, gSettingsHotkeyRows
+    global gSettingsGui, gSettingsHotkeyRows, gSettingsNativeFieldSetter
     CancelHotkeyCapture()
     gSettingsHotkeyRows := 0
+    ; The controls it closes over are about to be destroyed.
+    gSettingsNativeFieldSetter := 0
     if IsObject(gSettingsGui) {
         try gSettingsGui.Destroy()
     }
@@ -1221,8 +1310,24 @@ _JSON_SkipWhitespace(str, &pos) {
 ;       "items",[Map("id","a","label","Alpha","icon","map"), …],  ; everything offerable
 ;       "value","b,a",                                            ; chosen ids, in order
 ;       "max",10)                                                 ; optional cap
+;   Map("type","button", "id","editTabs", "label","Edit tabs…", "hint","…")
 ;
 ; OnSettingsWebSave receives a Map of { fieldId: value } for the addon's fields.
 ; Boolean fields arrive as true/false. Dropdown fields arrive as 0-based index.
 ; Orderedlist fields arrive as a comma-separated id string — from both the web
 ; and the native frontend, so an addon has one save path to write.
+;
+; A "button" field carries no value and never appears in that Map. Clicking it
+; calls the addon's optional OnSettingsAction(actionId) hook with the field's
+; id, from outside the WebView message callback — so it is the one field type
+; that may open a window or raise a blocking dialog. Register it alongside the
+; others:
+;     "OnSettingsAction",   MyAddon_OnSettingsAction   ; fn(actionId)
+; A button acts immediately on what it owns; it does not wait for Save, so say
+; so in its label or an adjacent info field.
+;
+; Any value-bearing field may also carry "default", the value the field should
+; hold in a fresh install. Both frontends then offer a per-field revert control
+; that appears only while the current value differs from it. The global Reset to
+; Defaults harvests the same key. A field with no "default" simply gets no
+; revert control, so this is opt-in per addon.

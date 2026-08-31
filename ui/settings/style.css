@@ -266,6 +266,51 @@
     line-height: var(--leading-copy);
 }
 
+/* Label line for an addon field, so the revert arrow can sit beside the label
+   rather than stealing a row from an already-dense panel. */
+.field-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 16px;
+}
+
+/* Per-field revert. Deliberately quiet: it is hidden entirely unless the value
+   differs from the addon's stated default, so an untouched panel shows none of
+   these at all. */
+.field-revert {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 18px;
+    padding: 0 7px;
+    font-family: inherit;
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
+    line-height: 1;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color var(--transition), background var(--transition), border-color var(--transition);
+}
+.field-revert:hover {
+    color: var(--text);
+    background: var(--surface-hover);
+    border-color: var(--border);
+}
+/* Pushed to the end of the row rather than sitting against the label text:
+   the button lives inside the <label>, so the further it is from the words the
+   less it reads as part of them. */
+.field-check .field-revert {
+    margin-left: auto;
+}
+
+.addon-field-button {
+    align-items: flex-start;
+}
+
 .field-row {
     display: flex;
     gap: 12px;

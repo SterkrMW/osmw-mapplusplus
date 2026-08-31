@@ -1,0 +1,149 @@
+/* Chat tab editor. Layout only — every colour is a token from
+   ../common/style.css, so this matches the rest of Maps++.
+
+   The one exception is the tab-strip preview at the bottom, which quotes the
+   chat window's OWN colours (COL_* in patches/chatmod/src/tabs.c) rather than
+   the app palette. It is imitating a surface the game draws, not a surface
+   Maps++ draws, so matching the app here would make the preview a worse
+   preview. This is the mirror of the party_health rule in CLAUDE.md: there,
+   app tokens were converted to hex for a native surface; here a foreign
+   palette is quoted to imitate a foreign surface. Both need this comment
+   saying which, or the next reader "fixes" it into the wrong one. */
+
+body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.page {
+    flex: 1;
+    min-height: 0;
+    padding: 12px 16px 4px;
+    overflow-y: auto;
+}
+
+.lead {
+    margin: 0 0 10px;
+    font-size: var(--text-secondary);
+    color: var(--text-muted);
+    line-height: var(--leading-copy);
+}
+
+/* Explanatory blocks. note-info says what the saved setting already does;
+   note-warn says why OK is refusing. */
+.note {
+    margin: 0 0 10px;
+    padding: 7px 9px;
+    font-size: var(--text-secondary);
+    line-height: var(--leading-copy);
+    border-radius: var(--radius-sm);
+    border-left: 2px solid transparent;
+}
+.note-info {
+    color: var(--text-muted);
+    background: var(--surface);
+    border-left-color: var(--border-strong);
+}
+.note-warn {
+    color: var(--text);
+    background: color-mix(in srgb, var(--warning) 14%, transparent);
+    border-left-color: var(--warning);
+}
+
+.starter {
+    margin-bottom: 12px;
+}
+.starter-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+.starter-row .select {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Ten channel columns will not always fit; the table scrolls rather than the
+   page going wide. */
+.grid-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.tab-grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-secondary);
+}
+.tab-grid th {
+    padding: 7px 4px;
+    color: var(--text-muted);
+    font-weight: var(--weight-medium);
+    text-align: center;
+    white-space: nowrap;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border-strong);
+}
+.tab-grid td {
+    padding: 4px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+}
+.tab-grid tbody tr:last-child td {
+    border-bottom: none;
+}
+.tab-grid .col-name {
+    width: 150px;
+    text-align: left;
+    padding-left: 8px;
+}
+.tab-grid .col-name .input {
+    width: 100%;
+    height: 26px;
+}
+
+.toggle-box {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.preview {
+    margin: 12px 0 4px;
+}
+
+/* The chat strip's own colours, taken from patches/chatmod/src/tabs.c so the
+   preview looks like the thing it is previewing. Deliberately not app tokens —
+   see the note at the top of this file. */
+.strip {
+    display: flex;
+    gap: 2px;
+    margin-top: 4px;
+    padding: 4px;
+    min-height: 26px;
+    background: #0e1438;
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+}
+.strip-tab {
+    padding: 3px 10px;
+    font-size: var(--text-caption);
+    color: #a8b4d6;
+    background: #182256;
+    border-radius: 2px;
+    white-space: nowrap;
+}
+.strip-tab-active {
+    color: #ffffff;
+    background: #344e96;
+}
+
+.footer-hint {
+    font-size: var(--text-secondary);
+    color: var(--text-muted);
+}

@@ -4,7 +4,7 @@
 ; The one place the version is written. main.ahk carries a matching
 ; ;@Ahk2Exe-SetVersion literal so the compiled exe's file properties agree, and
 ; build.ps1 fails the build if the two ever drift apart.
-global APP_VERSION := "1.2.0"
+global APP_VERSION := "1.3.0"
 global PROCESS_EXE := "main.exe"
 global GAME_WIN_FILTER := "ahk_exe " PROCESS_EXE
 ; RVAs from main.exe — do not use fixed absolute addresses (bases differ per process / ASLR).
@@ -248,6 +248,11 @@ global gInterfaceMode := "webview"
 global gAccentScheme := "amber"
 ; Settings window handle, for the single-instance guard.
 global gSettingsGui := 0
+; Set by _Settings_BuildNative to a closure over its addon field controls, so
+; _Settings_PushAddonFieldValues can drive the native panel the same way it
+; posts to the WebView2 one. 0 whenever the native panel is not the live
+; frontend, which is how that function tells the two apart.
+global gSettingsNativeFieldSetter := 0
 ; Monitor overrides for the "primary"/"secondary" launch targets. 0 = auto:
 ; primary follows the OS primary display, secondary picks the first non-primary
 ; display. Set to a 1-based monitor index to pin either target — this is how

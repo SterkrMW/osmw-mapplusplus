@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat tabs</title>
+    <script src="../common/theme.js"></script>
+    <link rel="stylesheet" href="../common/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="title-bar" id="title-bar">
+        <div class="title-bar-drag">
+            <span class="material-symbols-outlined title-bar-icon">chat</span>
+            <span class="title-bar-title">Chat tabs</span>
+        </div>
+        <div class="title-bar-controls">
+            <button class="title-btn title-btn-close" id="btnTitleClose" title="Close">✕</button>
+        </div>
+    </header>
+
+    <div class="page">
+        <p class="lead" id="lead">
+            Name each tab and tick the channels it should show. Leave a row
+            blank to drop that tab.
+        </p>
+
+        <p class="note note-info" id="notice" hidden></p>
+
+        <div class="starter">
+            <label class="field-label" for="layout">Start from</label>
+            <div class="starter-row">
+                <select class="select" id="layout"></select>
+                <button class="btn btn-sm" id="btnLayout">Use</button>
+            </div>
+        </div>
+
+        <div class="grid-scroll">
+            <table class="tab-grid" id="grid">
+                <thead>
+                    <tr id="gridHead"><th class="col-name">Tab name</th></tr>
+                </thead>
+                <tbody id="gridBody"></tbody>
+            </table>
+        </div>
+
+        <div class="preview">
+            <span class="field-label">Tab strip</span>
+            <div class="strip" id="strip"></div>
+        </div>
+
+        <p class="note note-warn" id="error" hidden></p>
+    </div>
+
+    <footer class="footer">
+        <span class="footer-hint" id="budget"></span>
+        <button class="btn btn-sm" id="btnCancel">Cancel</button>
+        <button class="btn btn-sm btn-primary" id="btnOk">OK</button>
+    </footer>
+
+    <script src="main.js"></script>
+</body>
+</html>

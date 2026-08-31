@@ -176,7 +176,7 @@ Right-click the tray icon for the main menu:
 | **Clients & Windows** | Open the client roster, edit the auto-login roster, arrange game windows and access character tools available in the current build |
 | **Map & Overlay** | Add or manage map POIs and toggle map-related overlay features available in the current build |
 | **Interface** | Switch between Native (low memory) and WebView2 (enhanced); Maps++ reloads automatically |
-| **Settings…** | Open the settings window (game path, launcher, monitors, Window Layout, addons) |
+| **Settings…** | Open the settings window (game path, launcher, monitors, Window Layout, addons). Addon settings show a small **Reset** beside any value you have changed from its default |
 | **Reload** | Restart Maps++ (picks up config changes) |
 | **Debug** | Diagnostics and memory-signature tools — see below |
 | **About Maps++…** | Version, interface mode and how many addons are active |
@@ -375,11 +375,11 @@ Configured from **Settings → Chat Mod**.
 
 `osmw_chat.dll` is a separate mod that Maps++ loads into the client for you: launching from Maps++ copies it into the game folder and starts `osmw_chat_launch.exe`, which injects it before the client initialises. This panel is how you configure it. It improves the game's own chat window rather than drawing a new one:
 
-- A readable font, at a size you pick. **18 pixels is a hard ceiling** — above it the client cuts the bottom of every line, underscores first. Nothing can be set to avoid that, which is why the presets stop where they do.
-- Channel tabs with a clickable strip, so you can watch trade without the rest.
+- A readable font, chosen from four **tested presets** — *Default* (the client's own Courier New), *Crisp*, *Large* and *Wide* — or set by hand with *Custom*. **18 pixels is a hard ceiling**: above it the client cuts the bottom of every line, underscores first. Nothing can be set to avoid that, which is why the presets stop where they do. Pick *Default* to put the chat back to stock.
+- Channel tabs with a clickable strip, so you can watch trade without the rest. **Edit tabs…** opens an editor where you name each tab and tick the channels it shows — there is no syntax to learn, and it refuses anything the client would silently cut.
 - Highlighting for messages that name you, and for any PM.
 - Inline timestamps, mouse-wheel scrolling, and a cooldown message that says how many seconds are left instead of “Please do not flood !”.
-- Moving and resizing the chat window freely, with the position remembered.
+- Moving and resizing the chat window freely. The position is remembered **relative to the game window**, so with several clients running each chat window comes back beside its own client instead of all of them stacking in one place. With nothing remembered, the chat window docks against the right edge of its client, exactly where the unmodified game puts it. **Reset chat window position** puts it back there at any time.
 
 Changes apply within about two seconds — there is nothing to restart. Settings are stored under `[Chat]` in the game folder's `config.ini` (see below); the mod reads that file itself.
 
@@ -939,14 +939,17 @@ These belong to `osmw_chat.dll`, not to Maps++, and live in the `config.ini` **n
 | `CooldownFormat` | The wording. `%d` seconds, then `%s` plural, then `%s` channel — **in that order** |
 | `HighlightMentions` | `1` = mark messages naming you, and every PM |
 | `MyName` | Override for your character name; normally read from the game window caption |
-| `FreePosition` | `1` = stop the chat window snapping to the client's edge |
+| `FreePosition` | `1` = stop the chat window snapping to the client's edge. It is still placed once when it first appears |
 | `UnlockSize` | `1` = allow resizing |
-| `RememberGeometry` | `1` = persist position and size across restarts |
+| `RememberGeometry` | `1` = persist position and size across restarts. Position is stored as an offset from the game window, so each client's chat returns beside its own client. Turning it off re-docks the window |
+| `ResetPosition` | A command, not a setting. `1` = forget the saved position and re-dock; the mod writes it back to `0` once done |
 | `ClearHotkey` | System-wide hotkey that empties the chat. Empty = unbound |
 
 `ClearHotkey` and `TabHotkey` are registered by the mod itself, not through `[Hotkeys]` — do not bind the same chord in both places or one will silently fail to register.
 
-`[Chat]` also holds keys this panel deliberately never touches: `WinX`/`WinY`/`WinW`/`WinH`, which the mod writes for you when you finish dragging or resizing, the chip and tab-strip font keys, `MentionPrefix`, and the `Probe*` diagnostics. Every one of them is documented inline in `defaults.ini`.
+`[Chat]` also holds keys this panel deliberately never touches: `WinRelX`/`WinRelY`/`WinW`/`WinH`, which the mod writes for you when you finish dragging or resizing, the chip and tab-strip font keys, `MentionPrefix`, and the `Probe*` diagnostics. Every one of them is documented inline in `defaults.ini`.
+
+`WinX`/`WinY` are the older absolute position pair. The mod still reads them, converts them to a `WinRelX`/`WinRelY` offset the first time it restores the window, and then removes them — so upgrading keeps your chat window where it was, and nothing needs redoing by hand.
 
 ### Better Hotkeys profiles (`better_hotkeys.ini`)
 

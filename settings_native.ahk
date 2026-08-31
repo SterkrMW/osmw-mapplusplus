@@ -12,6 +12,7 @@ _Settings_BuildNative() {
     global gPrimaryProfileId, gSecondaryProfileId, LAUNCH_LAYOUT_DEFAULT
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme
+    global gSettingsNativeFieldSetter
 
     contributors := []
     for _, am in gAddonHooks {
@@ -222,9 +223,29 @@ _Settings_BuildNative() {
             value := field.Has("value") ? field["value"] : ""
             ctrl := 0
             rowIds := []
+            if (fieldType = "button") {
+                ; Carries no value and never joins `controls`, so the save loop
+                ; below cannot see it. The addon acts the moment this is
+                ; clicked; it does not wait for Save.
+                actionId := field.Has("id") ? field["id"] : ""
+                btn := g.Add("Button", "x" contentX " y" y " w200", label)
+                btn.OnEvent("Click",
+                    _SettingsNative_MakeActionHandler(addonName, actionId))
+                y += 30
+                if field.Has("hint") {
+                    g.Add("Text", "x" contentX " y" y " w590", field["hint"])
+                    y += 20
+                }
+                y += 6
+                continue
+            }
             if (fieldType = "checkbox") {
-                ctrl := g.Add("CheckBox", "x" contentX " y" y " w590", label)
+                ; Narrower than the row so a revert button fits on the same
+                ; line; without that every default-bearing checkbox would cost
+                ; a second row in a tab that already does not scroll.
+                ctrl := g.Add("CheckBox", "x" contentX " y" y " w480", label)
                 ctrl.Value := value ? 1 : 0
+                _SettingsNative_AddRevert(g, field, ctrl, fieldType, y)
                 y += 32
             } else if (fieldType = "orderedlist") {
                 g.Add("Text", "x" contentX " y" y " w590", label)
@@ -256,12 +277,18 @@ _Settings_BuildNative() {
                     editOpts := (fieldType = "number") ? " Number" : ""
                     ctrl := g.Add("Edit", "x218 y" (y - 3) " w300" editOpts, String(value))
                 }
+                _SettingsNative_AddRevert(g, field, ctrl, fieldType, y)
                 y += 36
             }
             controls.Push(Map("field", field, "control", ctrl, "rowIds", rowIds))
         }
         addonFieldGroups[addonName] := controls
     }
+    ; How _Settings_PushAddonFieldValues reaches this panel. The WebView2 page
+    ; is driven by a posted message; native has no message loop of its own, so
+    ; it exposes a setter over the controls just built instead. Cleared in
+    ; _Settings_Close.
+    gSettingsNativeFieldSetter := _SettingsNative_MakeFieldSetter(addonFieldGroups)
 
     ; Addon enable/disable tab -----------------------------------
     tab.UseTab(tabNames.Length)
@@ -630,6 +657,83 @@ _SettingsNative_LaunchLayoutChoice(options, value) {
             return i
     }
     return 1
+}
+
+; ── button field ─────────────────────────────────────────────
+; The click is already outside any WebView message callback here, so it calls
+; the shared runner directly rather than deferring. Both frontends therefore
+; reach the addon through one function.
+
+_SettingsNative_MakeActionHandler(addonName, actionId) {
+    return (*) => _Settings_RunAddonAction(addonName, actionId)
+}
+
+; ── Host-driven field updates ────────────────────────────────
+; An addon action can hand back new values for fields the panel is showing.
+; The web frontend receives them as a posted message; here they are applied
+; straight to the controls, which is the same thing one step shorter.
+
+_SettingsNative_MakeFieldSetter(addonFieldGroups) {
+    return (addonName, fieldId, value) =>
+        _SettingsNative_SetFieldValue(addonFieldGroups, addonName, fieldId, value)
+}
+
+_SettingsNative_SetFieldValue(addonFieldGroups, addonName, fieldId, value) {
+    if !addonFieldGroups.Has(addonName)
+        return
+    for entry in addonFieldGroups[addonName] {
+        field := entry["field"]
+        if (!field.Has("id") || field["id"] != fieldId)
+            continue
+        fieldType := field.Has("type") ? field["type"] : "text"
+        if (fieldType = "button" || fieldType = "info" || fieldType = "orderedlist")
+            return
+        ; The revert path already knows how to write every control type.
+        _SettingsNative_ApplyRevert(entry["control"], fieldType, value)
+        return
+    }
+}
+
+; ── Per-field revert ─────────────────────────────────────────
+; The web frontend hides its arrow until the value differs from the addon's
+; stated default. Native has no cheap way to watch every control for changes,
+; so the button is always shown and is simply a no-op when the value already
+; matches — the same affordance, without a timer polling the tab.
+;
+; Rows leave a gutter for this on purpose: the label is w180 at contentX and
+; the control is w300 at x218, so x526 w110 lands inside the 650-wide tab.
+; Checkbox rows are narrowed to w480 in the builder for the same reason.
+
+_SettingsNative_AddRevert(g, field, ctrl, fieldType, y) {
+    if (!field.Has("default") || !IsObject(ctrl))
+        return
+    btnY := (fieldType = "checkbox") ? y - 2 : y - 3
+    btn := g.Add("Button", "x526 y" btnY " w110 h24", "Default")
+    btn.OnEvent("Click",
+        _SettingsNative_MakeRevertHandler(ctrl, fieldType, field["default"]))
+}
+
+_SettingsNative_MakeRevertHandler(ctrl, fieldType, defaultValue) {
+    return (*) => _SettingsNative_ApplyRevert(ctrl, fieldType, defaultValue)
+}
+
+_SettingsNative_ApplyRevert(ctrl, fieldType, defaultValue) {
+    if (fieldType = "checkbox") {
+        ctrl.Value := defaultValue ? 1 : 0
+        return
+    }
+    if (fieldType = "dropdown") {
+        ctrl.Value := Integer(defaultValue) + 1
+        return
+    }
+    if (fieldType = "combo") {
+        text := String(defaultValue)
+        try ctrl.Choose(text)
+        if (ctrl.Value = 0)
+            ctrl.Text := text
+        return
+    }
+    ctrl.Value := String(defaultValue)
 }
 
 ; ── orderedlist field ────────────────────────────────────────

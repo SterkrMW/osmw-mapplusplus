@@ -21,6 +21,10 @@ let capturingActionId = null;
 /** Addon save payloads collected from dynamic addon tabs. */
 const addonSettingsValues = {};
 
+/** Rendered addon fields, keyed "addonName\u0000fieldId", so a host push can
+ *  put a new value into the right control. Cleared whenever the tabs rebuild. */
+const addonFieldSetters = {};
+
 /** UI-only state for clear save feedback and per-tab scroll restoration. */
 let dirty = false;
 let saving = false;
@@ -59,7 +63,20 @@ const messageHandlers = {
     'hotkey-captured':     handleHotkeyCaptured,
     'hotkey-capture-cancelled': handleHotkeyCaptureCancelled,
     'save-result':         handleSaveResult,
+    'addon-field-update':  handleAddonFieldUpdate,
 };
+
+/* An addon action changed fields this panel is showing. Update the draft the
+   same way the user typing would, so Save writes the new value and Cancel
+   still discards it. */
+function handleAddonFieldUpdate(msg) {
+    if (!msg.values) return;
+    for (const [fieldId, value] of Object.entries(msg.values)) {
+        const setter = addonFieldSetters[`${msg.addonName}\u0000${fieldId}`];
+        if (setter) setter(value);
+    }
+    setDirty(true);
+}
 
 if (window.chrome && window.chrome.webview) {
     window.chrome.webview.addEventListener('message', onAhkMessage);
@@ -849,6 +866,9 @@ function populateAddonTabs() {
     // generated add-on panels instead of appending another copy of each one.
     panels.querySelectorAll('.addon-panel').forEach(panel => panel.remove());
 
+    // The controls those panels held are gone, so their setters are stale.
+    for (const key of Object.keys(addonFieldSetters)) delete addonFieldSetters[key];
+
     if (!state.addonTabs) return;
 
     for (const addonTab of state.addonTabs) {
@@ -879,8 +899,113 @@ function populateAddonTabs() {
     }
 }
 
+/* Puts a field's label and its revert arrow on one line. The label stays the
+   first child, so nothing that reads .field-label by position changes. */
+/* Remember how to put a value into this field's control, so a host push can
+   drive it exactly as a user edit would. The same closure is what the revert
+   button uses, so there is one way in and it cannot diverge. */
+function registerField(addonName, field, apply) {
+    if (!field.id) return apply;
+    addonFieldSetters[`${addonName}\u0000${field.id}`] = apply;
+    return apply;
+}
+
+function labelRow(labelEl) {
+    const row = document.createElement('div');
+    row.className = 'field-head';
+    row.appendChild(labelEl);
+    return row;
+}
+
+/* Booleans cross the bridge as AHK integers, so a checkbox's `default` arrives
+   as 1 or 0 while the control reads back true or false. Everything that
+   compares the two has to agree on what counts as off. */
+function asBool(v) {
+    if (typeof v === 'boolean') return v;
+    if (typeof v === 'number') return v !== 0;
+    const s = String(v).trim().toLowerCase();
+    return !(s === '' || s === '0' || s === 'false');
+}
+
+/* True when a field's live value is not its default. `kind` says how to
+   compare: the same 18 and "18" must not read as a change, and neither must
+   false and 0. */
+function valuesMatch(a, b, kind) {
+    if (kind === 'bool') return asBool(a) === asBool(b);
+    if (kind === 'num') {
+        const na = Number(a);
+        const nb = Number(b);
+        if (Number.isFinite(na) && Number.isFinite(nb)) return na === nb;
+    }
+    return String(a === null || a === undefined ? '' : a).trim()
+        === String(b === null || b === undefined ? '' : b).trim();
+}
+
+/* A per-field revert control.
+
+   `field.default` is what the addon says a fresh install would hold. Before
+   this it never left AHK, so the only way back to a default was the global
+   Reset to Defaults, which resets the whole app.
+
+   `read` returns the control's current value and `apply` puts one back; both
+   are supplied by the caller because every field type stores its value
+   differently. The button hides itself while the two agree, so a panel nobody
+   has touched carries none of these at all.
+
+   The word rather than an icon: the Material Symbols file is subsetted (see
+   the header of ui/common/style.css) and carries no undo glyph, and the
+   Hotkeys tab already spells this affordance "Reset". */
+function attachRevert(field, host, read, apply, kind) {
+    if (!('default' in field) || field.default === null) return null;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'field-revert';
+    btn.textContent = 'Reset';
+    btn.title = 'Reset to default';
+
+    const sync = () => {
+        btn.hidden = valuesMatch(read(), field.default, kind);
+    };
+    /* Several field wrappers are <label> elements, and a click on anything
+       inside a label activates the labelled control — which would toggle the
+       very checkbox being reverted. Cancel that before doing the work. */
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        apply(field.default);
+        sync();
+    });
+
+    host.appendChild(btn);
+    sync();
+    return sync;
+}
+
 function renderAddonField(addonName, field) {
     switch (field.type) {
+        case 'button': {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'field addon-field-button';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-sm';
+            btn.id = `addon-${addonName}-${field.id}`;
+            btn.textContent = field.label || 'Open';
+            /* Carries no value, so it never touches addonSettingsValues. The
+               addon acts on its own state the moment this is clicked. */
+            btn.addEventListener('click', () => {
+                sendToAhk('addon-action', { addon: addonName, action: field.id });
+            });
+            wrapper.appendChild(btn);
+            if (field.hint) {
+                const hint = document.createElement('p');
+                hint.className = 'field-hint';
+                hint.textContent = field.hint;
+                wrapper.appendChild(hint);
+            }
+            return wrapper;
+        }
         case 'info': {
             const div = document.createElement('div');
             div.className = 'addon-field-info';
@@ -906,6 +1031,13 @@ function renderAddonField(addonName, field) {
             // Init value
             ensureAddonValues(addonName);
             addonSettingsValues[addonName][field.id] = cb.checked;
+            const applyCheck = registerField(addonName, field, (v) => {
+                cb.checked = asBool(v);
+                cb.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+            const syncCheck = attachRevert(field, label,
+                () => cb.checked, applyCheck, 'bool');
+            if (syncCheck) cb.addEventListener('change', syncCheck);
             return label;
         }
         case 'dropdown': {
@@ -928,11 +1060,19 @@ function renderAddonField(addonName, field) {
                 ensureAddonValues(addonName);
                 addonSettingsValues[addonName][field.id] = parseInt(sel.value, 10);
             });
-            wrapper.appendChild(lbl);
+            const dropHead = labelRow(lbl);
+            wrapper.appendChild(dropHead);
             wrapper.appendChild(sel);
             // Init value
             ensureAddonValues(addonName);
             addonSettingsValues[addonName][field.id] = parseInt(sel.value, 10);
+            const applyDrop = registerField(addonName, field, (v) => {
+                sel.value = String(v);
+                sel.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+            const syncDrop = attachRevert(field, dropHead,
+                () => parseInt(sel.value, 10), applyDrop, 'num');
+            if (syncDrop) sel.addEventListener('change', syncDrop);
             return wrapper;
         }
         case 'combo': {
@@ -958,12 +1098,20 @@ function renderAddonField(addonName, field) {
                 ensureAddonValues(addonName);
                 addonSettingsValues[addonName][field.id] = inp.value;
             });
-            wrapper.appendChild(lbl);
+            const comboHead = labelRow(lbl);
+            wrapper.appendChild(comboHead);
             wrapper.appendChild(inp);
             wrapper.appendChild(dl);
             // Init value
             ensureAddonValues(addonName);
             addonSettingsValues[addonName][field.id] = inp.value;
+            const applyCombo = registerField(addonName, field, (v) => {
+                inp.value = v === null || v === undefined ? '' : String(v);
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+            const syncCombo = attachRevert(field, comboHead,
+                () => inp.value, applyCombo, 'str');
+            if (syncCombo) inp.addEventListener('input', syncCombo);
             return wrapper;
         }
         case 'number': {
@@ -983,10 +1131,18 @@ function renderAddonField(addonName, field) {
                 ensureAddonValues(addonName);
                 addonSettingsValues[addonName][field.id] = parseInt(inp.value, 10);
             });
-            wrapper.appendChild(lbl);
+            const numHead = labelRow(lbl);
+            wrapper.appendChild(numHead);
             wrapper.appendChild(inp);
             ensureAddonValues(addonName);
             addonSettingsValues[addonName][field.id] = parseInt(inp.value, 10);
+            const applyNum = registerField(addonName, field, (v) => {
+                inp.value = String(v);
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+            const syncNum = attachRevert(field, numHead,
+                () => parseInt(inp.value, 10), applyNum, 'num');
+            if (syncNum) inp.addEventListener('input', syncNum);
             return wrapper;
         }
         case 'orderedlist':
