@@ -29,8 +29,9 @@ void mw_log(const char *fmt, ...);
 
 /* ---- scan.c -------------------------------------------------------------- */
 
-/* Scan main.exe's .text for every signature. Returns the number that failed;
- * 0 means everything resolved and mw_addr[] is fully populated. */
+/* Scan main.exe's .text for every signature. Returns the number of required
+ * signatures that failed (0 = proceed). Optional misses leave mw_addr[] NULL
+ * for that slot and do not count. */
 int  mw_resolve_all(void);
 
 /* ---- hook.c -------------------------------------------------------------- */
@@ -244,6 +245,17 @@ unsigned mw_tabs_mask(void);    /* channel bitmask for the active tab */
  * re-reads that rect from the window must re-apply this. */
 int mw_tabs_rect_shift(void);
 
+/* ---- block.c ------------------------------------------------------------- */
+
+/* Client-level name list in [Chat] BlockedNames. Drops matching appends so
+ * the overlay never sees them, and skips leftovers in the chat-window mirror.
+ * Ctrl+click a sender name adds; unblock is Settings-only. */
+int  mw_block_install(void);
+void mw_block_remove(void);
+void mw_block_poll(void);
+int  mw_block_blocked(const unsigned char *rec);
+int  mw_block_add(const char *name);    /* 1 added, 0 no-op, -1 list full */
+
 /* ---- config.c ------------------------------------------------------------ */
 
 /* Reads the game root's config.ini, section [Chat]. */
@@ -251,6 +263,8 @@ void        mw_config_load(void);
 int         mw_cfg_int(const char *key, int fallback);
 int         mw_cfg_int_in(const char *section, const char *key, int fallback);
 void        mw_cfg_set_int(const char *key, int value);
+void        mw_cfg_set_str(const char *key, const char *value);
+int         mw_cfg_copy(const char *key, const char *fallback, char *out, int size);
 void        mw_cfg_clear(const char *key);
 const char *mw_cfg_str(const char *key, const char *fallback);
 const char *mw_game_dir(void);

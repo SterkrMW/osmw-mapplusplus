@@ -6,7 +6,7 @@ runs inside the game's own process.
 
 | Directory | Produces | What it does |
 |---|---|---|
-| `chatmod/` | `osmw_chat.dll`, `osmw_chat_launch.exe` | Rewrites the client's chat window: font, free placement, channel tabs, mention highlighting, timestamps, wheel scrolling, cooldown text |
+| `chatmod/` | `osmw_chat.dll`, `osmw_chat_launch.exe` | Rewrites the client's chat window: font, free placement, channel tabs, mention highlighting, timestamps, wheel scrolling, cooldown text, client-level name blocking |
 | `login/` | `osmw_login.dll`, `osmw_login_launch.exe` | Fills the login form and picks a character, one roster row per launched client |
 | `common/` | — | `paths.py` (the two roots), `modhash.py` (drift check), `peutil.py` (PE reader) |
 

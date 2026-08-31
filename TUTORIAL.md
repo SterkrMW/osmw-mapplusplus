@@ -392,10 +392,11 @@ Configured from **Settings → Chat Mod**.
 - A readable font, chosen from four **tested presets** — *Default* (the client's own Courier New), *Crisp*, *Large* and *Wide* — or set by hand with *Custom*. **18 pixels is a hard ceiling**: above it the client cuts the bottom of every line, underscores first. Nothing can be set to avoid that, which is why the presets stop where they do. Pick *Default* to put the chat back to stock.
 - Channel tabs with a clickable strip, so you can watch trade without the rest. **Edit tabs…** opens an editor where you name each tab and tick the channels it shows — there is no syntax to learn, and it refuses anything the client would silently cut.
 - Highlighting for messages that name you, and for any PM.
+- A **blocked-names** list that hides a character's chat on this PC — every character you log in, and every multi-boxed client sharing the game folder. **Ctrl+click** a sender name in the chat window to add them; **Edit blocked names…** is where you remove them. New messages vanish from the chat window and the in-game overlay; leftover overlay lines age out of history. System and Info announcements are never hidden.
 - Inline timestamps, mouse-wheel scrolling, and a cooldown message that says how many seconds are left instead of “Please do not flood !”.
 - Moving and resizing the chat window freely. The position is remembered **relative to the game window**, so with several clients running each chat window comes back beside its own client instead of all of them stacking in one place. With nothing remembered, the chat window docks against the right edge of its client, exactly where the unmodified game puts it. **Reset chat window position** puts it back there at any time.
 
-Changes apply within about two seconds — there is nothing to restart. Settings are stored under `[Chat]` in the game folder's `config.ini` (see below); the mod reads that file itself.
+Changes apply within about two seconds — there is nothing to restart. Settings are stored under `[Chat]` in the game folder's `config.ini` (see below); the mod reads that file itself. **Reset to Defaults** does not clear the blocked-names list; unblocking is always explicit.
 
 Two of its settings are **system-wide hotkeys registered by the mod, not by Maps++**: *Clear chat* and *Cycle tabs*. Leave the matching entries in `[Hotkeys]` alone — binding the same chord in both places means one of them silently fails to register.
 
@@ -954,6 +955,7 @@ These belong to `osmw_chat.dll`, not to Maps++, and live in the `config.ini` **n
 | `CooldownFormat` | The wording. `%d` seconds, then `%s` plural, then `%s` channel — **in that order** |
 | `HighlightMentions` | `1` = mark messages naming you, and every PM |
 | `MyName` | Override for your character name; normally read from the game window caption |
+| `BlockedNames` | Comma-separated character names this client hides. Shared by every client using this game folder. **Ctrl+click** a sender name to add; **Edit blocked names…** to remove. System/Info are never dropped. Overlay leftovers age out of the 1024-slot ring. **Reset to Defaults does not clear this list** |
 | `FreePosition` | `1` = stop the chat window snapping to the client's edge. It is still placed once when it first appears |
 | `UnlockSize` | `1` = allow resizing |
 | `RememberGeometry` | `1` = persist position and size across restarts. Position is stored as an offset from the game window, so each client's chat returns beside its own client. Turning it off re-docks the window |
@@ -962,7 +964,7 @@ These belong to `osmw_chat.dll`, not to Maps++, and live in the `config.ini` **n
 
 `ClearHotkey` and `TabHotkey` are registered by the mod itself, not through `[Hotkeys]` — do not bind the same chord in both places or one will silently fail to register.
 
-`[Chat]` also holds keys this panel deliberately never touches: `WinRelX`/`WinRelY`/`WinW`/`WinH`, which the mod writes for you when you finish dragging or resizing, the chip and tab-strip font keys, `MentionPrefix`, and the `Probe*` diagnostics. Every one of them is documented inline in `defaults.ini`.
+`[Chat]` also holds keys this panel deliberately never touches: `WinRelX`/`WinRelY`/`WinW`/`WinH`, which the mod writes for you when you finish dragging or resizing, the chip and tab-strip font keys, `MentionPrefix`, and the `Probe*` diagnostics. `BlockedNames` is edited from **Edit blocked names…** (and by Ctrl+click in chat), not from the Settings Save of the other fields, so a Save cannot clobber a name you just blocked. Every one of them is documented inline in `defaults.ini`.
 
 `WinX`/`WinY` are the older absolute position pair. The mod still reads them, converts them to a `WinRelX`/`WinRelY` offset the first time it restores the window, and then removes them — so upgrading keeps your chat window where it was, and nothing needs redoing by hand.
 

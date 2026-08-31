@@ -114,6 +114,7 @@ typedef struct {{
     int            length;
     int            op_offset;      /* >=0: read an absolute address at this offset */
     unsigned int   reference_rva;  /* what it resolved to on the reference build */
+    int            optional;       /* 1 = miss does not stand down the mod */
 }} mw_sig_t;
 
 {blobs}
@@ -141,9 +142,11 @@ def generate_header(pe, sigs, resolved) -> str:
         var = "sig_" + short.lower()
         blobs.append("static const unsigned char %s[] = {%s};"
                      % (var, ", ".join("0x%02X" % b for b in raw)))
-        rows.append('    {"%s", %s, "%s", %d, %d, 0x%08XU},'
+        optional = 0 if body.get("optional", "0") in ("0", "", "false") else 1
+        rows.append('    {"%s", %s, "%s", %d, %d, 0x%08XU, %d},'
                     % (short, var, "".join("x" if m else "?" for m in mask),
-                       len(raw), int(body.get("opOffset", -1)), resolved.get(name, 0)))
+                       len(raw), int(body.get("opOffset", -1)),
+                       resolved.get(name, 0), optional))
         enums.append("    MW_%s," % short.upper())
     return HEADER_TEMPLATE.format(
         ts=pe.timestamp,

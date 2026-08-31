@@ -39,7 +39,7 @@ OUT = LIB / "osmw_chat.dll"
 SOURCES = ["dllmain.c", "scan.c", "hook.c", "config.c", "font.c",
            "window.c", "geometry.c", "clear.c", "mirror.c", "mention.c",
            "chips.c", "tabs.c", "timestamps.c", "scroll.c", "cooldown.c",
-           "probe.c", "log.c"]
+           "block.c", "probe.c", "log.c"]
 LAUNCHER_SOURCES = ["launcher.c"]
 LAUNCHER_OUT = LIB / "osmw_chat_launch.exe"
 

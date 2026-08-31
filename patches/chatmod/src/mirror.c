@@ -177,6 +177,9 @@ static int keep_message(const unsigned char *rec, unsigned mask)
     if (*(const unsigned *)(rec + MSG_SENDER) == MSG_EMPTY)
         return 0;                       /* unused slot */
 
+    if (mw_block_blocked(rec))
+        return 0;
+
     channel = *(const unsigned *)(rec + MSG_CHANNEL);
     if (channel >= CHANNEL_COUNT) {
         /* Channels outside the ten named ones are real -- the character info

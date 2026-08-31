@@ -4,7 +4,7 @@
 ;@Ahk2Exe-SetProductName Maps++
 ;@Ahk2Exe-SetCompanyName osMW
 ; Must match APP_VERSION in variables.ahk — build.ps1 fails the build if it does not.
-;@Ahk2Exe-SetVersion 1.3.1
+;@Ahk2Exe-SetVersion 1.4.0
 #SingleInstance Force
 #Warn
 

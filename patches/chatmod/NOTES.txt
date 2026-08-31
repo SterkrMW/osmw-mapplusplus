@@ -1,8 +1,10 @@
 osmw_chat — chat window QoL mod
 ===============================
 
-Goal: font face/size control, no position snapping, text clearing, and a
-channel tab bar that splits System announcements out of the main chat pane.
+Goal: font face/size control, no position snapping, text clearing, a
+channel tab bar that splits System announcements out of the main chat pane,
+and a client-level blocked-name list that hides a character's chat on this
+PC (overlay included) without rewriting the real ring.
 
 Delivery: a 32-bit DLL injected into main.exe. main.exe is NEVER modified on
 disk. Every hook point is resolved by pattern scan at runtime, so a client
@@ -35,6 +37,9 @@ Files
                            reading the client's own per-channel table
     timestamps.c           inline arrival times, observed and kept per REAL
                            ring slot so a rebuild does not restamp them
+    block.c                client-level name list: drop at append so the
+                           overlay never sees it; skip leftovers in the
+                           chat-window mirror; Ctrl+click at HitTest+0xAA
     launcher.c             osmw_chat_launch.exe
   tools/scan_offsets.py    resolve ChatMod_* signatures, refresh caches
   tools/build.py           build the DLL and the launcher into the game root
@@ -106,9 +111,13 @@ exactly the part worth keeping.
 CAP*.BMP in the game root are the GAME's own screenshots, taken with the
 client's screenshot key. They are the player's, not ours. Do not tidy them.
 
-scan_offsets.py must report exactly one match for all 18 signatures. More than
-one means a pattern is no longer specific; zero means the client changed. Do
-not widen a pattern to force a match without re-checking what it now points at.
+scan_offsets.py must report exactly one match for every required signature.
+ChatMod_Append is optional (optional=1 in the game signatures.ini): zero
+matches stands the overlay-drop down, not the rest of the mod. More than one
+match still fails it -- do not hook the wrong site. More than one match on a
+required pattern means it is no longer specific; zero means the client
+changed. Do not widen a pattern to force a match without re-checking what it
+now points at.
 
 
 When the chat window is actually built
@@ -537,10 +546,22 @@ counters immediately below it:
     base-0x08  visible line count (ChatMiniSize) -- a user preference, not
                part of the ring
 
-Append is at 0x004620C0(channel, sender, text, name). It already contains a
-per-channel mute for channels 0..5, keyed on flags at 0x6E03B0.. -- that is
-what the game's own channel buttons drive. It drops the message at arrival, so
-it cannot separate System, but it confirms the model.
+Append is at 0x004620C0, __cdecl (channel, senderId, name, text) -- name THEN
+text, not the other way around. It ends with a plain `ret` (caller cleans).
+The flood path's add_message (channel, flags, name, text) is a different site;
+it CALL rel32's this function (0x004092CB is one of 61 callers). Both network
+chat and local echo reach it, which is why dropping here also hides the
+in-game overlay.
+
+Prologue, 7 bytes on an instruction boundary: `8B 4C 24 04 83 F9 05`
+(`mov ecx,[esp+4]; cmp ecx,5`). The next instruction is `ja` -- do not
+relocate it. Unique 12-byte pattern `8B 4C 24 04 83 F9 05 77 29 FF 24 8D`
+does not collide with ScrollView at 0x00462040.
+
+It already contains a per-channel mute for channels 0..5, keyed on flags at
+0x6E03B0.. -- that is what the game's own channel buttons drive. It drops the
+message at arrival, so it cannot separate System, but it confirms the model
+name blocking copies: drop at append, do not punch holes in the ring.
 
 The render walks backwards from the cursor towards the tail, formatting
 messages into line records until the pane is full.
@@ -880,6 +901,71 @@ and in fontpresets.py. Keep them in step; the tool is the source of truth
 because it measures.
 
 
+Client-level name blocking
+--------------------------
+The game's ignore, if it is used at all, is per logged-in character. This list
+is per PC / shared game-folder config.ini, matching on sender name (record
++0x08, 20 chars + NUL, case-insensitive exact). Empty names never match. Your
+own name (mw_mention_name()) cannot be added. System (6) and Info (7) are
+never dropped, even if the name matches. Cap 32 names, no commas inside a
+name. Storage: [Chat] BlockedNames=Alice,Bob. Dedicated ~1024-byte reader
+(mw_cfg_copy), not the 256-byte mw_cfg_str ring. Maps++ writes that one key
+from Edit blocked names and from nowhere else -- it is not in _CHATMOD_SPEC,
+so Settings Save cannot clobber a Ctrl+click. Reset to Defaults does not
+clear it. Empty list writes an empty value, never IniDelete.
+
+Two gates, on purpose:
+
+  1. Append detour (optional ChatMod_Append). If the name is on the list,
+     return without calling the original, so the message never enters the
+     REAL ring. Overlay, history, every other reader never see it. Same
+     model as the client's channel mute. If the signature misses or the
+     7-byte prologue cannot be hooked, this feature's overlay drop stands
+     down and the rest of the chat mod stays up. keep_message still hides
+     leftovers in the chat window from the name list alone.
+
+     JMP to a C function then CALL the trampoline corrupts the stack: the
+     original is cdecl and expects the original frame. append_gate is
+     __declspec(naked) and JMPs the trampoline or RETs.
+
+  2. keep_message skips blocked names when the chat window rebuilds. That
+     is leftovers already in the ring: they vanish from the window within
+     a settings poll. We do NOT compact or punch holes in the real ring.
+     Overlay leftovers age out with the 1024-slot history. Compacting the
+     visible store crashed the client during tab work (see +0x7A60 above);
+     rewriting the real ring would hit every other reader besides.
+
+Ctrl+left-click adds; it never unblocks. HitTest (0x00479EC0, thiscall,
+two pointer args, ret 8) already has the name in hand at +0xAA:
+`lea esi, [eax+MsgArray+8]` (eax = slot * 0xC0). The client has already
+skipped System/Info/ch99/self before that site. Diverting there swallows
+the whisper without reimplementing wrap geometry. One caller, 0x0047A227.
+
+HitTest is one of the twelve ring references the mirror rewrites, so after
+mw_mirror_install that LEA points at OUR copy. The hook reads the name
+from mw_mirror_base(), not the real MsgArray -- the slot index is in the
+mirror. The site check is the 6-byte LEA whose disp32 equals that base+8.
+Prologue of HitTest pushes ebx, ebp, esi, edi and never allocates stack
+before +0xAA, so swallowing is `pop edi; pop esi; pop ebp; pop ebx; ret 8`
+-- the same epilogue as the early-outs already in the function. Same
+naked-gate rule as append: JMP the trampoline, do not CALL it.
+
+Already on the list / own name / empty: swallow, no confirmation. List
+full: swallow and inject "Block list is full." Success: copy the name
+off the ring, then rebuild, then mw_mirror_inject on Info (channel 7)
+with name "Chat mod" and text "Blocked Alice." Info so the chip is not
+Local (and keep_message never drops it). The name must be copied first:
+confirming from the ring pointer after rebuild printed "Blocked ." with
+a hole where the name had been. Inject-then-rebuild would wipe the line.
+It is still ephemeral (gone on the next tab switch), which is the
+existing inject contract.
+
+Trial log (with [Debug] ModLogging on): look for `block:` lines -- names
+loaded, append hooked / missing, whisper site matched or refused, added
+"Name" (n/32). A missing Append signature logs overlay drop disabled and
+leaves fonts/tabs/everything else up.
+
+
 Deferred, with reasons
 ----------------------
   - A typed "/clear" command. The chat window forwards every key message
@@ -887,7 +973,7 @@ Deferred, with reasons
     onward), so the text the player types is never visible to us here.
     Implementing it means hooking the client's chat-send path, which is a
     bigger change than the rest of Phase 4 combined. The hotkey and the
-    posted message cover the same need.
+    posted message cover the same need. Typed "/block" is the same trap.
   - Tracing the 18px vertical clip to its cause. It is somewhere in the text
     engine's draw path at 0x00471AF0, a large SEH-wrapped function that has
     NOT been disassembled. The ceiling is empirical, not understood. Ruled
@@ -977,8 +1063,10 @@ Do not
     an opcode; the real guarantee is that the signature pins the bytes.
   - Change font size without regenerating the chip atlas (built once at window
     creation) — the text and the channel chips will disagree.
-  - Retry 1024x768 true-res, which failed and was reverted. See
-    patches/true_res/PATCH_NOTES.txt.
+  - Compact or punch holes in the real message ring to hide a name. Drop at
+    append for new messages; skip in keep_message for the chat window's
+    leftovers; let overlay leftovers age out. Rewriting the real ring in
+    place is the class of change that crashed the client during tab work.
 
 
 Live measurements (build 0x45650696, English)
@@ -1278,3 +1366,10 @@ Trial log
             in %AppData% where a C DLL cannot follow), and the diagnostics
             report names the state -- so a report with no osmw_*.log attached
             reads as "logging was off", not "the mod never loaded".
+2026-08-31  Client-level name blocking. ChatMod_Append unique at 0x004620C0
+            (optional=1). Live launch via osmw_chat_launch.exe: Append
+            resolved, append hooked at 004620C0 (7-byte prologue), Ctrl+click
+            hooked at HitTest+AA (00479F6A), 12 mirror refs already rewritten
+            so the LEA disp32 is our copy. [Addons] ChatMod=0 stands the whole
+            mod down ("client untouched"). Overlay hide, Ctrl+click swallow,
+            two-client share, and click-to-PM still need a logged-in Bar A.

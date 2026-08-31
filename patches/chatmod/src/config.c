@@ -114,6 +114,28 @@ void mw_cfg_set_int(const char *key, int value)
         mw_log("config: failed to write %s=%s (%lu)", key, buf, GetLastError());
 }
 
+void mw_cfg_set_str(const char *key, const char *value)
+{
+    if (!g_ini[0] || !key)
+        return;
+    if (!WritePrivateProfileStringA(MW_SECTION, key, value ? value : "", g_ini))
+        mw_log("config: failed to write %s (%lu)", key, GetLastError());
+}
+
+/* Dedicated buffer, for keys that do not fit the 256-byte mw_cfg_str ring.
+ * Returns 1 if the key was present in config.ini or defaults.ini. */
+int mw_cfg_copy(const char *key, const char *fallback, char *out, int size)
+{
+    if (!out || size <= 0)
+        return 0;
+    if (read_from(g_ini, MW_SECTION, key, out, size) ||
+        read_from(g_defaults, MW_SECTION, key, out, size))
+        return 1;
+    _snprintf(out, size, "%s", fallback ? fallback : "");
+    out[size - 1] = '\0';
+    return 0;
+}
+
 /* Deleting a key: WritePrivateProfileStringA with a NULL value removes it.
  *
  * The Maps++ side deliberately never IniDeletes anything in [Chat] -- it would

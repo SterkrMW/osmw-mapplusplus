@@ -1,7 +1,8 @@
 #Requires AutoHotkey v2.0
 
 ; Settings for osmw_chat.dll — the injected chat window mod (font, free
-; placement, channel tabs, mentions, timestamps, wheel scroll, cooldown text).
+; placement, channel tabs, mentions, timestamps, wheel scroll, cooldown text,
+; client-level name blocking).
 ;
 ; This addon configures the DLL; it never talks to it. There is no channel back
 ; from the mod and nothing to restart: the DLL re-reads its own settings on a
@@ -310,6 +311,10 @@ global _CHATMOD_NAME_MAX := 15                  ; TAB_NAME_MAX 16, less the NUL
 ; g_tab_spec[256] in tabs.c, and mw_cfg_str's buffer is 256 to match. Both are
 ; sized in bytes and truncate silently, so the editor refuses instead.
 global _CHATMOD_SPEC_MAX := 255
+
+; BlockedNames: 20-char names, 32 of them, comma-separated. Matches block.c.
+global _CHATMOD_BLOCK_CAP := 32
+global _CHATMOD_BLOCK_NAME_MAX := 20
 
 global _CHATMOD_DEFAULT_TABS := "All:*|Chat:*,-system,-info|System:system,info"
 
@@ -649,6 +654,18 @@ _ChatMod_OnSettingsWeb() {
         "options", running,
         "value", s["MyName"],
         "default", _ChatMod_ReadDefault("MyName")))
+    fields.Push(Map("type", "button", "id", "editBlock",
+        "label", "Edit blocked names…",
+        "hint", "Hide a character's chat on this PC, on every character using "
+              . "this game folder. Ctrl+click a sender name in the chat window "
+              . "also adds them. Unblock is here. It writes immediately — it "
+              . "does not wait for Save."))
+    fields.Push(Map("type", "info", "text",
+        "Blocked names never appear in the chat window or the in-game overlay. "
+        . "Messages already on the overlay age out of the client's history; "
+        . "new ones are dropped as they arrive. System and Info announcements "
+        . "are never hidden, even if the name matches. The list is shared by "
+        . "every client using this game folder."))
 
     fields.Push(Map("type", "checkbox", "id", "FreePosition",
         "label", "Let me move the chat window freely",
@@ -1074,6 +1091,275 @@ _ChatMod_EditTabsNative(rows, notice) {
     }
 }
 
+; ── Blocked names ───────────────────────────────────────────────
+;
+; The list is not a settings-tab field: Ctrl+click in the game writes the same
+; key, and a delayed Save would clobber it. OK writes BlockedNames immediately.
+; Cancel discards. Empty list writes an empty value, never IniDelete.
+
+_ChatMod_ParseBlocked(str) {
+    global _CHATMOD_BLOCK_CAP, _CHATMOD_BLOCK_NAME_MAX
+    names := []
+    seen := Map()
+    for part in StrSplit(String(str), ",") {
+        n := Trim(part)
+        if (n = "" || InStr(n, ",") || StrLen(n) > _CHATMOD_BLOCK_NAME_MAX)
+            continue
+        key := StrLower(n)
+        if seen.Has(key)
+            continue
+        seen[key] := true
+        names.Push(n)
+        if (names.Length >= _CHATMOD_BLOCK_CAP)
+            break
+    }
+    return names
+}
+
+_ChatMod_FormatBlocked(names) {
+    out := ""
+    if !IsObject(names)
+        return out
+    for n in names {
+        t := Trim(String(n))
+        if (t = "")
+            continue
+        out .= (out = "" ? "" : ",") t
+    }
+    return out
+}
+
+_ChatMod_ValidateBlocked(names) {
+    global _CHATMOD_BLOCK_CAP, _CHATMOD_BLOCK_NAME_MAX
+    if !IsObject(names)
+        return "The name list was unreadable."
+    if (names.Length > _CHATMOD_BLOCK_CAP)
+        return "At most " _CHATMOD_BLOCK_CAP " names."
+    seen := Map()
+    for n in names {
+        t := Trim(String(n))
+        if (t = "")
+            continue
+        if InStr(t, ",")
+            return "Names cannot contain commas."
+        if (StrLen(t) > _CHATMOD_BLOCK_NAME_MAX)
+            return "'" t "' is longer than " _CHATMOD_BLOCK_NAME_MAX " characters."
+        key := StrLower(t)
+        if seen.Has(key)
+            return "'" t "' is listed twice."
+        seen[key] := true
+    }
+    return ""
+}
+
+_ChatMod_NamesToJson(names) {
+    out := "["
+    for i, n in names
+        out .= (i > 1 ? "," : "") _JSON_Str(n)
+    return out "]"
+}
+
+_ChatMod_NamesFromMsg(msg) {
+    names := []
+    if (!IsObject(msg) || !msg.Has("names") || !IsObject(msg["names"]))
+        return names
+    for n in msg["names"]
+        names.Push(Trim(String(n)))
+    return names
+}
+
+_ChatMod_WriteBlocked(names) {
+    cfgPath := _ChatMod_IniPath()
+    if (cfgPath = "") {
+        TrayTip("Set the game path under Launcher first.", "Chat Mod", "Iconx")
+        return false
+    }
+    problem := _ChatMod_ValidateBlocked(names)
+    if (problem != "") {
+        TrayTip(problem, "Chat Mod", "Iconx")
+        return false
+    }
+    EnsureIniUtf16(cfgPath)
+    try {
+        IniWrite(_ChatMod_FormatBlocked(names), cfgPath, "Chat", "BlockedNames")
+    } catch as err {
+        LogWarn("ChatMod", "Could not write BlockedNames: " err.Message)
+        TrayTip("Could not write to " cfgPath ".", "Chat Mod", "Iconx")
+        return false
+    }
+    LogInfo("ChatMod", "Wrote BlockedNames (" names.Length " name(s)) to " cfgPath)
+    return true
+}
+
+_ChatMod_BlockCanUseWebView() {
+    return FileExist(A_ScriptDir "\Lib\WebViewToo.ahk")
+        && FileExist(A_ScriptDir "\ui\chat_block\index.html")
+}
+
+_ChatMod_EditBlock() {
+    global gSettingsGui
+
+    cfgPath := _ChatMod_IniPath()
+    if (cfgPath = "") {
+        TrayTip("Set the game path under Launcher first.", "Chat Mod", "Iconx")
+        return
+    }
+
+    names := _ChatMod_ParseBlocked(_ChatMod_ReadKey(cfgPath, "BlockedNames"))
+
+    owner := (IsObject(gSettingsGui) && gSettingsGui.Hwnd) ? gSettingsGui.Hwnd : 0
+    if (owner)
+        try DllCall("EnableWindow", "Ptr", owner, "Int", 0)
+
+    accepted := ""
+    try {
+        if (IsNativeInterface() || !_ChatMod_BlockCanUseWebView())
+            accepted := _ChatMod_EditBlockNative(names)
+        else
+            accepted := _ChatMod_EditBlockWeb(names)
+    } finally {
+        if (owner && WinExist("ahk_id " owner))
+            try DllCall("EnableWindow", "Ptr", owner, "Int", 1)
+    }
+
+    if !IsObject(accepted)
+        return
+    _ChatMod_WriteBlocked(accepted)
+}
+
+_ChatMod_EditBlockWeb(names) {
+    global _CHATMOD_BLOCK_CAP, _CHATMOD_BLOCK_NAME_MAX
+
+    result := ""
+    dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
+    dllPath := A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll"
+    wvSettings := { DllPath: dllPath, DefaultWidth: 440, DefaultHeight: 520 }
+
+    dlg := WebViewGui("-Caption +AlwaysOnTop -Resize", "Blocked names",, wvSettings)
+    dlg.OnEvent("Close", (*) => dlg.Destroy())
+
+    initJson := '{"type":"init-block"'
+        . ',"names":' _ChatMod_NamesToJson(names)
+        . ',"nameMax":' _CHATMOD_BLOCK_NAME_MAX
+        . ',"maxNames":' _CHATMOD_BLOCK_CAP
+        . ',"notice":""}'
+
+    dlg.WebMessageReceived(WebMsgHandler(OnWebMsg))
+    dlg.DOMContentLoaded((*) => _ChatMod_PostMsg(dlg, initJson))
+    dlg.Navigate(UiPageUrl("ui/chat_block/index.html"))
+    dlg.Show("w440 h520")
+
+    OnWebMsg(wv, args) {
+        msgStr := ""
+        try msgStr := args.TryGetWebMessageAsString()
+        if (msgStr = "") {
+            try msgStr := args.WebMessageAsJson
+        }
+        if (msgStr = "")
+            return
+
+        msg := _JSON_Parse(msgStr)
+        if !IsObject(msg) || !msg.Has("type")
+            return
+
+        switch msg["type"] {
+            case "init-request":
+                _ChatMod_PostMsg(dlg, initJson)
+            case "accept":
+                edited := _ChatMod_NamesFromMsg(msg)
+                problem := _ChatMod_ValidateBlocked(edited)
+                if (problem != "") {
+                    TrayTip(problem, "Chat Mod", "Iconx")
+                    return
+                }
+                result := edited
+                dlg.Destroy()
+            case "cancel":
+                dlg.Destroy()
+        }
+    }
+
+    WinWaitClose("ahk_id " dlg.Hwnd)
+    return result
+}
+
+_ChatMod_EditBlockNative(names) {
+    global _CHATMOD_BLOCK_CAP, _CHATMOD_BLOCK_NAME_MAX
+
+    result := ""
+    live := []
+    for n in names
+        live.Push(n)
+
+    g := Gui("+AlwaysOnTop -MinimizeBox", "Blocked names")
+    g.SetFont("s9", "Segoe UI")
+    g.Add("Text", "x12 y12 w320",
+        "Names on this list are hidden in the chat window and the overlay, "
+        . "on every character using this game folder. Ctrl+click a sender "
+        . "name in chat also adds them. System and Info are never hidden.")
+
+    lb := g.Add("ListBox", "x12 y72 w320 h220")
+    nameEdit := g.Add("Edit", "x12 y300 w230 Limit" _CHATMOD_BLOCK_NAME_MAX)
+    g.Add("Button", "x250 y298 w82", "Add").OnEvent("Click", (*) => AddName())
+    g.Add("Button", "x12 y334 w82", "Remove").OnEvent("Click", (*) => RemoveName())
+    budget := g.Add("Text", "x102 y338 w230", "")
+    g.Add("Button", "x152 y372 w90 Default", "OK").OnEvent("Click", (*) => Accept())
+    g.Add("Button", "x+8 yp w90", "Cancel").OnEvent("Click", (*) => g.Destroy())
+    g.OnEvent("Close", (*) => g.Destroy())
+    g.OnEvent("Escape", (*) => g.Destroy())
+
+    Refresh()
+    g.Show("w344 h416")
+    WinWaitClose("ahk_id " g.Hwnd)
+    return result
+
+    Refresh() {
+        lb.Delete()
+        for n in live
+            lb.Add([n])
+        budget.Value := live.Length " of " _CHATMOD_BLOCK_CAP
+    }
+
+    AddName() {
+        n := Trim(nameEdit.Value)
+        if (n = "")
+            return
+        probe := live.Clone()
+        probe.Push(n)
+        problem := _ChatMod_ValidateBlocked(probe)
+        if (problem != "") {
+            TrayTip(problem, "Chat Mod", "Iconx")
+            return
+        }
+        live.Push(n)
+        nameEdit.Value := ""
+        Refresh()
+    }
+
+    RemoveName() {
+        sel := lb.Text
+        if (sel = "")
+            return
+        for i, n in live {
+            if (n = sel) {
+                live.RemoveAt(i)
+                break
+            }
+        }
+        Refresh()
+    }
+
+    Accept() {
+        problem := _ChatMod_ValidateBlocked(live)
+        if (problem != "") {
+            TrayTip(problem, "Chat Mod", "Iconx")
+            return
+        }
+        result := live
+        g.Destroy()
+    }
+}
+
 ; ── Settings buttons ────────────────────────────────────────────
 ;
 ; Reached from a "button" field, which settings.ahk runs outside the WebView
@@ -1088,6 +1374,10 @@ _ChatMod_EditTabsNative(rows, notice) {
 _ChatMod_OnSettingsAction(actionId) {
     if (actionId = "editTabs")
         return _ChatMod_EditTabs()
+    if (actionId = "editBlock") {
+        _ChatMod_EditBlock()
+        return ""
+    }
     if (actionId = "resetPosition") {
         _ChatMod_RequestPositionReset()
         return ""

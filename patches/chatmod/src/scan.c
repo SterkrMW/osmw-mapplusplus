@@ -1,10 +1,12 @@
 /* Resolve every signature in sigs.h against the host image's .text.
  *
  * The DLL never trusts offsets_cache.ini -- that file is for the analysis
- * tooling. Here we rescan, and require exactly one match per pattern. A
- * signature that matches zero times (client updated) or more than once
- * (pattern no longer specific) is a hard failure for that address, which
- * leaves mw_addr[] NULL and stops the corresponding feature from installing.
+ * tooling. Here we rescan, and require exactly one match per required
+ * pattern. A required signature that matches zero times (client updated) or
+ * more than once (pattern no longer specific) is a hard failure for that
+ * address, which leaves mw_addr[] NULL and stops the corresponding feature
+ * from installing. Optional signatures (mw_sig_t.optional) may miss without
+ * counting toward the stand-down total.
  */
 #include "osmw_chat.h"
 
@@ -82,9 +84,11 @@ int mw_resolve_all(void)
         }
 
         if (count != 1) {
-            mw_log("scan: %-12s FAILED (%d matches, expected 1)", s->name, count);
+            mw_log("scan: %-12s FAILED (%d matches, expected 1)%s",
+                   s->name, count, s->optional ? "  (optional)" : "");
             mw_addr[i] = NULL;
-            failed++;
+            if (!s->optional)
+                failed++;
             continue;
         }
 

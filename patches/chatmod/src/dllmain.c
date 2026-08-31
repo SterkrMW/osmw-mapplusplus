@@ -173,10 +173,10 @@ static DWORD WINAPI worker(LPVOID unused)
 
     failed = mw_resolve_all();
     if (failed) {
-        mw_log("resolve: %d signature(s) failed -- standing down, client untouched", failed);
+        mw_log("resolve: %d required signature(s) failed -- standing down, client untouched", failed);
         return 0;
     }
-    mw_log("resolve: all %d signatures OK", MW_SIG_COUNT);
+    mw_log("resolve: all required signatures OK (%d scanned)", MW_SIG_COUNT);
 
     if (mw_timestamp != 0x45650696U) {
         mw_log("note: build 0x%08X is not the reference build 0x45650696; "
@@ -216,6 +216,9 @@ static DWORD WINAPI worker(LPVOID unused)
         /* After the mirror: the composer hook resolves records through it. */
         mw_time_install();
         mw_tabs_install(hwnd);
+        /* After the mirror and tabs: a loaded list rebuilds the view, and
+         * confirm-inject picks a channel the active tab keeps. */
+        mw_block_install();
     }
 
     /* Deliberately returns rather than looping. A thread parked inside this
@@ -257,6 +260,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         InterlockedExchange(&g_stop, 1);
         /* Unwind in reverse: features first, then the subclass that dispatches
          * to them, then the hooks that predate the window. */
+        mw_block_remove();
         mw_tabs_remove();
         /* Before the mirror: the composer hook reads records through it. */
         mw_time_remove();

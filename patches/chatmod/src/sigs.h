@@ -12,6 +12,7 @@ typedef struct {
     int            length;
     int            op_offset;      /* >=0: read an absolute address at this offset */
     unsigned int   reference_rva;  /* what it resolved to on the reference build */
+    int            optional;       /* 1 = miss does not stand down the mod */
 } mw_sig_t;
 
 static const unsigned char sig_wndproc[] = {0x56, 0x8B, 0x74, 0x24, 0x0C, 0x57, 0x8B, 0x7C, 0x24, 0x14, 0x83, 0xFE};
@@ -37,30 +38,32 @@ static const unsigned char sig_chatdispatch[] = {0x8B, 0x35, 0x00, 0x00, 0x00, 0
 static const unsigned char sig_floodgate[] = {0x8B, 0x15, 0x00, 0x00, 0x00, 0x00, 0x03, 0xD0, 0xA1, 0x00, 0x00, 0x00, 0x00, 0x3B, 0xC2, 0x0F, 0x86};
 static const unsigned char sig_floodmessage[] = {0x68, 0x98, 0x72, 0x00, 0x00, 0x68, 0x03, 0xF4, 0x00, 0x00, 0x6A, 0x00, 0x6A, 0x07, 0xE8};
 static const unsigned char sig_present[] = {0x8B, 0x41, 0x44, 0x8B, 0x51, 0x34, 0x68, 0x20, 0x00, 0xCC, 0x00, 0x6A};
+static const unsigned char sig_append[] = {0x8B, 0x4C, 0x24, 0x04, 0x83, 0xF9, 0x05, 0x77, 0x29, 0xFF, 0x24, 0x8D};
 static const mw_sig_t MW_SIGS[] = {
-    {"WndProc", sig_wndproc, "xxxxxxxxxxxx", 12, -1, 0x00079170U},
-    {"Create", sig_create, "xxxxxxxxxxxx", 12, -1, 0x00078FD0U},
-    {"Reposition", sig_reposition, "x????xxxxxxx", 12, -1, 0x000793F0U},
-    {"ShowClear", sig_showclear, "xxxxxxxxxxxx", 12, -1, 0x00079570U},
-    {"InitGdi", sig_initgdi, "xxxxxxxxxxxx", 12, -1, 0x000796F0U},
-    {"ChipAtlas", sig_chipatlas, "xxxxxxxx????", 12, -1, 0x00079A50U},
-    {"HitTest", sig_hittest, "xxxxxxxxxxxx", 12, -1, 0x00079EC0U},
-    {"Render", sig_render, "xxxxxx????xx", 12, -1, 0x0007A0A0U},
-    {"FontSmall", sig_fontsmall, "xxxxxxxxxxxxxxxx", 16, -1, 0x000798FDU},
-    {"FontLarge", sig_fontlarge, "xxxxxxxxxxxxxxxx", 16, -1, 0x00079926U},
-    {"Object", sig_object, "x????xxxxxxxxxxxxx", 18, 1, 0x003DEDD0U},
-    {"MsgArray", sig_msgarray, "xx????xx????xxxx", 16, 2, 0x0030BFD0U},
-    {"MainHwnd", sig_mainhwnd, "x????xx????xxx", 14, 1, 0x003E71DCU},
-    {"LangIndex", sig_langindex, "x????xxxxxxxxxxx", 16, 1, 0x003E6884U},
-    {"ResetBuffers", sig_resetbuffers, "xxxxxxxxxxxx", 12, -1, 0x0005BB30U},
-    {"DirtyFlag", sig_dirtyflag, "xx????xxxxxx", 12, 2, 0x003E685CU},
-    {"DrawLines", sig_drawlines, "xxxxxxxxxxxx", 12, -1, 0x0007A7D0U},
-    {"LineCompose", sig_linecompose, "xx????xxxxxxxxxx????xxxxxx", 26, -1, 0x0007A4E1U},
-    {"ScrollView", sig_scrollview, "xxxxxxx?xxx?xxx??xxxx??", 23, -1, 0x00062040U},
-    {"ChatDispatch", sig_chatdispatch, "xx????xxxxxxx?xxx????", 21, -1, 0x0000912FU},
-    {"FloodGate", sig_floodgate, "xx????xxx????xxxx", 17, -1, 0x00009176U},
-    {"FloodMessage", sig_floodmessage, "xxx??xxx??xxxxx", 15, -1, 0x000092BDU},
-    {"Present", sig_present, "xxxxxxxxxxxx", 12, -1, 0x0008AF00U},
+    {"WndProc", sig_wndproc, "xxxxxxxxxxxx", 12, -1, 0x00079170U, 0},
+    {"Create", sig_create, "xxxxxxxxxxxx", 12, -1, 0x00078FD0U, 0},
+    {"Reposition", sig_reposition, "x????xxxxxxx", 12, -1, 0x000793F0U, 0},
+    {"ShowClear", sig_showclear, "xxxxxxxxxxxx", 12, -1, 0x00079570U, 0},
+    {"InitGdi", sig_initgdi, "xxxxxxxxxxxx", 12, -1, 0x000796F0U, 0},
+    {"ChipAtlas", sig_chipatlas, "xxxxxxxx????", 12, -1, 0x00079A50U, 0},
+    {"HitTest", sig_hittest, "xxxxxxxxxxxx", 12, -1, 0x00079EC0U, 0},
+    {"Render", sig_render, "xxxxxx????xx", 12, -1, 0x0007A0A0U, 0},
+    {"FontSmall", sig_fontsmall, "xxxxxxxxxxxxxxxx", 16, -1, 0x000798FDU, 0},
+    {"FontLarge", sig_fontlarge, "xxxxxxxxxxxxxxxx", 16, -1, 0x00079926U, 0},
+    {"Object", sig_object, "x????xxxxxxxxxxxxx", 18, 1, 0x003DEDD0U, 0},
+    {"MsgArray", sig_msgarray, "xx????xx????xxxx", 16, 2, 0x0030BFD0U, 0},
+    {"MainHwnd", sig_mainhwnd, "x????xx????xxx", 14, 1, 0x003E71DCU, 0},
+    {"LangIndex", sig_langindex, "x????xxxxxxxxxxx", 16, 1, 0x003E6884U, 0},
+    {"ResetBuffers", sig_resetbuffers, "xxxxxxxxxxxx", 12, -1, 0x0005BB30U, 0},
+    {"DirtyFlag", sig_dirtyflag, "xx????xxxxxx", 12, 2, 0x003E685CU, 0},
+    {"DrawLines", sig_drawlines, "xxxxxxxxxxxx", 12, -1, 0x0007A7D0U, 0},
+    {"LineCompose", sig_linecompose, "xx????xxxxxxxxxx????xxxxxx", 26, -1, 0x0007A4E1U, 0},
+    {"ScrollView", sig_scrollview, "xxxxxxx?xxx?xxx??xxxx??", 23, -1, 0x00062040U, 0},
+    {"ChatDispatch", sig_chatdispatch, "xx????xxxxxxx?xxx????", 21, -1, 0x0000912FU, 0},
+    {"FloodGate", sig_floodgate, "xx????xxx????xxxx", 17, -1, 0x00009176U, 0},
+    {"FloodMessage", sig_floodmessage, "xxx??xxx??xxxxx", 15, -1, 0x000092BDU, 0},
+    {"Present", sig_present, "xxxxxxxxxxxx", 12, -1, 0x0008AF00U, 0},
+    {"Append", sig_append, "xxxxxxxxxxxx", 12, -1, 0x000620C0U, 1},
 };
 
 #define MW_SIG_COUNT ((int)(sizeof(MW_SIGS) / sizeof(MW_SIGS[0])))
@@ -90,6 +93,7 @@ enum {
     MW_FLOODGATE,
     MW_FLOODMESSAGE,
     MW_PRESENT,
+    MW_APPEND,
     MW_ADDR_COUNT
 };
 

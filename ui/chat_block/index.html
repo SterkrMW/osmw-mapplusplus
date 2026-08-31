@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blocked names</title>
+    <script src="../common/theme.js"></script>
+    <link rel="stylesheet" href="../common/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="title-bar" id="title-bar">
+        <div class="title-bar-drag">
+            <span class="material-symbols-outlined title-bar-icon">chat</span>
+            <span class="title-bar-title">Blocked names</span>
+        </div>
+        <div class="title-bar-controls">
+            <button class="title-btn title-btn-close" id="btnTitleClose" title="Close">✕</button>
+        </div>
+    </header>
+
+    <div class="page">
+        <p class="lead" id="lead">
+            Names on this list are hidden in the chat window and the in-game
+            overlay, on every character using this game folder. Ctrl+click a
+            sender name in chat to add them. Unblock is here. System and Info
+            announcements are never hidden.
+        </p>
+
+        <p class="note note-info" id="notice" hidden></p>
+
+        <div class="add-row">
+            <input class="input" id="nameInput" type="text" maxlength="20"
+                   spellcheck="false" placeholder="Character name" autocomplete="off">
+            <button class="btn btn-sm" id="btnAdd" type="button">Add</button>
+        </div>
+
+        <ul class="name-list" id="list"></ul>
+        <p class="empty" id="empty">No names blocked.</p>
+        <p class="note note-warn" id="error" hidden></p>
+    </div>
+
+    <footer class="footer">
+        <span class="footer-hint" id="budget"></span>
+        <button class="btn btn-sm" id="btnCancel">Cancel</button>
+        <button class="btn btn-sm btn-primary" id="btnOk">OK</button>
+    </footer>
+
+    <script src="main.js"></script>
+</body>
+</html>

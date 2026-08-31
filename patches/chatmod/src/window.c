@@ -36,6 +36,9 @@ static void poll_settings(void)
     /* The caption only carries the character name once you are in the world,
      * so this keeps looking rather than giving up at startup. */
     mw_mention_refresh();
+    /* After mention_refresh: adding your own name is refused, so the caption
+     * parse should have had a chance to run. */
+    mw_block_poll();
     mw_scroll_refresh();
     mw_cooldown_refresh();
     /* After mention_refresh: a change here rebuilds the ring, and the rebuild
