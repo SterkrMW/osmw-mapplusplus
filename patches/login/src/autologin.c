@@ -417,7 +417,8 @@ static void roster_path(char *out, int cap)
 int lg_autologin_start(void)
 {
     char path[MAX_PATH];
-    int  i, enabled;
+    char want[LG_ID_MAX];
+    int  i, enabled, wanted;
 
     memset(&g_roster, 0, sizeof(g_roster));
     g_row = NULL;
@@ -436,19 +437,34 @@ int lg_autologin_start(void)
         return 0;
     }
 
+    wanted = lg_launch_row(want, sizeof(want));
+
     enabled = 0;
     for (i = 0; i < g_roster.count; i++) {
         if (g_roster.rows[i].enabled)
             enabled++;
     }
     lg_log("roster: %d row(s), %d enabled", g_roster.count, enabled);
-    if (!enabled) {
+    /* A named row does not need the enabled count: it says which row to take. */
+    if (!enabled && !wanted) {
         lg_roster_free(&g_roster);
         lg_log("roster: nothing enabled -- standing down");
         return 1;
     }
 
-    if (!lg_claim_row(&g_roster, &g_row) || !g_row) {
+    if (wanted) {
+        /* Deliberately no fall-back to the next free row. The player asked for
+         * this account; if a live client already holds it, logging into some
+         * other account is a worse answer than leaving this client at the stock
+         * login screen -- and the server rejects a duplicate account login
+         * anyway. */
+        if (!lg_claim_row_id(&g_roster, want, &g_row) || !g_row) {
+            lg_log("roster: requested row %s unavailable -- standing down", want);
+            lg_roster_free(&g_roster);
+            g_row = NULL;
+            return 1;
+        }
+    } else if (!lg_claim_row(&g_roster, &g_row) || !g_row) {
         lg_log("roster: no free row to claim -- standing down");
         lg_roster_free(&g_roster);
         return 1;

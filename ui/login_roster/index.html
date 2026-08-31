@@ -22,7 +22,9 @@
     <div class="page">
         <p class="note note-info">
             Each launched client claims the next enabled row, so five windows
-            get five different characters. Use <code>#1</code>–<code>#5</code>
+            get five different characters — unless a launch profile or
+            <strong>Client Launch</strong> names the accounts, which wins. Use
+            <code>#1</code>–<code>#5</code>
             for the slot on that account, or the display ID. Passwords stay on
             this Windows user and never come back to this page after save.
             Turn auto-login off under <strong>Settings → Launcher</strong> when
@@ -37,6 +39,7 @@
                         <tr>
                             <th>Account</th>
                             <th>Character</th>
+                            <th>Group</th>
                             <th>On</th>
                         </tr>
                     </thead>
@@ -47,6 +50,8 @@
             <div class="row-actions">
                 <button class="btn btn-sm" id="btnUp">Up</button>
                 <button class="btn btn-sm" id="btnDown">Down</button>
+                <button class="btn btn-sm" id="btnDuplicate"
+                        title="Copy the selected row's account, password and group into a new row">Duplicate</button>
                 <button class="btn btn-sm" id="btnRemove">Remove</button>
             </div>
         </section>
@@ -67,6 +72,17 @@
                 <label class="field-label" for="character">Character</label>
                 <input class="input" id="character" maxlength="31" spellcheck="false" placeholder="#1">
                 <p class="field-hint">Slot <code>#1</code>–<code>#5</code>, or the numeric display ID.</p>
+            </div>
+            <div class="field">
+                <label class="field-label" for="group">Group</label>
+                <input class="input" id="group" maxlength="31" spellcheck="false" list="groupNames"
+                       placeholder="optional">
+                <datalist id="groupNames"></datalist>
+                <p class="field-hint">
+                    Tag rows that launch together — <strong>Client Launch</strong> and the
+                    launch profiles in <strong>Settings → Launcher</strong> can then run a
+                    whole group at once.
+                </p>
             </div>
             <div class="field field-inline">
                 <input type="checkbox" id="enabled" checked>

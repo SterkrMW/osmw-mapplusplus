@@ -35,6 +35,9 @@ void        lg_config_load(void);
 int         lg_cfg_int_in(const char *section, const char *key, int fallback);
 const char *lg_game_dir(void);
 
+/* Non-zero when this launch named a specific roster row; fills out with its id. */
+int  lg_launch_row(char *out, int cap);
+
 int  lg_autologin_start(void);
 void lg_autologin_stop(void);
 

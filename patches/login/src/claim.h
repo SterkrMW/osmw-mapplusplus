@@ -20,6 +20,8 @@ typedef struct {
 
 /* First enabled roster row whose id is not claimed by a live PID. */
 int  lg_claim_row(lg_roster_t *r, lg_row_t **out);
+/* One named row, whether or not it is enabled; fails when a live PID holds it. */
+int  lg_claim_row_id(lg_roster_t *r, const char *id, lg_row_t **out);
 void lg_claim_release(const char *id);
 void lg_claim_clear(void);
 

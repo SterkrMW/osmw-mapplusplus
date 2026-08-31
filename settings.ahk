@@ -119,6 +119,7 @@ _Settings_SendState() {
     global gMinimapKeepOpen, OVERLAY_W, OVERLAY_H, gAccentScheme, gShowHoverCoords
     global APP_VERSION, gVersionCheckEnabled, VERSION_CHECK_URL
     global gUpdateVersion, gUpdateNotes
+    global gPrimaryProfileId, gSecondaryProfileId
 
     ; Monitor choices
     monChoices := _Settings_MonitorChoices()
@@ -177,6 +178,10 @@ _Settings_SendState() {
             . ',"launchLayoutOptions":' launchLayoutsJson
             . ',"primaryLaunchLayout":' _JSON_Str(primaryLaunchLayout)
             . ',"secondaryLaunchLayout":' _JSON_Str(secondaryLaunchLayout)
+            . ',"profiles":' _Settings_ProfilesToJson(launchLayouts)
+            . ',"primaryProfile":' _JSON_Str(gPrimaryProfileId)
+            . ',"secondaryProfile":' _JSON_Str(gSecondaryProfileId)
+            . ',"accountChoices":' _Settings_AccountChoicesToJson()
         . '}'
         . ',"minimap":{'
             . '"scale":' gMinimapScale
@@ -364,6 +369,131 @@ _Settings_AddonsListToJson() {
     return json
 }
 
+; Launch profiles for the page. Monitors go out as the same 0-based choice index
+; the existing display dropdowns use, so the page's two select helpers work
+; unchanged and the conversion back stays in one place on save.
+_Settings_ProfilesToJson(launchLayouts) {
+    json := "["
+    first := true
+    for _, id in LaunchProfileIds() {
+        prof := LaunchProfileById(id)
+        if !IsObject(prof)
+            continue
+        if !first
+            json .= ","
+        first := false
+        json .= '{"id":' _JSON_Str(id)
+            . ',"name":' _JSON_Str(prof["name"])
+            . ',"accounts":' _JSON_Str(prof["accounts"])
+            . ',"count":' prof["count"]
+            . ',"monitorChoice":' (_Settings_MonitorIndexToChoice(prof["monitor"]) - 1)
+            . ',"layout":' _JSON_Str(_Settings_ValidateLaunchLayout(prof["layout"], launchLayouts))
+            . '}'
+    }
+    return json "]"
+}
+
+; What a profile's Accounts dropdown offers, shared by both frontends. Only
+; "next free" when the AutoLogin addon is off or the roster is empty — a profile
+; can still pin a display, a count and a layout without naming accounts.
+_Settings_AccountChoices() {
+    out := [Map("value", "", "label", "Next free roster row")]
+    choicesFn := GetFuncByName("_AutoLogin_LaunchChoices")
+    if !(choicesFn && IsAddonEnabled("AutoLogin"))
+        return out
+    choices := ""
+    try choices := choicesFn()
+    if !IsObject(choices)
+        return out
+    for grp in choices["groups"]
+        out.Push(Map("value", grp["spec"],
+            "label", "Group: " grp["name"] " (" grp["count"] ")"))
+    for row in choices["rows"]
+        out.Push(Map("value", row["startSpec"],
+            "label", "Start at: " row["account"] " (row " row["index"] ")"))
+    for row in choices["rows"]
+        out.Push(Map("value", row["onlySpec"],
+            "label", "Only: " row["account"] " (" row["character"] ")"))
+    return out
+}
+
+_Settings_AccountChoicesToJson() {
+    json := "["
+    first := true
+    for choice in _Settings_AccountChoices() {
+        if !first
+            json .= ","
+        first := false
+        json .= '{"value":' _JSON_Str(choice["value"])
+            . ',"label":' _JSON_Str(choice["label"]) '}'
+    }
+    return json "]"
+}
+
+; Rebuilds gLaunchProfiles from the page. Returns "" on success or a message to
+; show the user. Nothing is committed until every row has validated, so a bad
+; entry cannot leave half a profile set behind.
+_Settings_ApplyProfiles(launcher, launchLayouts) {
+    global gLaunchProfiles, gPrimaryProfileId, gSecondaryProfileId, LAUNCH_LAYOUT_DEFAULT
+    incoming := launcher["profiles"]
+    if (!IsObject(incoming) || Type(incoming) != "Array")
+        return "Launch profiles were unreadable."
+    if (incoming.Length = 0)
+        return "Keep at least one launch profile — Launch (Primary) has to run something."
+
+    built := Map()
+    for prof in incoming {
+        if !IsObject(prof)
+            return "A launch profile was unreadable."
+        id := Trim(String(prof.Has("id") ? prof["id"] : ""))
+        if !(IsInteger(id) && Integer(id) >= 1)
+            return "A launch profile has an invalid id."
+        if built.Has(id)
+            return "Two launch profiles share an id."
+        name := Trim(String(prof.Has("name") ? prof["name"] : ""))
+        if (name = "")
+            name := "Profile " id
+        pcount := prof.Has("count") ? prof["count"] : 0
+        if (!IsInteger(pcount) || Integer(pcount) < 0)
+            return "A launch profile's client count must be 0 (auto) or a positive whole number."
+        choice := prof.Has("monitorChoice") ? prof["monitorChoice"] : 0
+        if !IsInteger(choice)
+            choice := 0
+        ; With Window Layout absent (the Battle variant) the page renders no
+        ; layout control and sends nothing meaningful, so keep whatever is
+        ; stored rather than letting a save from that build wipe the choice a
+        ; Full build made. gLaunchProfiles is still the old map here.
+        layout := prof.Has("layout") ? prof["layout"] : LAUNCH_LAYOUT_DEFAULT
+        if !launchLayouts.available {
+            stored := LaunchProfileById(id)
+            layout := IsObject(stored) ? stored["layout"] : LAUNCH_LAYOUT_DEFAULT
+        }
+        built[id] := Map(
+            "id", id,
+            "name", _Settings_ClipText(name, 40),
+            "accounts", Trim(String(prof.Has("accounts") ? prof["accounts"] : "")),
+            "count", Integer(pcount),
+            ; Back to a 1-based monitor index the same way the flat keys convert.
+            "monitor", _Settings_ChoiceToMonitorIndex(Integer(choice) + 1),
+            "layout", _Settings_ValidateLaunchLayout(layout, launchLayouts))
+    }
+
+    gLaunchProfiles := built
+    primary := Trim(String(launcher.Has("primaryProfile") ? launcher["primaryProfile"] : ""))
+    secondary := Trim(String(launcher.Has("secondaryProfile") ? launcher["secondaryProfile"] : ""))
+    ids := LaunchProfileIds()
+    gPrimaryProfileId := built.Has(primary) ? primary : ids[1]
+    gSecondaryProfileId := built.Has(secondary) ? secondary : ids[ids.Length >= 2 ? 2 : 1]
+    ; SaveLauncherConfig writes the profiles and re-syncs the mirrored globals,
+    ; so nothing here needs to touch gPrimaryMonitorOverride and friends.
+    return ""
+}
+
+_Settings_ClipText(text, maxChars) {
+    s := Trim(String(text))
+    return (StrLen(s) <= maxChars) ? s : SubStr(s, 1, maxChars)
+}
+
 ; ── Handle save ──────────────────────────────────────────────
 
 _Settings_HandleSave(msg) {
@@ -393,17 +523,26 @@ _Settings_HandleSave(msg) {
     }
     gMultiClientCount := Integer(cnt)
     gMultiClientDelay := Integer(dly)
-    ; Monitor choices come as 0-based indexes from JS; convert to 1-based + apply offset.
-    gPrimaryMonitorOverride := _Settings_ChoiceToMonitorIndex(Integer(launcher["primaryMonitor"]) + 1)
-    gSecondaryMonitorOverride := _Settings_ChoiceToMonitorIndex(Integer(launcher["secondaryMonitor"]) + 1)
     launchLayouts := _Settings_LaunchLayoutOptions()
+    ; Display and layout arrive inside the profiles now. An older page that
+    ; still sends the flat keys is honoured rather than ignored, so a stale
+    ; cached page cannot silently discard the user's display choice.
+    if launcher.Has("primaryMonitor")
+        gPrimaryMonitorOverride := _Settings_ChoiceToMonitorIndex(Integer(launcher["primaryMonitor"]) + 1)
+    if launcher.Has("secondaryMonitor")
+        gSecondaryMonitorOverride := _Settings_ChoiceToMonitorIndex(Integer(launcher["secondaryMonitor"]) + 1)
     if launchLayouts.available {
-        gPrimaryLaunchLayout := _Settings_ValidateLaunchLayout(
-            launcher.Has("primaryLaunchLayout") ? launcher["primaryLaunchLayout"] : gPrimaryLaunchLayout,
-            launchLayouts)
-        gSecondaryLaunchLayout := _Settings_ValidateLaunchLayout(
-            launcher.Has("secondaryLaunchLayout") ? launcher["secondaryLaunchLayout"] : gSecondaryLaunchLayout,
-            launchLayouts)
+        if launcher.Has("primaryLaunchLayout")
+            gPrimaryLaunchLayout := _Settings_ValidateLaunchLayout(launcher["primaryLaunchLayout"], launchLayouts)
+        if launcher.Has("secondaryLaunchLayout")
+            gSecondaryLaunchLayout := _Settings_ValidateLaunchLayout(launcher["secondaryLaunchLayout"], launchLayouts)
+    }
+    if launcher.Has("profiles") {
+        applied := _Settings_ApplyProfiles(launcher, launchLayouts)
+        if (applied != "") {
+            _Settings_SendSaveResult(false, applied)
+            return false
+        }
     }
     ; Absent key = an older page that doesn't render the toggle; keep the
     ; current value rather than silently switching the check off.
@@ -521,6 +660,7 @@ ResetAllSettingsToDefaults() {
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, gShowHoverCoords
     global gAddonHooks, gHotkeyActions, LAUNCH_LAYOUT_DEFAULT
+    global gLaunchProfiles, gPrimaryProfileId, gSecondaryProfileId
 
     ; ── Launcher ──
     gGameArgs := DefaultRead("Launcher", "GameArgs", "")
@@ -533,6 +673,17 @@ ResetAllSettingsToDefaults() {
     gPrimaryLaunchLayout := DefaultRead("Launcher", "PrimaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT)
     gSecondaryLaunchLayout := DefaultRead("Launcher", "SecondaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT)
     gVersionCheckEnabled := (DefaultRead("Launcher", "VersionCheck", "1") != "0")
+    ; Profiles own display and layout now, so resetting the four mirrored
+    ; globals is not enough: SaveLauncherConfig re-syncs them *from* the
+    ; profiles, which would put the old values straight back. Rebuild the two
+    ; seeded profiles instead, and SaveLaunchProfiles drops any others' sections.
+    gLaunchProfiles := Map(
+        "1", Map("id", "1", "name", "Primary", "accounts", "", "count", 0,
+            "monitor", gPrimaryMonitorOverride, "layout", gPrimaryLaunchLayout),
+        "2", Map("id", "2", "name", "Secondary", "accounts", "", "count", 0,
+            "monitor", gSecondaryMonitorOverride, "layout", gSecondaryLaunchLayout))
+    gPrimaryProfileId := "1"
+    gSecondaryProfileId := "2"
     SaveLauncherConfig()
 
     ; ── Minimap ──

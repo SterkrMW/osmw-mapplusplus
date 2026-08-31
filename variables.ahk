@@ -4,7 +4,7 @@
 ; The one place the version is written. main.ahk carries a matching
 ; ;@Ahk2Exe-SetVersion literal so the compiled exe's file properties agree, and
 ; build.ps1 fails the build if the two ever drift apart.
-global APP_VERSION := "1.1.0"
+global APP_VERSION := "1.2.0"
 global PROCESS_EXE := "main.exe"
 global GAME_WIN_FILTER := "ahk_exe " PROCESS_EXE
 ; RVAs from main.exe — do not use fixed absolute addresses (bases differ per process / ASLR).
@@ -225,6 +225,21 @@ global gMultiClientDelay := 0    ; Delay (ms) between each client launch in that
 global LAUNCH_LAYOUT_DEFAULT := "__default__"
 global gPrimaryLaunchLayout := LAUNCH_LAYOUT_DEFAULT
 global gSecondaryLaunchLayout := LAUNCH_LAYOUT_DEFAULT
+; Named launch profiles. Each bundles the four things a launch needs — which
+; accounts, how many clients, which display, which layout — so the Primary and
+; Secondary actions stay one click and one hotkey while still being able to mean
+; "my main team" and "my alts". Map of id (a positive integer, as a string) to a
+; Map of name/accounts/count/monitor/layout; see LoadLaunchProfiles.
+global gLaunchProfiles := Map()
+; Which profile each launch action runs. "" falls back to a synthesised default
+; that reproduces the pre-profile behaviour exactly.
+global gPrimaryProfileId := ""
+global gSecondaryProfileId := ""
+; Accounts spec prefixes, shared by the store, the menus and Settings.
+global LAUNCH_ACCOUNTS_NEXTFREE := ""      ; whatever the roster hands out
+global LAUNCH_ACCOUNTS_GROUP := "group:"   ; every row tagged with this group
+global LAUNCH_ACCOUNTS_START := "start:"   ; count rows from this row onward
+global LAUNCH_ACCOUNTS_ONLY := "only:"     ; exactly this one row
 ; Interface mode ([UI] in config.ini). WebView2 preserves the polished tray,
 ; settings and radial client picker; native keeps the process Chromium-free.
 global gInterfaceMode := "webview"

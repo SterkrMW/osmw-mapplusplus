@@ -19,6 +19,13 @@ global _AUTOLOGIN_UI_FORBIDDEN := 1
 global _AUTOLOGIN_BLOB_MAX := 65536
 ; Must match LG_CONSENT_VAR in patches\login\src\dllmain.c.
 global _AUTOLOGIN_CONSENT_VAR := "OSMW_AUTOLOGIN"
+; Must match LG_ROW_VAR in patches\login\src\dllmain.c.
+global _AUTOLOGIN_ROW_VAR := "OSMW_LOGIN_ROW"
+; Row groups are a Maps++ launcher concept — the DLL has no use for them — so
+; they live here rather than in login_roster.dat. Changing that file's format
+; would make every already-deployed osmw_login.dll fail to read it and stop
+; logging anyone in, which is far too high a price for a label.
+global _AUTOLOGIN_GROUP_SECTION := "AutoLoginGroups"
 
 global _AutoLogin_PanelMode := ""
 global _AutoLogin_WebGui := 0
@@ -27,6 +34,7 @@ global _AutoLogin_NativeList := 0
 global _AutoLogin_NativeAccount := 0
 global _AutoLogin_NativePassword := 0
 global _AutoLogin_NativeCharacter := 0
+global _AutoLogin_NativeGroup := 0
 global _AutoLogin_NativeEnabled := 0
 global _AutoLogin_NativeStatus := 0
 global _AutoLogin_NativeHint := 0
@@ -82,11 +90,29 @@ _AutoLogin_BeforeLaunch(gameDir) {
     EnvSet(_AUTOLOGIN_CONSENT_VAR, gLaunchAutoLogin ? "1" : "")
 }
 
-; Called after the launch batch's Run() calls, so the variable exists only for
-; the moment it takes to spawn the clients that are meant to have it.
+; Which roster row the next client must take, set between the Run() calls of a
+; batch rather than around it.
+;
+; Consent is one answer for the whole launch, so BeforeLaunch can set it once.
+; The row is not: five clients that all inherited the same value would fight
+; over one account. Run() snapshots the environment at CreateProcess, so setting
+; it immediately before each Run() is what makes it per-client.
+;
+; An empty token means "no preference" — the client falls back to claiming the
+; next free enabled row, exactly as it did before any of this existed.
+_AutoLogin_BeforeLaunchClient(token) {
+    global _AUTOLOGIN_ROW_VAR
+    EnvSet(_AUTOLOGIN_ROW_VAR, String(token))
+}
+
+; Called after the launch batch's Run() calls, so the variables exist only for
+; the moment it takes to spawn the clients that are meant to have them. The row
+; variable is cleared here too: a plain next-free launch must never inherit a
+; row id left behind by an earlier assigned batch.
 _AutoLogin_AfterLaunch() {
-    global _AUTOLOGIN_CONSENT_VAR
+    global _AUTOLOGIN_CONSENT_VAR, _AUTOLOGIN_ROW_VAR
     EnvSet(_AUTOLOGIN_CONSENT_VAR, "")
+    EnvSet(_AUTOLOGIN_ROW_VAR, "")
 }
 
 ; ── Paths ───────────────────────────────────────────────────────
@@ -96,6 +122,231 @@ _AutoLogin_RosterPath() {
     if (gameDir = "")
         return ""
     return gameDir "\login_roster.dat"
+}
+
+; ── Row groups ──────────────────────────────────────────────────
+
+; config.ini [AutoLoginGroups] <rowId>=<name>. Keyed by the roster row's opaque
+; id rather than by its account, so a group survives reordering, renaming an
+; account, and two rows sharing one account — which is the normal case, since
+; five characters on one account are five rows.
+_AutoLogin_ReadGroups() {
+    global CONFIG_INI, _AUTOLOGIN_GROUP_SECTION
+    groups := Map()
+    raw := ""
+    try raw := IniRead(CONFIG_INI, _AUTOLOGIN_GROUP_SECTION)
+    catch
+        return groups
+    for line in StrSplit(raw, "`n", " `t`r") {
+        eq := InStr(line, "=")
+        if !eq
+            continue
+        rowId := Trim(SubStr(line, 1, eq - 1))
+        name := Trim(SubStr(line, eq + 1))
+        if (rowId != "" && name != "")
+            groups[rowId] := name
+    }
+    return groups
+}
+
+; Rewrites the section from the saved rows, so a removed row cannot leave its
+; group behind to be inherited by a later row reusing the id.
+_AutoLogin_SaveGroups(rows) {
+    global CONFIG_INI, _AUTOLOGIN_GROUP_SECTION
+    ; Group names are user text and this deletes before it writes — without
+    ; this the ini becomes ANSI and mangles anything outside the codepage.
+    EnsureIniUtf16(CONFIG_INI)
+    try IniDelete(CONFIG_INI, _AUTOLOGIN_GROUP_SECTION)
+    for row in rows {
+        name := row.Has("group") ? Trim(String(row["group"])) : ""
+        if (name = "")
+            continue
+        try IniWrite(name, CONFIG_INI, _AUTOLOGIN_GROUP_SECTION, row["id"])
+    }
+}
+
+; Distinct group names, in roster row order — the order the user arranged, not
+; alphabetical, so the menu matches the editor.
+_AutoLogin_GroupNames(rows) {
+    seen := Map()
+    names := []
+    for row in rows {
+        name := row.Has("group") ? Trim(String(row["group"])) : ""
+        if (name = "" || seen.Has(name))
+            continue
+        seen[name] := true
+        names.Push(name)
+    }
+    return names
+}
+
+; ── Launch plans ────────────────────────────────────────────────
+
+; Turns an accounts spec into one roster row id per client. Core calls this
+; through GetFuncByName and treats the result as opaque tokens; the meaning of
+; a token — a row id the DLL will claim — lives entirely on this side.
+_AutoLogin_ResolvePlan(spec, count) {
+    global LAUNCH_ACCOUNTS_GROUP, LAUNCH_ACCOUNTS_START, LAUNCH_ACCOUNTS_ONLY
+    spec := Trim(String(spec))
+    if (spec = "")
+        return []
+    loaded := _AutoLogin_ReadFile()
+    if !loaded.ok
+        return []
+    rows := loaded.rows
+    plan := []
+
+    if (InStr(spec, LAUNCH_ACCOUNTS_GROUP) = 1) {
+        want := SubStr(spec, StrLen(LAUNCH_ACCOUNTS_GROUP) + 1)
+        for row in rows {
+            if (row["group"] = want)
+                plan.Push(row["id"])
+        }
+        return plan
+    }
+
+    if (InStr(spec, LAUNCH_ACCOUNTS_ONLY) = 1) {
+        want := SubStr(spec, StrLen(LAUNCH_ACCOUNTS_ONLY) + 1)
+        for row in rows {
+            if (row["id"] = want)
+                return [row["id"]]
+        }
+        return plan
+    }
+
+    if (InStr(spec, LAUNCH_ACCOUNTS_START) = 1) {
+        want := SubStr(spec, StrLen(LAUNCH_ACCOUNTS_START) + 1)
+        start := 0
+        for i, row in rows {
+            if (row["id"] = want) {
+                start := i
+                break
+            }
+        }
+        if !start
+            return plan
+        wanted := (count >= 1) ? count : rows.Length
+        Loop wanted {
+            idx := start + A_Index - 1
+            if (idx > rows.Length)
+                break
+            plan.Push(rows[idx]["id"])
+        }
+        return plan
+    }
+
+    ; An unrecognised spec means "next free" rather than an error: a group the
+    ; user later deleted should not stop the launch, it should just stop
+    ; assigning accounts.
+    return plan
+}
+
+; What both Settings and the tray menu offer, from one place so they cannot
+; drift. Rows are in roster file order throughout.
+_AutoLogin_LaunchChoices() {
+    global LAUNCH_ACCOUNTS_GROUP, LAUNCH_ACCOUNTS_START, LAUNCH_ACCOUNTS_ONLY
+    out := Map("groups", [], "rows", [])
+    loaded := _AutoLogin_ReadFile()
+    if !loaded.ok
+        return out
+    rows := loaded.rows
+    for name in _AutoLogin_GroupNames(rows) {
+        n := 0
+        for row in rows {
+            if (row["group"] = name)
+                n++
+        }
+        out["groups"].Push(Map("name", name, "count", n, "spec", LAUNCH_ACCOUNTS_GROUP name))
+    }
+    for i, row in rows {
+        out["rows"].Push(Map(
+            "id", row["id"],
+            "index", i,
+            "account", row["account"],
+            "character", row["character"],
+            "group", row["group"],
+            "startSpec", LAUNCH_ACCOUNTS_START row["id"],
+            "onlySpec", LAUNCH_ACCOUNTS_ONLY row["id"]))
+    }
+    return out
+}
+
+; ── Client Launch menu ──────────────────────────────────────────
+
+; Menu.Add treats a repeated label as "modify that item", so two identical
+; labels would silently collapse into one entry. Two rows on one account with
+; the same character is a user mistake rather than a normal state, but it must
+; not quietly lose a menu item.
+_AutoLogin_UniqueLabel(used, label) {
+    if !used.Has(label) {
+        used[label] := 1
+        return label
+    }
+    used[label] += 1
+    return label " (" used[label] ")"
+}
+
+; The Primary/Secondary half of Client Launch: groups, then batches starting at
+; a chosen account, then single accounts. Returns "" when there is nothing to
+; offer, so the caller can leave the whole item out rather than show an empty
+; submenu.
+_AutoLogin_BuildAccountMenu(monitorWhich) {
+    global gMultiClientCount
+    loaded := _AutoLogin_ReadFile()
+    if (!loaded.ok || !loaded.rows.Length)
+        return ""
+    rows := loaded.rows
+    m := Menu()
+    used := Map()
+
+    groups := _AutoLogin_GroupNames(rows)
+    for name in groups {
+        n := 0
+        for row in rows {
+            if (row["group"] = name)
+                n++
+        }
+        m.Add(_AutoLogin_UniqueLabel(used, "Group: " name " (" n ")"),
+            _AutoLogin_LaunchSpec.Bind(monitorWhich, "group:" name))
+    }
+    if groups.Length
+        m.Add()
+
+    ; How far a "start at" batch reaches, so the label can say so rather than
+    ; leaving the user to count rows in the editor.
+    profile := ResolveLaunchProfile(monitorWhich)
+    span := (profile["count"] >= 1) ? profile["count"] : gMultiClientCount
+    for i, row in rows {
+        last := i + span - 1
+        if (last > rows.Length)
+            last := rows.Length
+        m.Add(_AutoLogin_UniqueLabel(used,
+            "Start at: " row["account"] " (" i (last > i ? "-" last : "") ")"),
+            _AutoLogin_LaunchSpec.Bind(monitorWhich, "start:" row["id"]))
+    }
+    m.Add()
+
+    for row in rows {
+        m.Add(_AutoLogin_UniqueLabel(used, "Only: " row["account"] " (" row["character"] ")"),
+            _AutoLogin_LaunchSpec.Bind(monitorWhich, "only:" row["id"]))
+    }
+    return m
+}
+
+; Reached from the tray menu, which arrives via PostMessage rather than a
+; WebView2 message, so raising a dialog here needs no DeferFromWebMessage.
+_AutoLogin_LaunchSpec(monitorWhich, spec, *) {
+    global gMultiClientCount
+    profile := ResolveLaunchProfile(monitorWhich)
+    span := (profile["count"] >= 1) ? profile["count"] : gMultiClientCount
+    plan := _AutoLogin_ResolvePlan(spec, span)
+    if !plan.Length {
+        ShowMessage("Nothing in the roster matches that choice any more."
+            . " Open Clients & Windows → Auto-login roster… and check the accounts and groups.",
+            "Client Launch", Map("severity", "warn"))
+        return
+    }
+    LaunchConfiguredClients(monitorWhich, 0, plan)
 }
 
 ; ── DPAPI / file ────────────────────────────────────────────────
@@ -174,6 +425,7 @@ _AutoLogin_ReadFile() {
     path := _AutoLogin_RosterPath()
     rows := []
     blobs := Map()
+    groups := _AutoLogin_ReadGroups()
     if (path = "" || !FileExist(path))
         return {ok: true, rows: rows, blobs: blobs, reason: ""}
 
@@ -226,6 +478,9 @@ _AutoLogin_ReadFile() {
             "id", rowId,
             "account", accRes.text,
             "character", (charRes.text = "") ? "#1" : charRes.text,
+            ; Groups live in config.ini, not in this file — see the header of
+            ; _AutoLogin_ReadGroups for why the .dat format stays put.
+            "group", groups.Has(rowId) ? groups[rowId] : "",
             "enabled", enabled ? true : false,
             "hasPassword", blobLen > 0
         ))
@@ -238,6 +493,30 @@ _AutoLogin_NewId() {
     static seq := 0
     seq++
     return Format("{:x}-{:x}-{:x}", A_TickCount, DllCall("GetCurrentProcessId"), seq)
+}
+
+; The plaintext a not-yet-saved row is carrying, for a duplicate of a duplicate.
+; Follows passwordFrom transitively with a visited guard, since the payload is
+; user-supplied and a cycle would otherwise spin forever.
+_AutoLogin_PendingPassword(incoming, wantId) {
+    seen := Map()
+    while (wantId != "" && !seen.Has(wantId)) {
+        seen[wantId] := true
+        next := ""
+        for row in incoming {
+            if !IsObject(row)
+                continue
+            rowId := row.Has("id") ? Trim(String(row["id"])) : ""
+            if (rowId != wantId)
+                continue
+            if (row.Has("password") && String(row["password"]) != "")
+                return String(row["password"])
+            next := row.Has("passwordFrom") ? Trim(String(row["passwordFrom"])) : ""
+            break
+        }
+        wantId := next
+    }
+    return ""
 }
 
 _AutoLogin_SaveIncoming(incoming) {
@@ -283,9 +562,14 @@ _AutoLogin_SaveIncoming(incoming) {
         enabled := true
         if row.Has("enabled")
             enabled := !!(row["enabled"])
+        group := _AutoLogin_ClipField(row.Has("group") ? Trim(String(row["group"])) : "", 31)
         pwText := ""
         if row.Has("password")
             pwText := String(row["password"])
+        ; Duplicating a row carries this instead of a password: five characters
+        ; on one account are five rows, and typing the same password five times
+        ; is five chances to typo something that can never be read back.
+        pwFrom := row.Has("passwordFrom") ? Trim(String(row["passwordFrom"])) : ""
         blob := 0
         if (pwText != "") {
             if (StrLen(pwText) > _AUTOLOGIN_PW_CHARS)
@@ -296,6 +580,17 @@ _AutoLogin_SaveIncoming(incoming) {
             blob := protected.blob
         } else if existing.blobs.Has(rowId) {
             blob := existing.blobs[rowId]
+        } else if (pwFrom != "" && existing.blobs.Has(pwFrom)) {
+            blob := existing.blobs[pwFrom]
+        } else if (pwFrom != "" && (borrowed := _AutoLogin_PendingPassword(incoming, pwFrom)) != "") {
+            ; The source row is itself new in this same save — duplicating a row
+            ; that has not been written yet has to work too.
+            if (StrLen(borrowed) > _AUTOLOGIN_PW_CHARS)
+                return {ok: false, reason: "Passwords cannot be longer than " _AUTOLOGIN_PW_CHARS " characters."}
+            protected := _AutoLogin_ProtectPassword(borrowed)
+            if !protected.ok
+                return {ok: false, reason: protected.reason}
+            blob := protected.blob
         } else {
             return {ok: false, reason: "New rows need a password."}
         }
@@ -303,6 +598,7 @@ _AutoLogin_SaveIncoming(incoming) {
             "id", rowId,
             "account", account,
             "character", character,
+            "group", group,
             "enabled", enabled,
             "blob", blob
         ))
@@ -340,7 +636,13 @@ _AutoLogin_SaveIncoming(incoming) {
         return {ok: false, reason: "Could not write the roster file. " err.Message}
     }
     f.Close()
+    ; Only after the roster itself is on disk, so a failed write cannot leave
+    ; groups pointing at rows that were never saved.
+    _AutoLogin_SaveGroups(outRows)
     LogInfo("AutoLogin", "Saved " outRows.Length " roster row(s)")
+    ; Client Launch lists these accounts and groups, so it has to be rebuilt.
+    ; Deferred, because this can be reached from a WebView2 message handler.
+    SetTimer(RebuildTrayMenu, -1)
     return {ok: true, reason: ""}
 }
 
@@ -351,6 +653,7 @@ _AutoLogin_RowsToJson(rows) {
             . '{"id":' _JSON_Str(row["id"])
             . ',"account":' _JSON_Str(row["account"])
             . ',"character":' _JSON_Str(row["character"])
+            . ',"group":' _JSON_Str(row.Has("group") ? row["group"] : "")
             . ',"enabled":' (row["enabled"] ? "true" : "false")
             . ',"hasPassword":' (row["hasPassword"] ? "true" : "false") '}'
     }
@@ -407,7 +710,7 @@ _AutoLogin_ShowWeb() {
     global _AutoLogin_WebGui, _AutoLogin_PanelMode
     dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
     settings := {DllPath: A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll",
-        DefaultWidth: 560, DefaultHeight: 720}
+        DefaultWidth: 560, DefaultHeight: 780}
     g := WebViewGui("-Caption +AlwaysOnTop +Resize", "Maps++ — Auto-login", , settings)
     g.OnEvent("Close", (*) => _AutoLogin_WebRequestClose())
     g.WebMessageReceived(WebMsgHandler(_AutoLogin_OnWebMessage))
@@ -415,7 +718,7 @@ _AutoLogin_ShowWeb() {
     g.Navigate(UiPageUrl("ui/login_roster/index.html"))
     _AutoLogin_WebGui := g
     _AutoLogin_PanelMode := "web"
-    g.Show("w560 h720 Center")
+    g.Show("w560 h780 Center")
 }
 
 _AutoLogin_WebPost(json) {
@@ -492,13 +795,13 @@ _AutoLogin_ShowNative() {
     _AutoLogin_PanelMode := "native"
     _AutoLogin_NativeRefreshList()
     _AutoLogin_NativeFillFields()
-    _AutoLogin_NativeGui.Show("w520 h560 Center")
+    _AutoLogin_NativeGui.Show("w520 h620 Center")
 }
 
 _AutoLogin_NativeEnsureGui() {
     global _AutoLogin_NativeGui, _AutoLogin_NativeList
     global _AutoLogin_NativeAccount, _AutoLogin_NativePassword
-    global _AutoLogin_NativeCharacter, _AutoLogin_NativeEnabled
+    global _AutoLogin_NativeCharacter, _AutoLogin_NativeGroup, _AutoLogin_NativeEnabled
     global _AutoLogin_NativeStatus, _AutoLogin_NativeHint
     if (IsObject(_AutoLogin_NativeGui) && _AutoLogin_NativeGui.Hwnd)
         return
@@ -511,12 +814,13 @@ _AutoLogin_NativeEnsureGui() {
     g.OnEvent("Escape", (*) => _AutoLogin_NativeClose())
 
     g.Add("Text", "x12 y12 w496",
-        "Each launched client claims the next enabled row. Passwords stay on this Windows user. Turn auto-login off under Settings → Launcher for the stock login.")
+        "Each launched client claims the next enabled row, unless a launch profile or Client Launch names the accounts. Passwords stay on this Windows user. Turn auto-login off under Settings → Launcher for the stock login.")
     _AutoLogin_NativeList := g.Add("ListView", "x12 y+10 w496 r10 Grid -Multi NoSortHdr",
-        ["Account", "Character", "On"])
+        ["Account", "Character", "Group", "On"])
     _AutoLogin_NativeList.OnEvent("ItemSelect", _AutoLogin_NativeOnSelect)
     g.Add("Button", "x12 y+8 w72", "Up").OnEvent("Click", (*) => _AutoLogin_NativeMove(-1))
     g.Add("Button", "x+8 yp w72", "Down").OnEvent("Click", (*) => _AutoLogin_NativeMove(1))
+    g.Add("Button", "x+8 yp w88", "Duplicate").OnEvent("Click", (*) => _AutoLogin_NativeDuplicate())
     g.Add("Button", "x+8 yp w72", "Remove").OnEvent("Click", (*) => _AutoLogin_NativeRemove())
 
     g.Add("Text", "x12 y+16 w80", "Account")
@@ -527,6 +831,10 @@ _AutoLogin_NativeEnsureGui() {
         "Write-only. Blank keeps the stored password.")
     g.Add("Text", "x12 y+10 w80", "Character")
     _AutoLogin_NativeCharacter := g.Add("Edit", "x100 yp-3 w408 Limit31")
+    g.Add("Text", "x12 y+10 w80", "Group")
+    _AutoLogin_NativeGroup := g.Add("Edit", "x100 yp-3 w408 Limit31")
+    g.Add("Text", "x100 y+4 w408 c666666",
+        "Optional. Launch a whole group from Client Launch or a launch profile.")
     _AutoLogin_NativeEnabled := g.Add("CheckBox", "x100 y+10 w408 Checked",
         "Enabled — claim this row on launch")
 
@@ -549,6 +857,7 @@ _AutoLogin_NativeRefreshList() {
     _AutoLogin_NativeList.Delete()
     for row in _AutoLogin_Draft {
         _AutoLogin_NativeList.Add(, row["account"], row["character"],
+            row.Has("group") ? row["group"] : "",
             row["enabled"] ? "yes" : "no")
     }
     if (_AutoLogin_Selected >= 1 && _AutoLogin_Selected <= _AutoLogin_Draft.Length)
@@ -559,11 +868,13 @@ _AutoLogin_NativeRefreshList() {
 _AutoLogin_NativeFillFields() {
     global _AutoLogin_Draft, _AutoLogin_Selected
     global _AutoLogin_NativeAccount, _AutoLogin_NativePassword
-    global _AutoLogin_NativeCharacter, _AutoLogin_NativeEnabled, _AutoLogin_NativeHint
+    global _AutoLogin_NativeCharacter, _AutoLogin_NativeGroup
+    global _AutoLogin_NativeEnabled, _AutoLogin_NativeHint
     if (_AutoLogin_Selected < 1 || _AutoLogin_Selected > _AutoLogin_Draft.Length) {
         _AutoLogin_NativeAccount.Value := ""
         _AutoLogin_NativePassword.Value := ""
         _AutoLogin_NativeCharacter.Value := ""
+        _AutoLogin_NativeGroup.Value := ""
         _AutoLogin_NativeEnabled.Value := 1
         _AutoLogin_NativeHint.Text := "Write-only. Blank keeps the stored password."
         return
@@ -572,8 +883,9 @@ _AutoLogin_NativeFillFields() {
     _AutoLogin_NativeAccount.Value := row["account"]
     _AutoLogin_NativePassword.Value := ""
     _AutoLogin_NativeCharacter.Value := row["character"]
+    _AutoLogin_NativeGroup.Value := row.Has("group") ? row["group"] : ""
     _AutoLogin_NativeEnabled.Value := row["enabled"] ? 1 : 0
-    _AutoLogin_NativeHint.Text := row["hasPassword"]
+    _AutoLogin_NativeHint.Text := (row["hasPassword"] || row.Has("passwordFrom"))
         ? "Stored. Leave blank to keep it, or type a new password."
         : "No password stored yet — type one before save."
 }
@@ -589,11 +901,12 @@ _AutoLogin_NativeOnSelect(*) {
 
 _AutoLogin_NativeReadFields() {
     global _AutoLogin_NativeAccount, _AutoLogin_NativePassword
-    global _AutoLogin_NativeCharacter, _AutoLogin_NativeEnabled
+    global _AutoLogin_NativeCharacter, _AutoLogin_NativeGroup, _AutoLogin_NativeEnabled
     return Map(
         "account", Trim(_AutoLogin_NativeAccount.Value),
         "password", _AutoLogin_NativePassword.Value,
         "character", Trim(_AutoLogin_NativeCharacter.Value),
+        "group", Trim(_AutoLogin_NativeGroup.Value),
         "enabled", _AutoLogin_NativeEnabled.Value ? true : false
     )
 }
@@ -618,6 +931,7 @@ _AutoLogin_NativeApply() {
     row := _AutoLogin_Draft[_AutoLogin_Selected]
     row["account"] := fields["account"]
     row["character"] := (fields["character"] = "") ? "#1" : fields["character"]
+    row["group"] := fields["group"]
     row["enabled"] := fields["enabled"]
     if (fields["password"] != "") {
         row["password"] := fields["password"]
@@ -645,6 +959,7 @@ _AutoLogin_NativeAdd() {
         "id", _AutoLogin_NewId(),
         "account", fields["account"],
         "character", (fields["character"] = "") ? "#1" : fields["character"],
+        "group", fields["group"],
         "enabled", fields["enabled"],
         "hasPassword", true,
         "password", fields["password"]
@@ -654,6 +969,48 @@ _AutoLogin_NativeAdd() {
     _AutoLogin_NativeRefreshList()
     _AutoLogin_NativeFillFields()
     _AutoLogin_NativeSetStatus("Row added. Save to write the file.")
+}
+
+; The usual reason for a second row is the same account's next character, so the
+; slot advances by one; anything that is not a #N slot has no "next" and is
+; copied verbatim. The password is never read back — the new row names the row
+; to copy the blob from and the save path does the copying.
+_AutoLogin_NativeDuplicate() {
+    global _AutoLogin_Draft, _AutoLogin_Selected, _AUTOLOGIN_MAX_ROWS
+    if (_AutoLogin_Selected < 1 || _AutoLogin_Selected > _AutoLogin_Draft.Length) {
+        _AutoLogin_NativeSetStatus("Select a row to duplicate first.")
+        return
+    }
+    if (_AutoLogin_Draft.Length >= _AUTOLOGIN_MAX_ROWS) {
+        _AutoLogin_NativeSetStatus("At most " _AUTOLOGIN_MAX_ROWS " rows can be stored.")
+        return
+    }
+    src := _AutoLogin_Draft[_AutoLogin_Selected]
+    copy := Map(
+        "id", _AutoLogin_NewId(),
+        "account", src["account"],
+        "character", _AutoLogin_NextSlot(src["character"]),
+        "group", src.Has("group") ? src["group"] : "",
+        "enabled", src["enabled"],
+        "hasPassword", true
+    )
+    if (src.Has("password") && src["password"] != "")
+        copy["password"] := src["password"]
+    else
+        copy["passwordFrom"] := src.Has("passwordFrom") ? src["passwordFrom"] : src["id"]
+    _AutoLogin_Draft.InsertAt(_AutoLogin_Selected + 1, copy)
+    _AutoLogin_Selected += 1
+    _AutoLogin_NativeRefreshList()
+    _AutoLogin_NativeFillFields()
+    _AutoLogin_NativeSetStatus("Duplicated — set the character, then Apply and Save.")
+}
+
+_AutoLogin_NextSlot(character) {
+    c := Trim(String(character))
+    if !RegExMatch(c, "^#(\d+)$", &m)
+        return (c = "") ? "#1" : c
+    n := Integer(m[1]) + 1
+    return (n <= 5) ? "#" n : c
 }
 
 _AutoLogin_NativeRemove() {
@@ -694,10 +1051,13 @@ _AutoLogin_NativeSave() {
             "id", row["id"],
             "account", row["account"],
             "character", row["character"],
+            "group", row.Has("group") ? row["group"] : "",
             "enabled", row["enabled"]
         )
         if (row.Has("password") && row["password"] != "")
             item["password"] := row["password"]
+        else if (row.Has("passwordFrom") && row["passwordFrom"] != "")
+            item["passwordFrom"] := row["passwordFrom"]
         payload.Push(item)
     }
     result := _AutoLogin_SaveIncoming(payload)

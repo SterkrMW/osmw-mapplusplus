@@ -1345,6 +1345,9 @@ LoadLauncherConfig() {
         gSecondaryMonitorOverride := Integer(secMon)
     gPrimaryLaunchLayout := Trim(ConfigRead("Launcher", "PrimaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
     gSecondaryLaunchLayout := Trim(ConfigRead("Launcher", "SecondaryLaunchLayout", LAUNCH_LAYOUT_DEFAULT))
+    ; After the four keys above, because a config with no profiles yet seeds its
+    ; first two from them. Re-points the same globals at the bound profiles.
+    LoadLaunchProfiles()
 
     gVersionCheckEnabled :=
         (Trim(ConfigRead("Launcher", "VersionCheck", "1")) != "0")
@@ -1489,17 +1492,21 @@ GetSecondaryMonitorIndex() {
 
 ResolveMonitorForHotkey(which) {
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    return ResolveMonitorIndex(
+        (which = "secondary") ? gSecondaryMonitorOverride : gPrimaryMonitorOverride, which)
+}
+
+; The same rule against an explicit override, so a launch profile can name a
+; display without having to be the profile currently bound to Primary/Secondary.
+; 0 means "no preference"; a pinned display that is not currently connected also
+; falls through, rather than permanently discarding the user's choice.
+ResolveMonitorIndex(override, which := "primary") {
     count := MonitorGetCount()
-    if (which = "secondary") {
-        ; Honor a pinned secondary display when it is currently connected;
-        ; otherwise fall back to the first non-primary monitor.
-        if (gSecondaryMonitorOverride >= 1 && gSecondaryMonitorOverride <= count)
-            return gSecondaryMonitorOverride
-        return GetSecondaryMonitorIndex()
-    }
-    if (gPrimaryMonitorOverride >= 1 && gPrimaryMonitorOverride <= count)
-        return gPrimaryMonitorOverride
-    return MonitorGetPrimary()
+    if (override >= 1 && override <= count)
+        return override
+    ; Honor a pinned secondary display when it is currently connected;
+    ; otherwise fall back to the first non-primary monitor.
+    return (which = "secondary") ? GetSecondaryMonitorIndex() : MonitorGetPrimary()
 }
 
 ; Returns the monitor index whose bounds contain a screen point. Cursor-anchored
@@ -1578,24 +1585,60 @@ ResolveGameDirectory() {
     return dir
 }
 
-; Copies inject helpers from Maps++\Lib into the game folder when they are
-; missing there. Never overwrites — a loaded DLL is locked while clients run.
+; Copies inject helpers from Maps++\Lib into the game folder.
+;
+; This used to refuse whenever the destination existed, on the grounds that a
+; loaded DLL is locked while clients run. That is true, but it also meant an
+; install that deployed the payloads once kept them for good: every later fix to
+; the mods shipped in Lib\ and then sat there, because the game folder already
+; had a file by that name. Auto-login's per-client row assignment is the first
+; feature to need a newer DLL than an existing install has.
+;
+; So the deployed set carries the APP_VERSION that wrote it. A matching stamp
+; skips, which is the common launch and touches nothing; a missing or different
+; one re-copies. A locked file still throws — the stamp is then left alone, so
+; the next launch made with no clients running tries again rather than recording
+; a half-updated set as current.
 EnsureInjectPayload(gameDir) {
+    global APP_VERSION
     if (gameDir = "" || !DirExist(gameDir))
         return
+    stampPath := gameDir "\osmw_payload.ini"
+    fresh := (IniRead(stampPath, "Payload", "Version", "") = APP_VERSION)
     payloadNames := ["osmw_login.dll", "osmw_chat.dll", "osmw_chat_launch.exe"]
+    copied := 0
+    failed := 0
     for payloadName in payloadNames {
         src := A_ScriptDir "\Lib\" payloadName
         dst := gameDir "\" payloadName
-        if !FileExist(src) || FileExist(dst)
+        if !FileExist(src)
+            continue
+        if (fresh && FileExist(dst))
             continue
         try {
-            FileCopy(src, dst)
+            FileCopy(src, dst, true)
+            copied++
             LogInfo("Launch", "Deployed " payloadName " into the game folder")
         } catch as err {
-            LogWarn("Launch", "Could not deploy " payloadName ": " err.Message)
+            failed++
+            LogWarn("Launch", "Could not deploy " payloadName ": " err.Message
+                . " — close every client and launch again to pick it up")
         }
     }
+    if (copied && !failed) {
+        try IniWrite(APP_VERSION, stampPath, "Payload", "Version")
+        catch as err
+            LogWarn("Launch", "Could not stamp the deployed payload: " err.Message)
+    }
+}
+
+; Which mod build the game folder is actually running, for diagnostics. A stale
+; answer here explains a whole class of "the fix didn't work" reports.
+DeployedPayloadVersion() {
+    gameDir := ResolveGameDirectory()
+    if (gameDir = "" || !DirExist(gameDir))
+        return ""
+    return IniRead(gameDir "\osmw_payload.ini", "Payload", "Version", "")
 }
 
 ; Prefer the 32-bit inject helper when it is present; overlay attach still
@@ -1724,11 +1767,18 @@ IsAddonEnabled(addonName) {
 ; A missing pinned layout falls back to the current default instead of silently
 ; skipping organisation after the user has asked for it.
 ResolveLaunchLayoutName(monitorWhich) {
-    global gPrimaryLaunchLayout, gSecondaryLaunchLayout, LAUNCH_LAYOUT_DEFAULT
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout
+    return ResolveLayoutPreference(
+        (monitorWhich = "secondary") ? gSecondaryLaunchLayout : gPrimaryLaunchLayout)
+}
+
+; The same resolution against an explicit preference, so a launch profile can
+; pin a layout of its own. Returns "" when Window Layout is not installed (the
+; Battle variant ships without it) or the preference is deliberately empty.
+ResolveLayoutPreference(preference) {
+    global LAUNCH_LAYOUT_DEFAULT
     if !IsAddonEnabled("WindowLayout")
         return ""
-
-    preference := (monitorWhich = "secondary") ? gSecondaryLaunchLayout : gPrimaryLaunchLayout
     if (preference = "")
         return ""
 
@@ -1747,15 +1797,219 @@ ResolveLaunchLayoutName(monitorWhich) {
     return defaultName
 }
 
+; ── Launch profiles ─────────────────────────────────────────────
+;
+; A profile is the whole answer to "what does Launch (Primary) do": which
+; accounts, how many clients, which display, which layout. The display and
+; layout used to live in [Launcher] as Primary*/Secondary* pairs, and the
+; account was never anybody's choice at all — whichever client finished loading
+; first took the first free roster row. That is fine for one batch of five and
+; useless for a player with eleven characters and two teams.
+;
+; The Primary/Secondary tray items and hotkeys are deliberately unchanged; they
+; just resolve their bound profile now. gPrimaryMonitorOverride and the other
+; three globals survive as mirrors of the bound profiles, so every existing
+; caller — ResolveMonitorForHotkey, ResolveLaunchLayoutName, the startup
+; single-client launch — keeps reading exactly the values it always read.
+;
+; Stored the way layouts.ini does it: an index section mapping a stable numeric
+; id to a display name, one section per profile. The bindings point at ids, so
+; renaming a profile cannot orphan them.
+
+; Profile ids, numerically sorted. Map enumeration order is not defined, and
+; neither the tray menu nor the Settings list may shuffle between opens.
+LaunchProfileIds() {
+    global gLaunchProfiles
+    joined := ""
+    for id in gLaunchProfiles
+        joined .= (joined = "" ? "" : "`n") id
+    if (joined = "")
+        return []
+    return StrSplit(Sort(joined, "N"), "`n")
+}
+
+LaunchProfileById(id) {
+    global gLaunchProfiles
+    return gLaunchProfiles.Has(id) ? gLaunchProfiles[id] : ""
+}
+
+; The lowest unused positive id, so a removed profile's section cannot be
+; silently inherited by the next one the user adds.
+NextLaunchProfileId() {
+    global gLaunchProfiles
+    n := 1
+    while gLaunchProfiles.Has(String(n))
+        n++
+    return String(n)
+}
+
+_LaunchProfileIdsInIni() {
+    global CONFIG_INI
+    ids := []
+    raw := ""
+    try raw := IniRead(CONFIG_INI, "LaunchProfileIndex")
+    catch
+        return ids
+    for line in StrSplit(raw, "`n", " `t`r") {
+        eq := InStr(line, "=")
+        if !eq
+            continue
+        id := Trim(SubStr(line, 1, eq - 1))
+        if (IsInteger(id) && Integer(id) >= 1)
+            ids.Push(id)
+    }
+    return ids
+}
+
+LoadLaunchProfiles() {
+    global gLaunchProfiles, gPrimaryProfileId, gSecondaryProfileId, CONFIG_INI
+    global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout, LAUNCH_LAYOUT_DEFAULT
+
+    gLaunchProfiles := Map()
+    for id in _LaunchProfileIdsInIni() {
+        name := Trim(IniRead(CONFIG_INI, "LaunchProfileIndex", id, ""))
+        if (name = "")
+            continue
+        sect := "LaunchProfile." id
+        cnt := Trim(IniRead(CONFIG_INI, sect, "Count", "0"))
+        mon := Trim(IniRead(CONFIG_INI, sect, "Monitor", "0"))
+        gLaunchProfiles[id] := Map(
+            "id", id,
+            "name", name,
+            "accounts", Trim(IniRead(CONFIG_INI, sect, "Accounts", "")),
+            "count", (IsInteger(cnt) && Integer(cnt) >= 0) ? Integer(cnt) : 0,
+            "monitor", (IsInteger(mon) && Integer(mon) >= 0) ? Integer(mon) : 0,
+            "layout", Trim(IniRead(CONFIG_INI, sect, "Layout", LAUNCH_LAYOUT_DEFAULT)))
+    }
+
+    gPrimaryProfileId := Trim(ConfigRead("Launcher", "PrimaryProfile", ""))
+    gSecondaryProfileId := Trim(ConfigRead("Launcher", "SecondaryProfile", ""))
+
+    ; Nothing stored yet: this is the first run after the upgrade. Seed two
+    ; profiles from the Primary/Secondary keys already in config.ini, so the
+    ; first launch after updating does exactly what the last one before it did.
+    if (gLaunchProfiles.Count = 0) {
+        gLaunchProfiles["1"] := Map("id", "1", "name", "Primary", "accounts", "",
+            "count", 0, "monitor", gPrimaryMonitorOverride, "layout", gPrimaryLaunchLayout)
+        gLaunchProfiles["2"] := Map("id", "2", "name", "Secondary", "accounts", "",
+            "count", 0, "monitor", gSecondaryMonitorOverride, "layout", gSecondaryLaunchLayout)
+        gPrimaryProfileId := "1"
+        gSecondaryProfileId := "2"
+        LogInfo("Launch", "Seeded launch profiles from the existing launcher settings")
+    }
+
+    ids := LaunchProfileIds()
+    if (!gLaunchProfiles.Has(gPrimaryProfileId) && ids.Length)
+        gPrimaryProfileId := ids[1]
+    if (!gLaunchProfiles.Has(gSecondaryProfileId) && ids.Length)
+        gSecondaryProfileId := ids[ids.Length >= 2 ? 2 : 1]
+    SyncLaunchGlobalsFromProfiles()
+}
+
+SaveLaunchProfiles() {
+    global gLaunchProfiles, gPrimaryProfileId, gSecondaryProfileId, CONFIG_INI
+    ; Profile names are user text and this store deletes before it writes —
+    ; without this the ini is created as ANSI and every name outside the system
+    ; codepage is silently replaced with "?" from then on.
+    EnsureIniUtf16(CONFIG_INI)
+    ; Drop the sections of profiles that no longer exist first, so a deleted
+    ; profile's settings cannot be inherited by a later one reusing its id.
+    for oldId in _LaunchProfileIdsInIni() {
+        if !gLaunchProfiles.Has(oldId)
+            try IniDelete(CONFIG_INI, "LaunchProfile." oldId)
+    }
+    try IniDelete(CONFIG_INI, "LaunchProfileIndex")
+    for _, id in LaunchProfileIds() {
+        prof := gLaunchProfiles[id]
+        IniWrite(prof["name"], CONFIG_INI, "LaunchProfileIndex", id)
+        sect := "LaunchProfile." id
+        IniWrite(prof["accounts"], CONFIG_INI, sect, "Accounts")
+        IniWrite(prof["count"], CONFIG_INI, sect, "Count")
+        IniWrite(prof["monitor"], CONFIG_INI, sect, "Monitor")
+        IniWrite(prof["layout"], CONFIG_INI, sect, "Layout")
+    }
+    IniWrite(gPrimaryProfileId, CONFIG_INI, "Launcher", "PrimaryProfile")
+    IniWrite(gSecondaryProfileId, CONFIG_INI, "Launcher", "SecondaryProfile")
+    SyncLaunchGlobalsFromProfiles()
+}
+
+; The profile a launch action runs, or a synthesised stand-in reproducing the
+; pre-profile behaviour when nothing is bound.
+ResolveLaunchProfile(monitorWhich := "primary") {
+    global gLaunchProfiles, gPrimaryProfileId, gSecondaryProfileId
+    global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout
+    secondary := (monitorWhich = "secondary")
+    id := secondary ? gSecondaryProfileId : gPrimaryProfileId
+    if gLaunchProfiles.Has(id)
+        return gLaunchProfiles[id]
+    return Map("id", "", "name", secondary ? "Secondary" : "Primary",
+        "accounts", "", "count", 0,
+        "monitor", secondary ? gSecondaryMonitorOverride : gPrimaryMonitorOverride,
+        "layout", secondary ? gSecondaryLaunchLayout : gPrimaryLaunchLayout)
+}
+
+; Keeps the four long-standing globals equal to whatever the bound profiles say,
+; which is what lets every pre-existing caller stay untouched.
+SyncLaunchGlobalsFromProfiles() {
+    global gPrimaryMonitorOverride, gSecondaryMonitorOverride
+    global gPrimaryLaunchLayout, gSecondaryLaunchLayout
+    prim := ResolveLaunchProfile("primary")
+    sec := ResolveLaunchProfile("secondary")
+    gPrimaryMonitorOverride := prim["monitor"]
+    gPrimaryLaunchLayout := prim["layout"]
+    gSecondaryMonitorOverride := sec["monitor"]
+    gSecondaryLaunchLayout := sec["layout"]
+}
+
+; Turns an accounts spec into one opaque token per client, or "" when there is
+; nothing to assign. Core never learns what a token means — it just hands each
+; one to the addon immediately before the matching Run() — so a disabled or
+; absent AutoLogin simply falls back to the roster's own next-free claiming.
+ResolveAccountPlan(accountsSpec, count) {
+    if (Trim(String(accountsSpec)) = "")
+        return ""
+    if !IsAddonEnabled("AutoLogin")
+        return ""
+    resolveFn := GetFuncByName("_AutoLogin_ResolvePlan")
+    if !resolveFn
+        return ""
+    plan := ""
+    try plan := resolveFn(accountsSpec, count)
+    catch as err {
+        LogWarn("Launch", "Could not resolve accounts '" accountsSpec "': " err.Message)
+        return ""
+    }
+    return (IsObject(plan) && plan.Length) ? plan : ""
+}
+
 ; Launches the configured client count onto the requested display, then applies
 ; that display's optional layout preference. Every new window is centered on the
 ; target as it appears, ensuring the layout pass sees the complete launch batch.
-; count defaults to gMultiClientCount and is exposed for internal one-off callers.
-LaunchConfiguredClients(monitorWhich := "primary", count := 0) {
+; count defaults to the bound profile's count and is exposed for internal
+; one-off callers; plan, when given, pins one roster row per client.
+LaunchConfiguredClients(monitorWhich := "primary", count := 0, plan := "") {
+    return LaunchWithProfile(ResolveLaunchProfile(monitorWhich), monitorWhich, count, plan)
+}
+
+; The launch itself, against an explicit profile — the Client Launch menu can
+; run a profile that is not the one bound to Primary or Secondary, so the
+; display and layout come from the profile rather than from the bound globals.
+LaunchWithProfile(profile, monitorWhich := "primary", count := 0, plan := "") {
     global gGamePath, gMultiClientCount, gMultiClientDelay
 
+    ; An explicit plan (a Client Launch menu pick) wins; otherwise the profile
+    ; decides, which is how the unchanged Primary/Secondary items and hotkeys
+    ; pick up the user's configuration without knowing profiles exist.
     if (count < 1)
-        count := gMultiClientCount
+        count := (profile["count"] >= 1) ? profile["count"] : gMultiClientCount
+    if (!IsObject(plan) || !plan.Length)
+        plan := ResolveAccountPlan(profile["accounts"], count)
+    ; The plan is the authority on how many clients to start: a group of three
+    ; accounts means three windows, not the configured five.
+    if (IsObject(plan) && plan.Length)
+        count := plan.Length
 
     if (gGamePath = "" || !FileExist(gGamePath)) {
         settingsShortcut := GetHotkeyDisplay("openSettings")
@@ -1770,8 +2024,8 @@ LaunchConfiguredClients(monitorWhich := "primary", count := 0) {
         TrayTip("Could not resolve a game executable to launch.", "Maps++", "Iconx")
         return
     }
-    monIdx := ResolveMonitorForHotkey(monitorWhich)
-    layoutName := ResolveLaunchLayoutName(monitorWhich)
+    monIdx := ResolveMonitorIndex(profile["monitor"], monitorWhich)
+    layoutName := ResolveLayoutPreference(profile["layout"])
 
     ; Snapshot existing windows, then fire the launches so the clients' startup
     ; time overlaps instead of being serialized one-wait-per-client. An optional
@@ -1780,7 +2034,16 @@ LaunchConfiguredClients(monitorWhich := "primary", count := 0) {
     for hwnd in GetTopLevelGameWindows()
         before[hwnd] := true
     started := 0
+    ; Resolved once: a plan means every client carries its own roster row, which
+    ; has to be set between the Run() calls rather than around the batch.
+    beforeClientFn := (IsObject(plan) && plan.Length)
+        ? GetFuncByName("_AutoLogin_BeforeLaunchClient") : ""
     Loop count {
+        ; Run() snapshots the environment at CreateProcess, so setting this per
+        ; iteration is what gives each client its own account instead of the
+        ; whole batch sharing one value.
+        if beforeClientFn
+            beforeClientFn(plan[A_Index])
         try {
             Run(launchCmd, workDir)
             started++
@@ -1833,6 +2096,10 @@ SaveLauncherConfig() {
     global gGamePath, gGameArgs, gLaunchOnStartup, gLaunchAutoLogin, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride, CONFIG_INI
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout, gVersionCheckEnabled
+    ; First: it calls EnsureIniUtf16 for the whole file, and it re-syncs the
+    ; monitor/layout globals from the bound profiles so the mirrored keys written
+    ; below cannot disagree with the profiles they came from.
+    SaveLaunchProfiles()
     IniWrite(gVersionCheckEnabled ? "1" : "0", CONFIG_INI, "Launcher", "VersionCheck")
     IniWrite(gGamePath, CONFIG_INI, "Launcher", "GamePath")
     IniWrite(gGameArgs, CONFIG_INI, "Launcher", "GameArgs")
@@ -3002,6 +3269,13 @@ BuildDiagnosticsReport() {
         . "Interface : " gInterfaceMode "`n"
         . "Script dir: " A_ScriptDir "`n"
         . "Log       : " LogPath() "`n"
+    ; The injected mods live in the game folder, not beside Maps++, and a locked
+    ; DLL can leave them a build behind. Saying so here turns "the fix didn't
+    ; work" into something answerable without a round trip.
+    deployed := DeployedPayloadVersion()
+    out .= "Mods      : " (deployed = "" ? "<unstamped — deployed before this was tracked, or no game path>"
+        : deployed = APP_VERSION ? deployed " (current)"
+        : deployed " (STALE — Maps++ is " APP_VERSION ")") "`n"
 
     ; The addon set is what actually distinguishes one variant from another, and
     ; it says more than a variant name would — it also shows what is switched off.

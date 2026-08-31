@@ -4,7 +4,7 @@
 ;@Ahk2Exe-SetProductName Maps++
 ;@Ahk2Exe-SetCompanyName osMW
 ; Must match APP_VERSION in variables.ahk — build.ps1 fails the build if it does not.
-;@Ahk2Exe-SetVersion 1.1.0
+;@Ahk2Exe-SetVersion 1.2.0
 #SingleInstance Force
 #Warn
 
@@ -433,7 +433,8 @@ _IconForLabel(lbl) {
         case "Calibrate This Map…": return "track_changes"
         case "Copy Diagnostics": return "bug_report"
         case "Open Log Folder": return "format_list_bulleted"
-        case "Launch (Primary)", "Launch (Secondary)": return "rocket_launch"
+        case "Launch (Primary)", "Launch (Secondary)", "Client Launch": return "rocket_launch"
+        case "Primary", "Secondary": return "devices"
         case "Send Enter Until Ready": return "keyboard"
         case "Better Hotkeys…": return "keyboard"
         case "Settings…": return "settings"
@@ -480,6 +481,9 @@ RebuildTrayMenu() {
     }
     trayMenu.Add("Launch (Primary)`t" GetHotkeyDisplay("launchPrimary"), (*) => LaunchConfiguredClients("primary"))
     trayMenu.Add("Launch (Secondary)`t" GetHotkeyDisplay("launchSecondary"), (*) => LaunchConfiguredClients("secondary"))
+    clientLaunchMenu := BuildClientLaunchMenu()
+    if IsObject(clientLaunchMenu)
+        trayMenu.Add("Client Launch", clientLaunchMenu)
     trayMenu.Add()
 
     ; Addons contribute to task-oriented groups instead of competing for a
@@ -537,6 +541,87 @@ RebuildTrayMenu() {
 
 _TrayMenuHasItems(menu) {
     return DllCall("GetMenuItemCount", "Ptr", menu.Handle, "Int") > 0
+}
+
+; The ad-hoc half of launching: run a named profile that is not the one bound to
+; a launch action, or pick accounts for this one launch without changing any
+; setting. The two Launch items above it are deliberately untouched — they stay
+; one click, one hotkey and the tray's double-click default, and Settings is
+; where what they do is configured.
+;
+; Returns "" when there is nothing to offer (no profiles, no roster, AutoLogin
+; disabled), so the caller leaves the item out instead of showing an empty
+; submenu.
+BuildClientLaunchMenu() {
+    global gPrimaryProfileId, gSecondaryProfileId
+    m := Menu()
+    used := Map()
+    added := 0
+
+    for _, id in LaunchProfileIds() {
+        ; The two bound profiles already have a tray item and a hotkey of their
+        ; own two lines up. Listing them again would make this whole menu look
+        ; like a duplicate on a fresh install, where those two are all there is.
+        if (id = gPrimaryProfileId || id = gSecondaryProfileId)
+            continue
+        prof := LaunchProfileById(id)
+        if !IsObject(prof)
+            continue
+        ; An unbound profile carries its own display, so "primary" here only
+        ; decides where one that expressed no preference lands.
+        m.Add(_UniqueMenuLabel(used, _ClientLaunchProfileLabel(prof)),
+            _ClientLaunchRunProfile.Bind(prof, "primary"))
+        added++
+    }
+
+    accountsFn := GetFuncByName("_AutoLogin_BuildAccountMenu")
+    if (accountsFn && IsAddonEnabled("AutoLogin")) {
+        primary := accountsFn("primary")
+        secondary := accountsFn("secondary")
+        if (IsObject(primary) || IsObject(secondary)) {
+            if added
+                m.Add()
+            if IsObject(primary) {
+                m.Add("Primary", primary)
+                added++
+            }
+            if IsObject(secondary) {
+                m.Add("Secondary", secondary)
+                added++
+            }
+        }
+    }
+    return added ? m : ""
+}
+
+; Menu callbacks are handed three arguments of their own (item name, position,
+; menu), so anything bound into a menu has to tolerate them — hence the trailing
+; `*` here rather than binding LaunchWithProfile directly and letting stray
+; arguments reach a core entry point.
+_ClientLaunchRunProfile(profile, monitorWhich, *) {
+    LaunchWithProfile(profile, monitorWhich)
+}
+
+; What a profile will actually do, counted rather than assumed: a group of three
+; accounts launches three clients, not the configured five.
+_ClientLaunchProfileLabel(prof) {
+    global gMultiClientCount
+    n := (prof["count"] >= 1) ? prof["count"] : gMultiClientCount
+    plan := ResolveAccountPlan(prof["accounts"], n)
+    if (IsObject(plan) && plan.Length)
+        n := plan.Length
+    return "Profile: " prof["name"] " (" n ")"
+}
+
+; Menu.Add treats a repeated label as "modify that item", so two profiles the
+; user gave the same name would collapse into one entry.
+_UniqueMenuLabel(used, label) {
+    if !used.Has(label) {
+        used[label] := 1
+        return label
+    }
+    used[label] += 1
+    return label " (" used[label] ")"
 }
 
 HandleTab() {

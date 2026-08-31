@@ -42,6 +42,42 @@ static int lg_launch_consent(void)
     return buf[0] != '0' && buf[0] != '\0';
 }
 
+/* Which roster row this particular client must take, carried the same way and
+ * for the same reason as the consent variable above.
+ *
+ * Without it a client claims the first enabled row nobody live holds. That is
+ * fine for one batch, but it leaves the player no way to say "these five
+ * windows are my main team and those five are my alts" -- and the assignment is
+ * not even in spawn order, since each client's worker thread races the others
+ * for the claim table. Maps++ sets this immediately before the Run() for the one
+ * client it applies to, and clears it once the batch is spawned.
+ *
+ * The value is an opaque roster row id rather than an index, so it stays correct
+ * when the player reorders rows in the editor. Absent means "next free row",
+ * i.e. exactly the behaviour that shipped before this existed.
+ *
+ * Must match _AUTOLOGIN_ROW_VAR in addons\auto_login.ahk.
+ */
+#define LG_ROW_VAR "OSMW_LOGIN_ROW"
+
+int lg_launch_row(char *out, int cap)
+{
+    DWORD n;
+
+    if (!out || cap <= 0)
+        return 0;
+    out[0] = '\0';
+    n = GetEnvironmentVariableA(LG_ROW_VAR, out, (DWORD)cap);
+    /* Same guard as the consent variable: a value too long to be a row id is
+     * not something we wrote, so treat it as absent rather than acting on a
+     * truncated prefix that could name the wrong row. */
+    if (n == 0 || n >= (DWORD)cap) {
+        out[0] = '\0';
+        return 0;
+    }
+    return out[0] != '\0';
+}
+
 static DWORD WINAPI worker(LPVOID unused)
 {
     char logpath[MAX_PATH];

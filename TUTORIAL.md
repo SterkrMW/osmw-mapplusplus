@@ -13,7 +13,8 @@ Maps++ runs in the background and appears in your system tray as **osMW Maps++**
 | **Custom minimap** | Press **Tab** to overlay a high-resolution map on top of the game window. |
 | **Live position marker** | A dot on the map tracks your character as you move. |
 | **Game launcher** | Launch new game clients from the tray menu or a hotkey, centered on your chosen monitor. |
-| **Auto-login** | Fill a roster of accounts; each launched client claims the next enabled row and logs in. |
+| **Launch profiles** | Name what a launch does — which accounts, how many clients, which display, which layout — and bind one to each launch hotkey. |
+| **Auto-login** | Fill a roster of accounts and log in automatically, either into a named group or whichever rows are free. |
 | **Better Hotkeys** | Give each character any number of persistent battle-skill shortcuts, including different skills on the same key. |
 | **Multi-box helpers** | Optional addons arrange windows, toggle chat, open inventory, and send battle commands to all fighting characters. |
 | **Radial menus** | **Ctrl+Alt+A** rings your common actions around the cursor; choose **Clients** there to jump between alts. One click each. |
@@ -50,13 +51,18 @@ If `main.exe` sits in the same folder as Maps++, the app finds it automatically 
 - From the tray icon: right-click → **Launch (Primary)** or **Launch (Secondary)**
 - Or press **Ctrl+Alt+L** (primary monitor) / **Ctrl+Alt+K** (secondary monitor)
 
-Each action starts the number of clients configured under **Settings → Launcher**. The same
-page can leave the new windows centered, apply the current default layout, or assign a different
-preset/custom layout to each display.
+Each action runs a **launch profile** — a named bundle of *which accounts, how many clients,
+which display, which layout*, edited under **Settings → Launcher**. Out of the box there are two,
+Primary and Secondary, carrying whatever display and layout you already had. Because both actions
+just run a profile, they stay one click and one hotkey no matter how you configure them.
 
 If **Launch on startup** is enabled in `config.ini`, Maps++ opens a game client for you when the app starts.
 
-To skip the stock login screen, add accounts under **Tray → Clients & Windows → Auto-login roster…** and leave **Settings → Launcher → Auto-login launched clients** on. Each launched client claims the next enabled row; Maps++ clicks through the intro, then the injected login fills the roster account. Passwords stay on this Windows user and are never stored in `config.ini`. Turn that launcher setting off when you want the stock login screen.
+To skip the stock login screen, add accounts under **Tray → Clients & Windows → Auto-login roster…** and leave **Settings → Launcher → Auto-login launched clients** on. Maps++ clicks through the intro, then the injected login fills the account. Passwords stay on this Windows user and are never stored in `config.ini`. Turn that launcher setting off when you want the stock login screen.
+
+If a profile names no accounts, each client claims the next enabled roster row on its own — which
+is fine for one batch, but arbitrary once you run more clients than one batch holds. Give the
+profile a **group** of accounts instead and it launches exactly those characters, every time.
 
 ---
 
@@ -163,8 +169,9 @@ Right-click the tray icon for the main menu:
 
 | Item | Purpose |
 |------|---------|
-| **Launch (Primary)** | Start the configured clients on the primary target, then optionally apply its layout |
-| **Launch (Secondary)** | Start the configured clients on the secondary target, then optionally apply its layout |
+| **Launch (Primary)** | Run the launch profile bound to Primary — its accounts, client count, display and layout |
+| **Launch (Secondary)** | Run the launch profile bound to Secondary |
+| **Client Launch** | Run any *other* profile, or pick accounts for one launch without changing a setting — see below |
 | **Quick Actions** | Open the action ring and access game controls such as Send Enter, battle send, chat, inventory and view mode |
 | **Clients & Windows** | Open the client roster, edit the auto-login roster, arrange game windows and access character tools available in the current build |
 | **Map & Overlay** | Add or manage map POIs and toggle map-related overlay features available in the current build |
@@ -493,17 +500,62 @@ Echoes the in-game **F2** view-mode cycle across every open client without focus
 
 This is **not** the Client Roster (live HP of running windows). The auto-login roster is the list of *accounts to log in as*.
 
-Choose **Tray → Clients & Windows → Auto-login roster…**. Add a row per character: account name, password, and character (`#1`–`#5` for the slot on that account, or the numeric display ID). Each Maps++ launch claims the next **enabled** row in file order — five windows get five different characters. Extra clients past the number of enabled rows show the stock login screen; that is expected.
+Choose **Tray → Clients & Windows → Auto-login roster…**. Add a row per character: account name, password, character (`#1`–`#5` for the slot on that account, or the numeric display ID), and an optional **group**. Up to 16 rows.
 
-Passwords are write-only. After save the field is empty and the hint says the password is stored. They are encrypted for **this Windows user** in `login_roster.dat` next to `main.exe`. Another Windows account on the same PC cannot read them, and they never appear in `config.ini`, `mapsplusplus.log`, or the roster page after save.
+**Duplicate** is the fast way to add the other characters on one account: select a row, click it, and you get a new row with the same account, the same group, the stored password already carried across, and the character slot advanced by one. You never retype a password you cannot read back — which is what made a typo in five identical rows so easy before.
+
+**Groups** tag the rows that launch together (`Main`, `Alts`, whatever you like). A launch profile or **Client Launch** can then run a whole group, so eleven characters split cleanly across two teams instead of depending on which client happens to finish loading first.
+
+Passwords are write-only. After save the field is empty and the hint says the password is stored. They are encrypted for **this Windows user** in `login_roster.dat` next to `main.exe`. Another Windows account on the same PC cannot read them, and they never appear in `config.ini`, `mapsplusplus.log`, or the roster page after save. Group names are *not* in that file — they live in Maps++'s own `config.ini`, so the roster file's format is unchanged.
 
 **Settings → Launcher → Auto-login launched clients** is what the launch shortcuts honour. On (the default) clicks through the intro on the new windows only and lets each client claim the next roster row. Off leaves the stock login — already-playing clients are not sent Enter. An empty roster (or every row disabled) also leaves the stock login. **Settings → Addons → Auto-login** is a master switch: off hides the roster editor *and* stops auto-login entirely.
 
 **Auto-login only ever applies to clients Maps++ itself launched.** Consent travels to the mod in an environment variable that exists only for the moment Maps++ spawns the clients, so a client you start yourself — running `osmw_chat_launch.exe` from Explorer, say — always gets the stock login screen, whatever your Maps++ settings say. Each client writes an `osmw_login.<pid>.log` in the game folder that names which of the two gates stopped it, if either did.
 
-Use a distinct account per window. If the client says the account is already logged in, that is a server rule — Maps++ will not work around it.
+Use a distinct account per window. If the client says the account is already logged in, that is a server rule — Maps++ will not work around it. For the same reason, **an account you pick explicitly is never swapped for another**: if a live client already holds it, the new window simply stays at the stock login screen and its `osmw_login.<pid>.log` says `requested row … unavailable`.
 
-When you launch from Maps++, it copies `osmw_login.dll`, `osmw_chat.dll` and `osmw_chat_launch.exe` from Maps++'s `Lib\` folder into the game folder **if they are not already there**, then starts the helper. Browse in Settings still points at `main.exe`; overlay attach is still `main.exe`. Already-deployed helpers are not overwritten while clients may have them loaded.
+When you launch from Maps++, it copies `osmw_login.dll`, `osmw_chat.dll` and `osmw_chat_launch.exe` from Maps++'s `Lib\` folder into the game folder, then starts the helper. Browse in Settings still points at `main.exe`; overlay attach is still `main.exe`. The deployed set is stamped with the Maps++ version that wrote it (`osmw_payload.ini` in the game folder) and refreshed when that version changes — so a mod fix in a new Maps++ actually reaches the client. A file locked by a running client is skipped with a warning in `mapsplusplus.log`; close every client and launch again to pick it up. **Tray → Debug → Copy Diagnostics** reports the deployed version and flags it as stale.
+
+---
+
+### Launch profiles and Client Launch (all variants)
+
+A **launch profile** answers everything about one launch:
+
+| Field | Meaning |
+|-------|---------|
+| **Name** | What it is called in Settings and in the Client Launch menu |
+| **Accounts** | *Next free roster row* (the old behaviour), a **group**, a batch **starting at** one account, or exactly **one** account |
+| **Clients** | How many windows. Blank or `0` uses **Clients per launch**; a group always launches exactly as many clients as it has rows |
+| **Display** | Which monitor the new windows are centered on |
+| **Layout** | Layout applied after the batch (Full / Lite — needs Window Layout) |
+
+Edit them under **Settings → Launcher**, where two dropdowns say which profile **Launch (Primary)** and **Launch (Secondary)** run. A typical eleven-character setup is one profile per team:
+
+| Profile | Accounts | Display | Bound to |
+|---------|----------|---------|----------|
+| Main team | Group: Main (5) | 1 | Primary — **Ctrl+Alt+L** |
+| Alt team | Group: Alts (5) | 2 | Secondary — **Ctrl+Alt+K** |
+| Mule | Only: Kilo (#3) | 1 | — |
+
+Anything **not** bound to a hotkey is still one click away under **Tray → Client Launch**:
+
+```
+Client Launch                 ▸
+   Profile: Mule (1)
+   ──────────────────
+   Primary                    ▸   Group: Main (5)
+                                  Group: Alts (5)
+                                  ──────────────
+                                  Start at: Alpha (1-5)
+                                  ──────────────
+                                  Only: Alpha (#1)
+   Secondary                  ▸   (the same, onto the secondary display)
+```
+
+Main team and Alt team are absent from that list on purpose — they already have their own tray item and hotkey two lines above it.
+
+The **Primary** and **Secondary** submenus are for one-off launches: they use that target's display and layout but the accounts you pick, and change no setting. Client Launch does not appear at all when there is nothing to put in it — an empty roster and no unbound profiles, which is what a fresh install looks like.
 
 ### Client Roster (Full / Battle)
 
@@ -736,6 +788,24 @@ PrimaryMonitor=0
 SecondaryMonitor=0
 PrimaryLaunchLayout=__default__
 SecondaryLaunchLayout=__default__
+PrimaryProfile=1
+SecondaryProfile=2
+
+[LaunchProfileIndex]
+1=Main team
+2=Alt team
+
+[LaunchProfile.1]
+Accounts=group:Main
+Count=0
+Monitor=1
+Layout=__default__
+
+[LaunchProfile.2]
+Accounts=group:Alts
+Count=0
+Monitor=2
+Layout=__default__
 
 [Minimap]
 Scale=100
@@ -799,11 +869,27 @@ ChatMod=1
 | `GameArgs` | Extra command-line arguments passed when launching the game |
 | `LaunchOnStartup` | `1` = launch a game client when Maps++ starts |
 | `LaunchAutoLogin` | `1` = launch shortcuts skip the intro and log in from the roster; `0` = stock login |
-| `MultiClientCount` | How many clients **Ctrl+Alt+L/K** launches |
+| `MultiClientCount` | Default client count, used by any profile whose own `Count` is `0` |
 | `MultiClientDelay` | Milliseconds between each client in a launch batch |
-| `PrimaryMonitor` | Display for **Ctrl+Alt+L**. `0` = OS primary; `1`, `2`, … = specific display |
-| `SecondaryMonitor` | Display for **Ctrl+Alt+K**. `0` = first non-primary; `1`, `2`, … = specific display |
-| `PrimaryLaunchLayout` / `SecondaryLaunchLayout` | Layout applied after that launch: blank = center only, `__default__` = follow `DefaultLayout`, or a preset/custom layout name |
+| `PrimaryProfile` / `SecondaryProfile` | Which `[LaunchProfile.<id>]` **Ctrl+Alt+L** / **Ctrl+Alt+K** runs |
+| `PrimaryMonitor` / `SecondaryMonitor` | Mirror of the bound profiles' `Monitor`, kept for the startup single-client launch. `0` = OS primary (or first non-primary for secondary) |
+| `PrimaryLaunchLayout` / `SecondaryLaunchLayout` | Mirror of the bound profiles' `Layout` |
+
+Launch profiles use two sections, the way `layouts.ini` does — `[LaunchProfileIndex]` maps a
+numeric id to the display name, and one `[LaunchProfile.<id>]` section holds the rest, so renaming
+a profile never breaks the bindings above. On first run after upgrading, two profiles are created
+from your existing `Primary*` / `Secondary*` keys, so nothing about your launches changes.
+
+| Profile key | Meaning |
+|-------------|---------|
+| `Accounts` | Blank = next free enabled roster row. `group:<name>` = every row in that group. `start:<rowId>` = `Count` rows from that one onward. `only:<rowId>` = exactly that row |
+| `Count` | Clients to launch. `0` = use `MultiClientCount`; a `group:` always launches its own row count |
+| `Monitor` | `0` = the target's default display; `1`, `2`, … = a specific one |
+| `Layout` | Blank = center only, `__default__` = follow `DefaultLayout`, or a preset/custom layout name |
+
+`[AutoLoginGroups]` maps a roster row id to its group name. It lives here rather than in
+`login_roster.dat` because the injected mod has no use for group names, and changing that file's
+format would stop an older already-deployed `osmw_login.dll` from reading it at all.
 | `Scale` | Minimap size, 50–200 % of the standard 400×300 |
 | `Opacity` | Minimap opacity, 30–100 % |
 | `Anchor` | Where the minimap sits on the game window: `Center`, `TopLeft`, `TopRight`, `BottomLeft`, `BottomRight` |
@@ -892,6 +978,8 @@ conflicts with Maps++ shortcuts are checked before saving.
 ### Auto-login roster (`login_roster.dat`)
 
 Owned by the Auto-login editor, stored **next to `main.exe`** (not beside Maps++ and not in AppData). Binary, DPAPI-bound to the current Windows user — do not copy this file between machines or Windows accounts. Edit it from **Tray → Clients & Windows → Auto-login roster…**. Passwords are never written to `config.ini`. Whether launch shortcuts use the roster is **Settings → Launcher → Auto-login launched clients** (`LaunchAutoLogin` in Maps++ `config.ini`), not this file.
+
+Row **groups** are the one part of a row that is *not* here — they are in Maps++'s `config.ini` under `[AutoLoginGroups]`, keyed by row id. Copying the roster to another Windows account would not work anyway (DPAPI), and keeping this file's format fixed means an older `osmw_login.dll` already deployed in a game folder can still read it.
 
 ### Shop presets (`shop_presets.ini`)
 

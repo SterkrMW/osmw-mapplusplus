@@ -103,32 +103,90 @@
                         </div>
                     </div>
 
+                    <div class="setting-card">
+                        <div class="launch-target-title">Launch profiles</div>
+                        <div class="panel-hint">
+                            A profile is everything a launch does: which accounts, how many
+                            clients, which display, which layout. Launch (Primary) and Launch
+                            (Secondary) each run one, so both stay a single click and hotkey.
+                        </div>
+
+                        <div class="table-container">
+                            <table class="table" id="profileTable">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Accounts</th>
+                                        <th>Clients</th>
+                                        <th>Display</th>
+                                        <th>Runs as</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="profileBody"></tbody>
+                            </table>
+                            <div class="empty-state" id="profileEmpty" hidden>No profiles yet — click Add.</div>
+                        </div>
+                        <div class="row-actions">
+                            <button type="button" class="btn btn-sm" id="btnProfileAdd">Add</button>
+                            <button type="button" class="btn btn-sm" id="btnProfileDuplicate">Duplicate</button>
+                            <button type="button" class="btn btn-sm" id="btnProfileRemove">Remove</button>
+                        </div>
+
+                        <div class="field-row">
+                            <label class="field field-half">
+                                <span class="field-label">Name</span>
+                                <input type="text" id="profileName" class="input" maxlength="40">
+                            </label>
+                            <label class="field field-half">
+                                <span class="field-label">Accounts</span>
+                                <select id="profileAccounts" class="select"></select>
+                            </label>
+                        </div>
+                        <div class="field-row">
+                            <label class="field field-half">
+                                <span class="field-label">Clients</span>
+                                <input type="number" id="profileCount" class="input input-narrow"
+                                       min="0" step="1" placeholder="auto">
+                            </label>
+                            <label class="field field-half">
+                                <span class="field-label">Display</span>
+                                <select id="profileMonitor" class="select"></select>
+                            </label>
+                        </div>
+                        <label class="field launch-layout-field">
+                            <span class="field-label">Layout after launch</span>
+                            <select id="profileLayout" class="select"></select>
+                        </label>
+                        <div class="panel-hint">
+                            Leave Clients blank for "Clients per launch" above — a group of
+                            accounts always launches exactly as many clients as it has rows.
+                            <span class="launch-layout-field">Layout <em>Default</em> follows the one
+                            selected under Window Layout; a named layout keeps this profile
+                            independent.</span>
+                        </div>
+                    </div>
+
                     <div class="setting-card launch-targets">
                         <div class="launch-target">
                             <div class="launch-target-title">Primary launch</div>
                             <label class="field">
-                                <span class="field-label">Display</span>
-                                <select id="primaryMonitor" class="select"></select>
-                            </label>
-                            <label class="field launch-layout-field">
-                                <span class="field-label">Layout after launch</span>
-                                <select id="primaryLaunchLayout" class="select"></select>
+                                <span class="field-label">Runs profile</span>
+                                <select id="primaryProfile" class="select"></select>
                             </label>
                         </div>
 
                         <div class="launch-target">
                             <div class="launch-target-title">Secondary launch</div>
                             <label class="field">
-                                <span class="field-label">Display</span>
-                                <select id="secondaryMonitor" class="select"></select>
-                            </label>
-                            <label class="field launch-layout-field">
-                                <span class="field-label">Layout after launch</span>
-                                <select id="secondaryLaunchLayout" class="select"></select>
+                                <span class="field-label">Runs profile</span>
+                                <select id="secondaryProfile" class="select"></select>
                             </label>
                         </div>
 
-                        <div class="panel-hint launch-layout-field">Default follows the layout selected under Window Layout. Choose a named layout to keep this display independent.</div>
+                        <div class="panel-hint">
+                            Any other profile is still one click away under
+                            <strong>Client Launch</strong> in the tray menu.
+                        </div>
                     </div>
                 </section>
 

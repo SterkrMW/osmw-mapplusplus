@@ -221,18 +221,10 @@ function populateLauncher() {
     document.getElementById('multiClientCount').value = state.launcher.multiClientCount || 5;
     document.getElementById('multiClientDelay').value = state.launcher.multiClientDelay || 0;
 
-    // Monitor dropdowns
-    populateSelect('primaryMonitor', state.launcher.monitorChoices, state.launcher.primaryMonitorChoice);
-    populateSelect('secondaryMonitor', state.launcher.monitorChoices, state.launcher.secondaryMonitorChoice);
     document.querySelectorAll('.launch-layout-field').forEach(el => {
         el.hidden = !state.launcher.layoutAvailable;
     });
-    if (state.launcher.layoutAvailable) {
-        populateValueSelect('primaryLaunchLayout', state.launcher.launchLayoutOptions,
-            state.launcher.primaryLaunchLayout);
-        populateValueSelect('secondaryLaunchLayout', state.launcher.launchLayoutOptions,
-            state.launcher.secondaryLaunchLayout);
-    }
+    populateProfiles();
 
     // Browse button
     document.getElementById('btnBrowse').addEventListener('click', () => {
@@ -253,6 +245,233 @@ function populateLauncher() {
     document.getElementById('btnGetUpdate').addEventListener('click', () => {
         sendToAhk('open-update-page');
     });
+}
+
+// ── Launch profiles ────────────────────────────────────────────
+//
+// A profile bundles what a launch action does — accounts, client count, display
+// and layout — so Launch (Primary) and Launch (Secondary) can stay a single
+// click and a single hotkey while still meaning "my main team" and "my alts".
+// The display and layout used to be two fixed Primary/Secondary pairs here;
+// they are now per-profile, and the two selects at the bottom say which profile
+// each launch action runs.
+
+let profiles = [];
+let profileSelected = -1;
+let profileButtonsBound = false;
+let profileBindingsBound = false;
+
+function newProfileId() {
+    // Ids are numeric strings because they name a config.ini section, and the
+    // lowest free one keeps a removed profile's section from being inherited.
+    let n = 1;
+    while (profiles.some(p => p.id === String(n)))
+        n += 1;
+    return String(n);
+}
+
+function accountLabel(value) {
+    const found = (state.launcher.accountChoices || []).find(c => c.value === value);
+    if (found)
+        return found.label;
+    // A group the user has since renamed or deleted. Say so rather than showing
+    // a raw "group:Whatever" that looks like a bug.
+    return value ? value + ' (missing)' : 'Next free';
+}
+
+function populateProfiles() {
+    profiles = (state.launcher.profiles || []).map(p => ({
+        id: String(p.id),
+        name: p.name || '',
+        accounts: p.accounts || '',
+        count: parseInt(p.count, 10) || 0,
+        monitorChoice: parseInt(p.monitorChoice, 10) || 0,
+        layout: p.layout || ''
+    }));
+
+    populateValueSelect('profileAccounts', state.launcher.accountChoices, '');
+    populateSelect('profileMonitor', state.launcher.monitorChoices, 0);
+    if (state.launcher.layoutAvailable)
+        populateValueSelect('profileLayout', state.launcher.launchLayoutOptions, '');
+
+    selectProfile(profiles.length ? 0 : -1);
+    renderProfileBindings(state.launcher.primaryProfile, state.launcher.secondaryProfile);
+
+    if (profileButtonsBound)
+        return;
+    profileButtonsBound = true;
+    document.getElementById('btnProfileAdd').addEventListener('click', addProfile);
+    document.getElementById('btnProfileDuplicate').addEventListener('click', duplicateProfile);
+    document.getElementById('btnProfileRemove').addEventListener('click', removeProfile);
+    // Edits land on the selected profile as they are typed, so the list, the
+    // binding dropdowns and the saved value cannot disagree with the fields.
+    ['profileName', 'profileAccounts', 'profileCount', 'profileMonitor', 'profileLayout']
+        .forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', applyProfileFields);
+        });
+}
+
+function renderProfileList() {
+    const body = document.getElementById('profileBody');
+    const empty = document.getElementById('profileEmpty');
+    const primaryId = document.getElementById('primaryProfile').value;
+    const secondaryId = document.getElementById('secondaryProfile').value;
+    body.innerHTML = '';
+    empty.hidden = profiles.length > 0;
+
+    profiles.forEach((p, i) => {
+        const tr = document.createElement('tr');
+        tr.tabIndex = 0;
+        if (i === profileSelected)
+            tr.classList.add('is-selected');
+
+        const bound = [];
+        if (p.id === primaryId) bound.push('Primary');
+        if (p.id === secondaryId) bound.push('Secondary');
+
+        [
+            p.name || '(unnamed)',
+            accountLabel(p.accounts),
+            p.count > 0 ? String(p.count) : 'auto',
+            (state.launcher.monitorChoices || [])[p.monitorChoice] || '',
+            bound.join(' + ')
+        ].forEach(text => {
+            const td = document.createElement('td');
+            td.className = 'cell-truncate';
+            td.textContent = text;
+            td.title = text;
+            tr.appendChild(td);
+        });
+
+        tr.addEventListener('click', () => selectProfile(i));
+        tr.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                selectProfile(i);
+            }
+        });
+        body.appendChild(tr);
+    });
+}
+
+function selectProfile(i) {
+    profileSelected = i;
+    const p = profiles[i];
+    document.getElementById('profileName').value = p ? p.name : '';
+    document.getElementById('profileAccounts').value = p ? p.accounts : '';
+    document.getElementById('profileCount').value = (p && p.count > 0) ? p.count : '';
+    document.getElementById('profileMonitor').value = p ? p.monitorChoice : 0;
+    if (state.launcher.layoutAvailable)
+        document.getElementById('profileLayout').value = p ? p.layout : '';
+    ['profileName', 'profileAccounts', 'profileCount', 'profileMonitor', 'profileLayout']
+        .forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = !p;
+        });
+    renderProfileList();
+}
+
+function applyProfileFields() {
+    const p = profiles[profileSelected];
+    if (!p)
+        return;
+    p.name = document.getElementById('profileName').value.trim();
+    p.accounts = document.getElementById('profileAccounts').value;
+    p.count = parseInt(document.getElementById('profileCount').value, 10) || 0;
+    p.monitorChoice = parseInt(document.getElementById('profileMonitor').value, 10) || 0;
+    if (state.launcher.layoutAvailable)
+        p.layout = document.getElementById('profileLayout').value;
+    renderProfileBindings(document.getElementById('primaryProfile').value,
+        document.getElementById('secondaryProfile').value);
+    setDirty(true);
+}
+
+// Rebuilt whenever a name changes, so the two dropdowns never show a stale one.
+// Ends by re-rendering the list, because the list's "Runs as" column is read
+// back out of these two selects.
+function renderProfileBindings(primaryId, secondaryId) {
+    const options = profiles.map(p => ({ value: p.id, label: p.name || '(unnamed)' }));
+    populateValueSelect('primaryProfile', options, primaryId);
+    populateValueSelect('secondaryProfile', options, secondaryId);
+    if (!profileBindingsBound) {
+        profileBindingsBound = true;
+        ['primaryProfile', 'secondaryProfile'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => {
+                renderProfileList();
+                setDirty(true);
+            });
+        });
+    }
+    renderProfileList();
+}
+
+function addProfile() {
+    if (profiles.length >= 32)
+        return;
+    profiles.push({
+        id: newProfileId(),
+        name: 'Profile ' + (profiles.length + 1),
+        accounts: '',
+        count: 0,
+        monitorChoice: 0,
+        layout: state.launcher.layoutAvailable
+            ? (state.launcher.launchLayoutOptions[0] || {}).value || '' : ''
+    });
+    selectProfile(profiles.length - 1);
+    renderProfileBindings(document.getElementById('primaryProfile').value,
+        document.getElementById('secondaryProfile').value);
+    setDirty(true);
+}
+
+function duplicateProfile() {
+    const src = profiles[profileSelected];
+    if (!src || profiles.length >= 32)
+        return;
+    profiles.splice(profileSelected + 1, 0, {
+        id: newProfileId(),
+        name: src.name + ' copy',
+        accounts: src.accounts,
+        count: src.count,
+        monitorChoice: src.monitorChoice,
+        layout: src.layout
+    });
+    selectProfile(profileSelected + 1);
+    renderProfileBindings(document.getElementById('primaryProfile').value,
+        document.getElementById('secondaryProfile').value);
+    setDirty(true);
+}
+
+function removeProfile() {
+    // The last profile stays: with none at all the launch actions would fall
+    // back to a synthesised default the user cannot see or edit.
+    if (profileSelected < 0 || profiles.length <= 1)
+        return;
+    const primarySel = document.getElementById('primaryProfile');
+    const secondarySel = document.getElementById('secondaryProfile');
+    let primaryId = primarySel.value;
+    let secondaryId = secondarySel.value;
+    const goneId = profiles[profileSelected].id;
+    profiles.splice(profileSelected, 1);
+    // A binding pointing at the removed profile has to land somewhere real.
+    if (primaryId === goneId) primaryId = profiles[0].id;
+    if (secondaryId === goneId) secondaryId = profiles[profiles.length - 1].id;
+    selectProfile(Math.min(profileSelected, profiles.length - 1));
+    renderProfileBindings(primaryId, secondaryId);
+    renderProfileList();
+    setDirty(true);
+}
+
+function collectProfiles() {
+    applyProfileFields();
+    return profiles.map(p => ({
+        id: p.id,
+        name: p.name || 'Profile ' + p.id,
+        accounts: p.accounts,
+        count: p.count,
+        monitorChoice: p.monitorChoice,
+        layout: state.launcher.layoutAvailable ? p.layout : ''
+    }));
 }
 
 function setUpdateStatus(kind, text) {
@@ -952,14 +1171,11 @@ function collectAndSave() {
         versionCheck:       document.getElementById('versionCheck').checked,
         multiClientCount:   parseInt(document.getElementById('multiClientCount').value, 10) || 5,
         multiClientDelay:   parseInt(document.getElementById('multiClientDelay').value, 10) || 0,
-        primaryMonitor:     parseInt(document.getElementById('primaryMonitor').value, 10),
-        secondaryMonitor:   parseInt(document.getElementById('secondaryMonitor').value, 10),
-        primaryLaunchLayout: state.launcher.layoutAvailable
-            ? document.getElementById('primaryLaunchLayout').value
-            : state.launcher.primaryLaunchLayout,
-        secondaryLaunchLayout: state.launcher.layoutAvailable
-            ? document.getElementById('secondaryLaunchLayout').value
-            : state.launcher.secondaryLaunchLayout,
+        // Display and layout live on the profiles now; the host mirrors the
+        // bound profiles back into the old per-target keys itself.
+        profiles:           collectProfiles(),
+        primaryProfile:     document.getElementById('primaryProfile').value,
+        secondaryProfile:   document.getElementById('secondaryProfile').value,
     };
 
     // Minimap

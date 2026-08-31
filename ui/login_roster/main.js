@@ -1,13 +1,20 @@
 /* Login roster editor.
  *
  * Host contract, matching the other Maps++ pages:
- *   host -> page   { type: 'login-roster', rows: [{id,account,character,enabled,hasPassword}] }
- *   page -> host   { type: 'login-roster-save', rows: [{id,account,character,enabled,password?}] }
+ *   host -> page   { type: 'login-roster', rows: [{id,account,character,group,enabled,hasPassword}] }
+ *   page -> host   { type: 'login-roster-save',
+ *                    rows: [{id,account,character,group,enabled,password?,passwordFrom?}] }
  *                  { type: 'login-roster-request' }
  *                  { type: 'close' }
  *
  * Password is write-only: the host must never send it. The page only includes
  * `password` on a row when the user typed a new one.
+ *
+ * `passwordFrom` is how Duplicate works without one. The page cannot read a
+ * stored password back, so a duplicated row names the row to copy the blob from
+ * and the host does the copying — which is the whole point, since five
+ * characters on one account are five rows and retyping the password five times
+ * is five chances to typo something nobody can ever read back to check.
  */
 
 'use strict';
@@ -52,11 +59,17 @@ function renderList() {
         tdChar.className = 'cell-truncate';
         tdChar.textContent = row.character || '#1';
 
+        const tdGroup = document.createElement('td');
+        tdGroup.className = 'cell-truncate';
+        tdGroup.textContent = row.group || '';
+        tdGroup.title = row.group || '';
+
         const tdOn = document.createElement('td');
         tdOn.textContent = row.enabled ? 'yes' : 'no';
 
         tr.appendChild(tdAcc);
         tr.appendChild(tdChar);
+        tr.appendChild(tdGroup);
         tr.appendChild(tdOn);
         tr.addEventListener('click', () => selectRow(i));
         tr.addEventListener('keydown', (e) => {
@@ -69,6 +82,22 @@ function renderList() {
     });
 }
 
+function renderGroupOptions() {
+    const list = $('groupNames');
+    const seen = [];
+    rows.forEach((row) => {
+        const name = (row.group || '').trim();
+        if (name && !seen.includes(name))
+            seen.push(name);
+    });
+    list.innerHTML = '';
+    seen.forEach((name) => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        list.appendChild(opt);
+    });
+}
+
 function selectRow(i) {
     selected = i;
     const row = rows[i];
@@ -76,19 +105,23 @@ function selectRow(i) {
         $('account').value = '';
         $('password').value = '';
         $('character').value = '';
+        $('group').value = '';
         $('enabled').checked = true;
         $('passwordHint').textContent = 'Write-only. Blank keeps the stored password.';
         renderList();
+        renderGroupOptions();
         return;
     }
     $('account').value = row.account || '';
     $('password').value = '';
     $('character').value = row.character || '';
+    $('group').value = row.group || '';
     $('enabled').checked = !!row.enabled;
-    $('passwordHint').textContent = row.hasPassword
+    $('passwordHint').textContent = (row.hasPassword || row.passwordFrom)
         ? 'Stored. Leave blank to keep it, or type a new password.'
         : 'No password stored yet — type one before save.';
     renderList();
+    renderGroupOptions();
 }
 
 function readFields() {
@@ -96,6 +129,7 @@ function readFields() {
         account: $('account').value.trim(),
         password: $('password').value,
         character: $('character').value.trim(),
+        group: $('group').value.trim(),
         enabled: $('enabled').checked
     };
 }
@@ -113,6 +147,7 @@ function applySelected() {
     const row = rows[selected];
     row.account = f.account;
     row.character = f.character || '#1';
+    row.group = f.group;
     row.enabled = f.enabled;
     if (f.password) {
         row.password = f.password;
@@ -138,6 +173,7 @@ function addRow() {
         id: newId(),
         account: f.account,
         character: f.character || '#1',
+        group: f.group,
         enabled: f.enabled,
         hasPassword: true,
         password: f.password
@@ -145,6 +181,44 @@ function addRow() {
     $('password').value = '';
     selectRow(rows.length - 1);
     $('status').textContent = 'Row added. Save to write the file.';
+}
+
+/* The usual reason for a second row is the same account's next character, so
+ * the slot advances by one. Anything that is not a #N slot is copied verbatim —
+ * a character ID or a name has no "next". */
+function nextCharacterSlot(character) {
+    const m = /^#(\d+)$/.exec((character || '').trim());
+    if (!m)
+        return character || '#1';
+    const n = parseInt(m[1], 10) + 1;
+    return n <= 5 ? '#' + n : character;
+}
+
+function duplicateRow() {
+    if (selected < 0 || selected >= rows.length) {
+        $('status').textContent = 'Select a row to duplicate first.';
+        return;
+    }
+    if (rows.length >= 16) {
+        $('status').textContent = 'At most 16 rows can be stored.';
+        return;
+    }
+    const src = rows[selected];
+    rows.splice(selected + 1, 0, {
+        id: newId(),
+        account: src.account,
+        character: nextCharacterSlot(src.character),
+        group: src.group || '',
+        enabled: src.enabled,
+        hasPassword: true,
+        /* The page never sees the stored password, so it names the row to copy
+         * the blob from and lets the host do it. A row still unsaved is handled
+         * too — the host follows passwordFrom back to whoever typed one. */
+        password: src.password || undefined,
+        passwordFrom: src.password ? undefined : (src.passwordFrom || src.id)
+    });
+    selectRow(selected + 1);
+    $('status').textContent = 'Duplicated — set the character, then Apply and Save.';
 }
 
 function removeRow() {
@@ -170,9 +244,11 @@ function populate(incoming) {
         id: row.id || newId(),
         account: row.account || '',
         character: row.character || '#1',
+        group: row.group || '',
         enabled: row.enabled !== false && row.enabled !== 0 && row.enabled !== '0',
         hasPassword: !!row.hasPassword,
-        password: undefined
+        password: undefined,
+        passwordFrom: undefined
     }));
     selectRow(rows.length ? 0 : -1);
 }
@@ -185,10 +261,13 @@ function collect() {
             id: row.id,
             account: row.account,
             character: row.character || '#1',
+            group: row.group || '',
             enabled: !!row.enabled
         };
         if (row.password)
             out.password = row.password;
+        else if (row.passwordFrom)
+            out.passwordFrom = row.passwordFrom;
         return out;
     });
 }
@@ -214,8 +293,15 @@ function onAhkMessage(event) {
         populate(msg.rows || []);
     else if (msg.type === 'save-result') {
         $('status').textContent = msg.message || (msg.ok ? 'Saved.' : 'Save failed.');
-        if (msg.ok)
-            rows.forEach((row) => { row.password = undefined; });
+        if (msg.ok) {
+            /* The host has written the blobs, so a duplicate's borrowed
+             * password is now its own — clearing both keeps a later save from
+             * re-borrowing from a row that may since have been removed. */
+            rows.forEach((row) => {
+                row.password = undefined;
+                row.passwordFrom = undefined;
+            });
+        }
     }
 }
 
@@ -225,6 +311,7 @@ if (window.chrome && window.chrome.webview) {
 
 $('btnAdd').addEventListener('click', addRow);
 $('btnApply').addEventListener('click', applySelected);
+$('btnDuplicate').addEventListener('click', duplicateRow);
 $('btnRemove').addEventListener('click', removeRow);
 $('btnUp').addEventListener('click', () => moveRow(-1));
 $('btnDown').addEventListener('click', () => moveRow(1));

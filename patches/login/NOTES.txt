@@ -117,12 +117,46 @@ Empty roster is a no-op. Roster: login_roster.dat beside main.exe (DPAPI,
 description L"osmw_login"). Edit with osmw_login_launch.exe --roster (Win32)
 or, once Maps++ hosts it, ui/login_roster/.
 
+OSMW_LOGIN_ROW -- which row, not whether
+----------------------------------------
+Optional, carried the same way and read beside the consent variable. Its value
+is an opaque roster row id (LG_ID_MAX-1 chars at most; anything longer is
+treated as absent rather than acted on as a truncated prefix, which could name
+the wrong row). Absent means "next free enabled row", i.e. the behaviour that
+shipped before it existed.
+
+It exists because the claim table answers "is this row taken" but nothing ever
+answered "which row should THIS client take". Five clients each grabbing the
+next free row is fine until the player wants two named teams, and the order is
+not even spawn order -- the clients' worker threads race each other for the
+table. Maps++ sets the variable immediately before the Run() for the one client
+it applies to, inside its launch loop, and clears it with OSMW_AUTOLOGIN once
+the batch is spawned. Run() snapshots the environment at CreateProcess, so a
+per-client value is safe there.
+
+Two deliberate asymmetries against the next-free path:
+
+  - A named row is claimed whether or not it is enabled. Naming it is the
+    explicit act; `enabled` only governs where the next-free walk may wander.
+  - A named row already held by a live PID does NOT fall back to another row.
+    The client stands down at the stock login screen and the log says
+    "requested row <id> unavailable -- standing down". Logging into somebody
+    else's account is the worse answer, and the server rejects a duplicate
+    account login regardless (see the 0x454A52 note above).
+
+It cannot bypass consent: OSMW_AUTOLOGIN and [Addons] AutoLogin are still both
+required before this is read at all.
+
+The name is duplicated in dllmain.c (LG_ROW_VAR) and addons/auto_login.ahk
+(_AUTOLOGIN_ROW_VAR) -- change both together, as with the consent variable.
+
 Maps++ (same repo, since the move)
 ----------------------------------
 Do not re-implement login in AHK. Maps++ keeps GamePath on main.exe and starts
 osmw_chat_launch.exe beside it (ResolveLaunchExecutable), which injects
-osmw_login.dll then osmw_chat.dll. Each process claims a row; Maps++ only
-launches N clients and sets OSMW_AUTOLOGIN for them.
+osmw_login.dll then osmw_chat.dll. Maps++ launches N clients and sets
+OSMW_AUTOLOGIN for them; each process then claims a row on its own, unless
+Maps++ named one per client with OSMW_LOGIN_ROW.
 
 Sources moved into the Maps++ repo, so the DLL in Lib/ and the code that built
 it now share one history and build.ps1 checks they agree. Build with

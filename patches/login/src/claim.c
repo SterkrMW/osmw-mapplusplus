@@ -103,6 +103,40 @@ int lg_claim_row(lg_roster_t *r, lg_row_t **out)
     return 0;
 }
 
+int lg_claim_row_id(lg_roster_t *r, const char *id, lg_row_t **out)
+{
+    int i, s;
+
+    if (!r || !id || !id[0] || !out)
+        return 0;
+    *out = NULL;
+    if (!ensure())
+        return 0;
+    WaitForSingleObject(g_mutex, INFINITE);
+    for (i = 0; i < r->count; i++) {
+        if (strcmp(r->rows[i].id, id) != 0)
+            continue;
+        /* enabled is deliberately not tested here. Naming a row is the player's
+         * explicit act; the flag only governs which rows the next-free path is
+         * allowed to wander into. */
+        if (row_claimed_live(id))
+            break;
+        for (s = 0; s < LG_ROWS_MAX; s++) {
+            if (g_shm->slots[s].id[0] == '\0' || !pid_live(g_shm->slots[s].pid)) {
+                memset(&g_shm->slots[s], 0, sizeof(g_shm->slots[s]));
+                g_shm->slots[s].pid = GetCurrentProcessId();
+                strncpy(g_shm->slots[s].id, r->rows[i].id, LG_ID_MAX - 1);
+                *out = &r->rows[i];
+                ReleaseMutex(g_mutex);
+                return 1;
+            }
+        }
+        break;
+    }
+    ReleaseMutex(g_mutex);
+    return 0;
+}
+
 void lg_claim_release(const char *id)
 {
     int i;

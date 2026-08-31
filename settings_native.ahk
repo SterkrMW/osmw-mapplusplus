@@ -9,6 +9,7 @@ _Settings_BuildNative() {
     global gGamePath, gGameArgs, gLaunchOnStartup, gLaunchAutoLogin, gMultiClientCount, gMultiClientDelay
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
+    global gPrimaryProfileId, gSecondaryProfileId, LAUNCH_LAYOUT_DEFAULT
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme
 
@@ -32,7 +33,9 @@ _Settings_BuildNative() {
     g.OnEvent("Close", (*) => _Settings_Close())
     g.OnEvent("Escape", (*) => _Settings_Close())
 
-    tab := g.Add("Tab3", "x10 y10 w650 h500", tabNames)
+    ; Taller than it was: the Launcher tab now carries the profile editor that
+    ; replaced the two fixed display/layout pairs.
+    tab := g.Add("Tab3", "x10 y10 w650 h548", tabNames)
     contentX := 28
     contentY := 58
 
@@ -56,39 +59,88 @@ _Settings_BuildNative() {
         "Auto-login launched clients (intro click-through + roster)")
     launchAutoLoginCb.Value := gLaunchAutoLogin ? 1 : 0
 
+    ; Paired on one row: the profile editor below needs the vertical space, and
+    ; these two are read together anyway.
     g.Add("Text", "x" contentX " y+22 w130", "Clients per launch:")
-    countEdit := g.Add("Edit", "x158 yp-3 w90 Number", String(gMultiClientCount))
-    g.Add("Text", "x" contentX " y+20 w130", "Launch delay (ms):")
-    delayEdit := g.Add("Edit", "x158 yp-3 w90 Number", String(gMultiClientDelay))
+    countEdit := g.Add("Edit", "x158 yp-3 w70 Number", String(gMultiClientCount))
+    g.Add("Text", "x244 yp+3 w120", "Launch delay (ms):")
+    delayEdit := g.Add("Edit", "x370 yp-3 w70 Number", String(gMultiClientDelay))
 
+    ; ── Launch profiles ──
+    ; The Primary/Secondary display and layout pairs that used to sit here are
+    ; now per-profile; the two dropdowns at the bottom say which profile each
+    ; launch action runs. Same store and same validation as the WebView2 page.
     monitorChoices := _Settings_MonitorChoices()
-    g.Add("Text", "x" contentX " y+20 w130", "Primary monitor:")
-    primaryDdl := g.Add("DropDownList", "x158 yp-3 w300", monitorChoices)
-    primaryDdl.Value := _Settings_MonitorIndexToChoice(gPrimaryMonitorOverride)
     launchLayoutOptions := _Settings_LaunchLayoutOptions()
-    primaryLaunchLayoutDdl := 0
-    secondaryLaunchLayoutDdl := 0
-    if launchLayoutOptions.available {
-        launchLayoutLabels := []
-        for item in launchLayoutOptions.items
-            launchLayoutLabels.Push(item.label)
-        g.Add("Text", "x" contentX " y+20 w130", "Primary layout:")
-        primaryLaunchLayoutDdl := g.Add("DropDownList", "x158 yp-3 w300", launchLayoutLabels)
-        primaryLaunchLayoutDdl.Value := _SettingsNative_LaunchLayoutChoice(
-            launchLayoutOptions, gPrimaryLaunchLayout)
+    launchLayoutLabels := []
+    for item in launchLayoutOptions.items
+        launchLayoutLabels.Push(item.label)
+    accountChoices := _Settings_AccountChoices()
+    accountLabels := []
+    for choice in accountChoices
+        accountLabels.Push(choice["label"])
+
+    nativeProfiles := []
+    for _, pid in LaunchProfileIds() {
+        prof := LaunchProfileById(pid)
+        nativeProfiles.Push(Map(
+            "id", pid,
+            "name", prof["name"],
+            "accounts", prof["accounts"],
+            "count", prof["count"],
+            "monitor", prof["monitor"],
+            "layout", prof["layout"]))
     }
-    g.Add("Text", "x" contentX " y+20 w130", "Secondary monitor:")
-    secondaryDdl := g.Add("DropDownList", "x158 yp-3 w300", monitorChoices)
-    secondaryDdl.Value := _Settings_MonitorIndexToChoice(gSecondaryMonitorOverride)
+    profileSel := nativeProfiles.Length ? 1 : 0
+    profileSyncing := false
+
+    ; Absolute Y from here down. The two columns have to line up with each other
+    ; and the whole block has to end inside the tab, which a chain of y+ offsets
+    ; through controls of three different heights does not reliably do.
+    listY := 306
+    fieldY := listY
+    g.Add("Text", "x" contentX " y284 w200", "Launch profiles:")
+    profileList := g.Add("ListBox", "x" contentX " y" listY " w240 r8")
+    addProfileBtn := g.Add("Button", "x" contentX " y438 w76", "Add")
+    dupProfileBtn := g.Add("Button", "x+6 yp w76", "Duplicate")
+    delProfileBtn := g.Add("Button", "x+6 yp w76", "Remove")
+
+    g.Add("Text", "x286 y" fieldY " w70", "Name:")
+    profileNameEdit := g.Add("Edit", "x360 y" (fieldY - 3) " w274 Limit40")
+    g.Add("Text", "x286 y" (fieldY + 29) " w70", "Accounts:")
+    profileAccountsDdl := g.Add("DropDownList", "x360 y" (fieldY + 26) " w274", accountLabels)
+    g.Add("Text", "x286 y" (fieldY + 58) " w70", "Clients:")
+    profileCountEdit := g.Add("Edit", "x360 y" (fieldY + 55) " w70 Number")
+    g.Add("Text", "x436 y" (fieldY + 58) " w198 c666666", "0 = Clients per launch")
+    g.Add("Text", "x286 y" (fieldY + 87) " w70", "Display:")
+    profileMonitorDdl := g.Add("DropDownList", "x360 y" (fieldY + 84) " w274", monitorChoices)
+    profileLayoutDdl := 0
     if launchLayoutOptions.available {
-        g.Add("Text", "x" contentX " y+20 w130", "Secondary layout:")
-        secondaryLaunchLayoutDdl := g.Add("DropDownList", "x158 yp-3 w300", launchLayoutLabels)
-        secondaryLaunchLayoutDdl.Value := _SettingsNative_LaunchLayoutChoice(
-            launchLayoutOptions, gSecondaryLaunchLayout)
+        g.Add("Text", "x286 y" (fieldY + 116) " w70", "Layout:")
+        profileLayoutDdl := g.Add("DropDownList", "x360 y" (fieldY + 113) " w274", launchLayoutLabels)
     }
 
-    g.Add("Text", "x" contentX " y+28 w590 c666666",
-        "Interface mode is changed from Tray → Interface and takes effect after an automatic reload.")
+    g.Add("Text", "x" contentX " y478 w130", "Primary runs:")
+    primaryProfileDdl := g.Add("DropDownList", "x158 y475 w280")
+    g.Add("Text", "x" contentX " y508 w130", "Secondary runs:")
+    secondaryProfileDdl := g.Add("DropDownList", "x158 y505 w280")
+
+    g.Add("Text", "x" contentX " y534 w606 c666666",
+        "Any other profile is one click away under Client Launch in the tray menu."
+        . " Interface mode is changed from Tray → Interface.")
+
+    profileList.OnEvent("Change", SelectProfile)
+    addProfileBtn.OnEvent("Click", AddProfile)
+    dupProfileBtn.OnEvent("Click", DuplicateProfile)
+    delProfileBtn.OnEvent("Click", RemoveProfile)
+    for ctrl in [profileNameEdit, profileAccountsDdl, profileCountEdit, profileMonitorDdl]
+        ctrl.OnEvent("Change", ApplyProfileFields)
+    if IsObject(profileLayoutDdl)
+        profileLayoutDdl.OnEvent("Change", ApplyProfileFields)
+
+    RefreshProfileList()
+    FillProfileFields()
+    RefreshProfileBindings(gPrimaryProfileId, gSecondaryProfileId)
 
     ; Minimap -----------------------------------------------------
     tab.UseTab(2)
@@ -230,13 +282,13 @@ _Settings_BuildNative() {
 
     ; Shared buttons ---------------------------------------------
     tab.UseTab()
-    resetDefaultsBtn := g.Add("Button", "x10 y524 w160", "Reset to Defaults")
-    saveBtn := g.Add("Button", "x454 y524 w96 Default", "Save")
-    cancelBtn := g.Add("Button", "x558 y524 w96", "Cancel")
+    resetDefaultsBtn := g.Add("Button", "x10 y572 w160", "Reset to Defaults")
+    saveBtn := g.Add("Button", "x454 y572 w96 Default", "Save")
+    cancelBtn := g.Add("Button", "x558 y572 w96", "Cancel")
     resetDefaultsBtn.OnEvent("Click", (*) => _Settings_HandleResetDefaults())
     saveBtn.OnEvent("Click", SaveNativeSettings)
     cancelBtn.OnEvent("Click", (*) => _Settings_Close())
-    g.Show("w664 h566")
+    g.Show("w664 h614")
 
     BrowseGame(*) {
         global PROCESS_EXE
@@ -244,6 +296,157 @@ _Settings_BuildNative() {
             "Executables (*.exe)")
         if (selected != "")
             gamePathEdit.Value := selected
+    }
+
+    ; ── Launch profile editor ──
+    ; profileSyncing guards the Change handlers while the controls are being
+    ; filled from the draft: without it, selecting a row would immediately write
+    ; the previous row's field values back over the newly selected one.
+
+    RefreshProfileList() {
+        profileSyncing := true
+        items := []
+        for prof in nativeProfiles
+            items.Push(prof["name"] != "" ? prof["name"] : "(unnamed)")
+        profileList.Delete()
+        if items.Length
+            profileList.Add(items)
+        if (profileSel >= 1 && profileSel <= nativeProfiles.Length)
+            profileList.Choose(profileSel)
+        profileSyncing := false
+    }
+
+    FillProfileFields() {
+        profileSyncing := true
+        has := (profileSel >= 1 && profileSel <= nativeProfiles.Length)
+        prof := has ? nativeProfiles[profileSel] : 0
+        profileNameEdit.Value := has ? prof["name"] : ""
+        profileAccountsDdl.Value := has ? _SettingsNative_AccountChoice(accountChoices, prof["accounts"]) : 1
+        profileCountEdit.Value := has ? String(prof["count"]) : "0"
+        profileMonitorDdl.Value := has ? _Settings_MonitorIndexToChoice(prof["monitor"]) : 1
+        if IsObject(profileLayoutDdl) {
+            profileLayoutDdl.Value := has
+                ? _SettingsNative_LaunchLayoutChoice(launchLayoutOptions, prof["layout"]) : 1
+        }
+        for ctrl in [profileNameEdit, profileAccountsDdl, profileCountEdit, profileMonitorDdl]
+            ctrl.Enabled := has
+        if IsObject(profileLayoutDdl)
+            profileLayoutDdl.Enabled := has
+        profileSyncing := false
+    }
+
+    SelectProfile(*) {
+        if profileSyncing
+            return
+        chosen := profileList.Value
+        if (chosen < 1 || chosen > nativeProfiles.Length)
+            return
+        profileSel := chosen
+        FillProfileFields()
+    }
+
+    ApplyProfileFields(*) {
+        if profileSyncing
+            return
+        if (profileSel < 1 || profileSel > nativeProfiles.Length)
+            return
+        prof := nativeProfiles[profileSel]
+        prof["name"] := Trim(profileNameEdit.Value)
+        idx := profileAccountsDdl.Value
+        prof["accounts"] := (idx >= 1 && idx <= accountChoices.Length)
+            ? accountChoices[idx]["value"] : ""
+        raw := Trim(profileCountEdit.Value)
+        prof["count"] := (IsInteger(raw) && Integer(raw) >= 0) ? Integer(raw) : 0
+        prof["monitor"] := _Settings_ChoiceToMonitorIndex(profileMonitorDdl.Value)
+        if (IsObject(profileLayoutDdl) && launchLayoutOptions.available) {
+            li := profileLayoutDdl.Value
+            if (li >= 1 && li <= launchLayoutOptions.items.Length)
+                prof["layout"] := launchLayoutOptions.items[li].value
+        }
+        RefreshProfileList()
+        RefreshProfileBindings(_SettingsNative_BoundId(primaryProfileDdl, nativeProfiles),
+            _SettingsNative_BoundId(secondaryProfileDdl, nativeProfiles))
+    }
+
+    ; The two binding dropdowns are rebuilt from the draft whenever a name
+    ; changes, so they can never offer a name the list no longer shows.
+    RefreshProfileBindings(primaryId, secondaryId) {
+        labels := []
+        primaryIdx := 1
+        secondaryIdx := 1
+        for i, prof in nativeProfiles {
+            labels.Push(prof["name"] != "" ? prof["name"] : "(unnamed)")
+            if (prof["id"] = primaryId)
+                primaryIdx := i
+            if (prof["id"] = secondaryId)
+                secondaryIdx := i
+        }
+        profileSyncing := true
+        primaryProfileDdl.Delete()
+        secondaryProfileDdl.Delete()
+        if labels.Length {
+            primaryProfileDdl.Add(labels)
+            secondaryProfileDdl.Add(labels)
+            primaryProfileDdl.Value := primaryIdx
+            secondaryProfileDdl.Value := secondaryIdx
+        }
+        profileSyncing := false
+    }
+
+    AddProfile(*) {
+        if (nativeProfiles.Length >= 32)
+            return
+        nativeProfiles.Push(Map(
+            "id", _SettingsNative_NextProfileId(nativeProfiles),
+            "name", "Profile " (nativeProfiles.Length + 1),
+            "accounts", "",
+            "count", 0,
+            "monitor", 0,
+            "layout", LAUNCH_LAYOUT_DEFAULT))
+        profileSel := nativeProfiles.Length
+        RefreshProfileList()
+        FillProfileFields()
+        RefreshProfileBindings(_SettingsNative_BoundId(primaryProfileDdl, nativeProfiles),
+            _SettingsNative_BoundId(secondaryProfileDdl, nativeProfiles))
+    }
+
+    DuplicateProfile(*) {
+        if (profileSel < 1 || profileSel > nativeProfiles.Length || nativeProfiles.Length >= 32)
+            return
+        src := nativeProfiles[profileSel]
+        nativeProfiles.InsertAt(profileSel + 1, Map(
+            "id", _SettingsNative_NextProfileId(nativeProfiles),
+            "name", src["name"] " copy",
+            "accounts", src["accounts"],
+            "count", src["count"],
+            "monitor", src["monitor"],
+            "layout", src["layout"]))
+        profileSel += 1
+        RefreshProfileList()
+        FillProfileFields()
+        RefreshProfileBindings(_SettingsNative_BoundId(primaryProfileDdl, nativeProfiles),
+            _SettingsNative_BoundId(secondaryProfileDdl, nativeProfiles))
+    }
+
+    RemoveProfile(*) {
+        ; The last profile stays: with none at all the launch actions would fall
+        ; back to a synthesised default the user cannot see or edit.
+        if (profileSel < 1 || nativeProfiles.Length <= 1)
+            return
+        primaryId := _SettingsNative_BoundId(primaryProfileDdl, nativeProfiles)
+        secondaryId := _SettingsNative_BoundId(secondaryProfileDdl, nativeProfiles)
+        goneId := nativeProfiles[profileSel]["id"]
+        nativeProfiles.RemoveAt(profileSel)
+        if (profileSel > nativeProfiles.Length)
+            profileSel := nativeProfiles.Length
+        ; A binding pointing at the removed profile has to land somewhere real.
+        if (primaryId = goneId)
+            primaryId := nativeProfiles[1]["id"]
+        if (secondaryId = goneId)
+            secondaryId := nativeProfiles[nativeProfiles.Length]["id"]
+        RefreshProfileList()
+        FillProfileFields()
+        RefreshProfileBindings(primaryId, secondaryId)
     }
 
     BeginHotkeyCapture(*) {
@@ -293,6 +496,20 @@ _Settings_BuildNative() {
 
     SaveNativeSettings(*) {
         CancelHotkeyCapture()
+        ; Commit whatever is sitting in the fields before reading the draft —
+        ; a Change event has not necessarily fired for the last keystroke.
+        ApplyProfileFields()
+        profilePayload := []
+        for prof in nativeProfiles {
+            profilePayload.Push(Map(
+                "id", prof["id"],
+                "name", prof["name"],
+                "accounts", prof["accounts"],
+                "count", prof["count"],
+                ; 0-based, matching what the page sends.
+                "monitorChoice", _Settings_MonitorIndexToChoice(prof["monitor"]) - 1,
+                "layout", prof["layout"]))
+        }
 
         hotkeys := []
         for row in nativeHotkeyRows
@@ -339,12 +556,11 @@ _Settings_BuildNative() {
                 "launchAutoLogin", launchAutoLoginCb.Value ? true : false,
                 "multiClientCount", Trim(countEdit.Value),
                 "multiClientDelay", Trim(delayEdit.Value),
-                "primaryMonitor", primaryDdl.Value - 1,
-                "secondaryMonitor", secondaryDdl.Value - 1,
-                "primaryLaunchLayout", launchLayoutOptions.available
-                    ? launchLayoutOptions.items[primaryLaunchLayoutDdl.Value].value : gPrimaryLaunchLayout,
-                "secondaryLaunchLayout", launchLayoutOptions.available
-                    ? launchLayoutOptions.items[secondaryLaunchLayoutDdl.Value].value : gSecondaryLaunchLayout
+                ; Same shape the WebView2 page sends, so both frontends land in
+                ; _Settings_ApplyProfiles and cannot validate differently.
+                "profiles", profilePayload,
+                "primaryProfile", _SettingsNative_BoundId(primaryProfileDdl, nativeProfiles),
+                "secondaryProfile", _SettingsNative_BoundId(secondaryProfileDdl, nativeProfiles)
             ),
             "minimap", Map(
                 "scale", Trim(scaleEdit.Value),
@@ -364,6 +580,42 @@ _Settings_BuildNative() {
 
         if _Settings_HandleSave(msg)
             TrayTip("Settings saved.", "Maps++", "Iconi")
+    }
+}
+
+; 1-based index of the accounts choice matching a stored spec. A spec whose
+; group or roster row has since been deleted falls back to "next free" rather
+; than leaving the dropdown showing something unrelated.
+_SettingsNative_AccountChoice(choices, value) {
+    for i, choice in choices {
+        if (choice["value"] = value)
+            return i
+    }
+    return 1
+}
+
+; The profile id a binding dropdown currently points at. The dropdown holds
+; positions, not ids, so it is always read back through the draft array.
+_SettingsNative_BoundId(ddl, profiles) {
+    idx := ddl.Value
+    return (idx >= 1 && idx <= profiles.Length) ? profiles[idx]["id"] : ""
+}
+
+; Lowest unused positive id, so a removed profile's config.ini section cannot be
+; inherited by the next one added.
+_SettingsNative_NextProfileId(profiles) {
+    n := 1
+    loop {
+        taken := false
+        for prof in profiles {
+            if (prof["id"] = String(n)) {
+                taken := true
+                break
+            }
+        }
+        if !taken
+            return String(n)
+        n++
     }
 }
 
