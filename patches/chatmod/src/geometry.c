@@ -322,7 +322,14 @@ static void __fastcall reposition_detour(void *self, void *edx, int force)
          * at the fixed screen position CreateWindowExA gave it. */
         if (!(g_remember && restore_geometry(hwnd))) {
             mw_log("geometry: nothing saved -- docking against the game window");
-            g_repos_orig(self, edx, force);
+            /* force=1, not the incoming value. Most calls that reach here are
+             * the render's periodic refresh, which arrives with force=0 and
+             * which the client's routine may treat as "nothing to do". We are
+             * not refreshing, we are asking for a placement, so we ask the way
+             * the show path asks. The latch above means this happens once, so
+             * it cannot become the repeated snap-back that FreePosition
+             * exists to suppress. */
+            g_repos_orig(self, edx, 1);
         }
     }
 

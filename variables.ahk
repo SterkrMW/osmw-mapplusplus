@@ -4,7 +4,7 @@
 ; The one place the version is written. main.ahk carries a matching
 ; ;@Ahk2Exe-SetVersion literal so the compiled exe's file properties agree, and
 ; build.ps1 fails the build if the two ever drift apart.
-global APP_VERSION := "1.3.0"
+global APP_VERSION := "1.3.1"
 global PROCESS_EXE := "main.exe"
 global GAME_WIN_FILTER := "ahk_exe " PROCESS_EXE
 ; RVAs from main.exe — do not use fixed absolute addresses (bases differ per process / ASLR).
@@ -341,6 +341,12 @@ global ADDONS_INCLUDE_FILE := A_ScriptDir "\_addons.ahk"
 global gLogPath := ""
 global LOG_MAX_BYTES := 1048576   ; rotate to a single .1 file past this
 global gLogFailed := false        ; a log that can't be written stops trying
+; The injected mods' own logging, which is a separate thing from the above:
+; osmw_chat.dll and osmw_login.dll each write one file per client per launch
+; into the game folder. Off unless someone turns it on — see ModLoggingEnabled()
+; in functions.ahk for where the key lives and why it is not in CONFIG_INI.
+global MOD_LOG_SECTION := "Debug"
+global MOD_LOG_KEY := "ModLogging"
 ; Per (addon, hook) failure tracking for FireAddonHook. An addon that throws on
 ; a 1 Hz hook must not spam the user, and must not throw forever unnoticed.
 global gAddonFailCounts := Map()  ; "Addon|Hook" → consecutive failures

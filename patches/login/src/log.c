@@ -1,15 +1,28 @@
-/* Line-buffered log to the game root. One file per client PID. */
+/* Line-buffered log to the game root. One file per client PID.
+ *
+ * OFF unless someone asks for it: dllmain.c only calls lg_log_open when
+ * [Debug] ModLogging says so, and with no file open every lg_log() here is a
+ * no-op. Five clients per launch meant five files per launch for a player who
+ * had nothing to debug. Same reasoning, same key and same shape as
+ * patches/chatmod/src/log.c -- keep the two in step. */
 #include "osmw_login.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
+/* A cap rather than rotation, for the reason chatmod's log.c gives at length:
+ * what matters in a mod log is the startup block at the top. */
+#define LG_LOG_MAX_BYTES (1024 * 1024)
+
 static HANDLE           g_file = INVALID_HANDLE_VALUE;
 static CRITICAL_SECTION g_lock;
 static int              g_ready = 0;
+static DWORD            g_written = 0;
 
-/* One log per PID; Maps++ can launch five clients. Keep one session. */
+/* One log per PID; Maps++ can launch five clients. Keep one session -- or none,
+ * which is what dllmain.c asks for when logging is off, so switching it off
+ * also sweeps up what the troubleshooting session before it wrote. */
 struct lg_log_file {
     FILETIME when;
     char     name[64];
@@ -64,6 +77,7 @@ void lg_log_open(const char *path)
         return;
     InitializeCriticalSection(&g_lock);
     g_ready = 1;
+    g_written = 0;
 
     g_file = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, NULL,
                          CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -111,7 +125,20 @@ void lg_log(const char *fmt, ...)
     line[n++] = '\n';
 
     EnterCriticalSection(&g_lock);
-    WriteFile(g_file, line, (DWORD)n, &written, NULL);
-    FlushFileBuffers(g_file);
+    /* Re-checked under the lock: another thread may have hit the cap and closed
+     * the handle between the test above and here. */
+    if (g_file != INVALID_HANDLE_VALUE) {
+        WriteFile(g_file, line, (DWORD)n, &written, NULL);
+        FlushFileBuffers(g_file);
+        g_written += (DWORD)n;
+        if (g_written >= LG_LOG_MAX_BYTES) {
+            static const char capped[] =
+                "[log] size cap reached -- nothing further will be written\r\n";
+            WriteFile(g_file, capped, sizeof(capped) - 1, &written, NULL);
+            FlushFileBuffers(g_file);
+            CloseHandle(g_file);
+            g_file = INVALID_HANDLE_VALUE;
+        }
+    }
     LeaveCriticalSection(&g_lock);
 }

@@ -79,12 +79,29 @@ Commands
 Use a launch path for anything font related; plain inject is too late (below).
 The DLL cannot be rebuilt while it is loaded — eject first; build.py says so.
 
-Runtime log: osmw_chat.<pid>.log in the game root, one per client, truncated
-at each launch. One file PER PID, and a PID is never reused often enough to
+Runtime log: OFF unless asked for. [Debug] ModLogging in the game root's
+config.ini, default 0, read once in dllmain.c's worker; with it clear no file
+is opened and every mw_log() is a no-op. One key, shared with osmw_login.dll,
+flipped from Maps++'s Tray -> Debug -> Client Mod Logging. Pruning kept the
+count down but a player with nothing to debug still never asked for five files
+per launch, every launch. Because the answer is taken at injection, a client
+keeps whatever it started with for its whole life -- changing the key means
+relaunching the clients, which is what the Maps++ notification says.
+
+With it on: osmw_chat.<pid>.log in the game root, one per client, truncated at
+each launch. One file PER PID, and a PID is never reused often enough to
 overwrite, so the DLL prunes on startup and keeps only the five newest -- one
 full Maps++ multi-client session, so a crash can still be read against the
 other clients that were up at the time. A running client's log is never at
 risk: it is held open without FILE_SHARE_DELETE, so the delete simply fails.
+That same property is what makes the off path safe: it prunes to ZERO, so
+switching logging off sweeps up what the troubleshooting session before it
+wrote, without touching a live client's file.
+
+A log stops at 1 MB with a final "size cap reached" line rather than rotating.
+What matters in a mod log is the TOP -- signature resolution and the startup
+block, which say whether the mod is working at all -- so rotation would discard
+exactly the part worth keeping.
 
 CAP*.BMP in the game root are the GAME's own screenshots, taken with the
 client's screenshot key. They are the player's, not ours. Do not tidy them.
@@ -1240,3 +1257,24 @@ Trial log
             posting in GM again!" -- singular/plural right, channel names
             right, and the GM countdown stepping down from its 30s cooldown,
             which is the value read out of the table.
+2026-08-31  Logging made opt-in ([Debug] ModLogging, default 0), in both mods
+            together. Reported by the player from a screenshot of the game
+            root: five osmw_chat.<pid>.log and five osmw_login.<pid>.log
+            after a normal session, none of which anyone was ever going to
+            read. Pruning had capped the COUNT and I had treated that as the
+            whole problem; the actual objection was that a player who is not
+            debugging anything should get no files at all.
+            Off also prunes to zero, so turning it back off clears the ones a
+            troubleshooting session wrote -- the FILE_SHARE_DELETE property
+            that makes pruning safe next to live clients is what makes that
+            safe too.
+            Added a 1 MB cap on a log that IS enabled. Nothing had ever
+            truncated one mid-session; the mirror logs a line per rebuild, so
+            a long session with heavy tab use had no ceiling. Capped rather
+            than rotated on purpose: the useful part of a mod log is the
+            startup block at the top, and rotation keeps the tail.
+            Maps++ side: Tray -> Debug -> Client Mod Logging writes the key
+            into the GAME folder's config.ini (not Maps++'s, which can live
+            in %AppData% where a C DLL cannot follow), and the diagnostics
+            report names the state -- so a report with no osmw_*.log attached
+            reads as "logging was off", not "the mod never loaded".

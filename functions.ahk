@@ -1641,6 +1641,56 @@ DeployedPayloadVersion() {
     return IniRead(gameDir "\osmw_payload.ini", "Payload", "Version", "")
 }
 
+; ── The injected mods' logging ───────────────────────────────────
+;
+; osmw_chat.dll and osmw_login.dll each write one log per client per launch into
+; the game folder. That is how a mod problem gets diagnosed and clutter the rest
+; of the time — five clients a launch, every launch, for a player with nothing
+; to investigate — so both DLLs read this key at injection and open no file at
+; all when it is clear. Off is the default on both sides.
+;
+; The key lives in the GAME FOLDER's config.ini, never Maps++'s CONFIG_INI. The
+; two are the same file in a normal install, but ResolveWritableIniPath() falls
+; back to %AppData% when the game folder is not writable and a C DLL cannot
+; follow it there. addons\chat_mod.ahk makes the same distinction for the same
+; reason.
+GameConfigIniPath() {
+    gameDir := ResolveGameDirectory()
+    return (gameDir = "") ? "" : gameDir "\config.ini"
+}
+
+ModLoggingEnabled() {
+    global MOD_LOG_SECTION, MOD_LOG_KEY
+    gameDir := ResolveGameDirectory()
+    if (gameDir = "")
+        return false
+    ; The same chain the DLLs use: config.ini → defaults.ini → off.
+    fallback := IniRead(gameDir "\defaults.ini", MOD_LOG_SECTION, MOD_LOG_KEY, "0")
+    return IniRead(gameDir "\config.ini", MOD_LOG_SECTION, MOD_LOG_KEY, fallback) = "1"
+}
+
+; Writes the one key, leaving the rest of the file alone — the mods write their
+; own keys into it and a section rewrite would race them. Returns false when
+; there is nowhere to write, so the caller can say so rather than failing mute.
+SetModLogging(enabled) {
+    global MOD_LOG_SECTION, MOD_LOG_KEY
+    cfgPath := GameConfigIniPath()
+    if (cfgPath = "") {
+        LogWarn("ModLog", "No game path configured — nothing written")
+        return false
+    }
+    try {
+        EnsureIniUtf16(cfgPath)
+        IniWrite(enabled ? "1" : "0", cfgPath, MOD_LOG_SECTION, MOD_LOG_KEY)
+    } catch as err {
+        LogWarn("ModLog", "Could not write " cfgPath ": " err.Message)
+        return false
+    }
+    LogInfo("ModLog", "Client mod logging turned " (enabled ? "on" : "off")
+        . " — applies to clients launched from now on")
+    return true
+}
+
 ; Prefer the 32-bit inject helper when it is present; overlay attach still
 ; waits for main.exe. GamePath in config.ini stays pointing at main.exe.
 ResolveLaunchExecutable(gameDir) {
@@ -3276,6 +3326,12 @@ BuildDiagnosticsReport() {
     out .= "Mods      : " (deployed = "" ? "<unstamped — deployed before this was tracked, or no game path>"
         : deployed = APP_VERSION ? deployed " (current)"
         : deployed " (STALE — Maps++ is " APP_VERSION ")") "`n"
+    ; Off by default, so a report with no osmw_*.log attached is expected rather
+    ; than a sign that the mods never ran. Saying which it is here saves the
+    ; round trip that would otherwise ask for logs that were never written.
+    out .= "Mod logs  : " (ModLoggingEnabled()
+        ? "on — osmw_chat.<pid>.log / osmw_login.<pid>.log in the game folder"
+        : "off (Tray → Debug → Client Mod Logging, then relaunch the clients)") "`n"
 
     ; The addon set is what actually distinguishes one variant from another, and
     ; it says more than a variant name would — it also shows what is switched off.

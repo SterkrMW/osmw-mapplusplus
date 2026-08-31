@@ -117,6 +117,26 @@ Empty roster is a no-op. Roster: login_roster.dat beside main.exe (DPAPI,
 description L"osmw_login"). Edit with osmw_login_launch.exe --roster (Win32)
 or, once Maps++ hosts it, ui/login_roster/.
 
+Logging is OFF unless asked for
+-------------------------------
+[Debug] ModLogging in the game root's config.ini, default 0, read once in
+dllmain.c's worker beside the two gates above. Clear, and no file is opened:
+every lg_log() is a no-op, including the "standing down" lines that say WHICH
+gate stopped a client. That is the trade -- five clients a launch meant five
+osmw_login.<pid>.log files a launch for a player who was not debugging
+anything, so the answer to "why did this client not log in" is now "turn on
+Tray -> Debug -> Client Mod Logging in Maps++, relaunch, and look again".
+
+One key, shared with osmw_chat.dll, and the same shape in both: on keeps the
+five newest logs and caps each at 1 MB; off prunes to zero, so switching it
+back off clears what the troubleshooting session wrote. A live client's file
+survives either way -- it is held without FILE_SHARE_DELETE, so the delete
+fails and we move on. Keep patches/chatmod/src/log.c and this mod's log.c in
+step; the reasoning is written out at length in the chatmod one.
+
+Read at injection, so it applies to clients launched after the change, never to
+ones already running.
+
 OSMW_LOGIN_ROW -- which row, not whether
 ----------------------------------------
 Optional, carried the same way and read beside the consent variable. Its value
@@ -139,8 +159,8 @@ Two deliberate asymmetries against the next-free path:
   - A named row is claimed whether or not it is enabled. Naming it is the
     explicit act; `enabled` only governs where the next-free walk may wander.
   - A named row already held by a live PID does NOT fall back to another row.
-    The client stands down at the stock login screen and the log says
-    "requested row <id> unavailable -- standing down". Logging into somebody
+    The client stands down at the stock login screen and, with logging on,
+    says "requested row <id> unavailable -- standing down". Logging into somebody
     else's account is the worse answer, and the server rejects a duplicate
     account login regardless (see the 0x454A52 note above).
 

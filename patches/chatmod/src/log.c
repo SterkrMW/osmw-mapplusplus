@@ -1,13 +1,34 @@
-/* Line-buffered log to the game root, alongside mapsplusplus.log. */
+/* Line-buffered log to the game root, alongside mapsplusplus.log.
+ *
+ * OFF unless someone asks for it. dllmain.c only calls mw_log_open when
+ * [Debug] ModLogging says so, and with no file open every mw_log() below is a
+ * no-op -- nobody who is not currently chasing a bug needs a file per client
+ * per launch, and leaving it on wrote one for every client of every launch,
+ * forever. See mw_log_prune's header for what happens to the ones an earlier
+ * troubleshooting session left behind.
+ */
 #include "osmw_chat.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
+/* Even when logging is on it must not grow without bound: nothing truncates
+ * the file mid-session, and a long session with the mirror rebuilding on every
+ * tab switch writes steadily. Past this the file is closed after one final
+ * line saying so.
+ *
+ * A cap rather than the rotation mapsplusplus.log uses, because the valuable
+ * part of a mod log is at the TOP -- the signature resolution and the startup
+ * block, which say whether the mod is working at all. Rotating would throw
+ * exactly that away and keep the least interesting tail. Same 1 MB as
+ * LOG_MAX_BYTES in variables.ahk. */
+#define MW_LOG_MAX_BYTES (1024 * 1024)
+
 static HANDLE          g_file = INVALID_HANDLE_VALUE;
 static CRITICAL_SECTION g_lock;
 static int             g_ready = 0;
+static DWORD           g_written = 0;
 
 void mw_log_open(const char *path)
 {
@@ -15,6 +36,7 @@ void mw_log_open(const char *path)
         return;
     InitializeCriticalSection(&g_lock);
     g_ready = 1;
+    g_written = 0;
 
     /* truncate on each launch -- these logs are for the current session */
     g_file = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, NULL,
@@ -22,7 +44,9 @@ void mw_log_open(const char *path)
 }
 
 /* One log per PID means the game root fills up over a few weeks of play, since
- * a PID is never reused often enough to overwrite. Keep only the newest few.
+ * a PID is never reused often enough to overwrite. Keep only the newest few --
+ * or none at all, which is what dllmain.c asks for when logging is switched
+ * off, so turning it back off also sweeps up what the session before it wrote.
  *
  * Deleting a log that a running client still holds cannot happen: the handle
  * below is opened with FILE_SHARE_READ and no FILE_SHARE_DELETE, so DeleteFileA
@@ -118,7 +142,20 @@ void mw_log(const char *fmt, ...)
     line[n++] = '\n';
 
     EnterCriticalSection(&g_lock);
-    WriteFile(g_file, line, (DWORD)n, &written, NULL);
-    FlushFileBuffers(g_file);
+    /* Re-checked under the lock: another thread may have hit the cap and closed
+     * the handle between the test above and here. */
+    if (g_file != INVALID_HANDLE_VALUE) {
+        WriteFile(g_file, line, (DWORD)n, &written, NULL);
+        FlushFileBuffers(g_file);
+        g_written += (DWORD)n;
+        if (g_written >= MW_LOG_MAX_BYTES) {
+            static const char capped[] =
+                "[log] size cap reached -- nothing further will be written\r\n";
+            WriteFile(g_file, capped, sizeof(capped) - 1, &written, NULL);
+            FlushFileBuffers(g_file);
+            CloseHandle(g_file);
+            g_file = INVALID_HANDLE_VALUE;
+        }
+    }
     LeaveCriticalSection(&g_lock);
 }

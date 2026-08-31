@@ -86,11 +86,19 @@ static DWORD WINAPI worker(LPVOID unused)
     (void)unused;
 
     lg_config_load();
-    _snprintf(logpath, sizeof(logpath), "%s\\osmw_login.%lu.log",
-              lg_game_dir(), (unsigned long)GetCurrentProcessId());
-    logpath[sizeof(logpath) - 1] = '\0';
-    lg_log_prune(lg_game_dir(), 5);
-    lg_log_open(logpath);
+
+    /* Opt-in, off by default, one shared key with osmw_chat.dll -- see the same
+     * block in patches/chatmod/src/dllmain.c for the reasoning. Off prunes to
+     * nothing, so switching logging back off clears what it wrote. */
+    if (lg_cfg_int_in("Debug", "ModLogging", 0)) {
+        _snprintf(logpath, sizeof(logpath), "%s\\osmw_login.%lu.log",
+                  lg_game_dir(), (unsigned long)GetCurrentProcessId());
+        logpath[sizeof(logpath) - 1] = '\0';
+        lg_log_prune(lg_game_dir(), 5);
+        lg_log_open(logpath);
+    } else {
+        lg_log_prune(lg_game_dir(), 0);
+    }
 
     lg_log("osmw_login starting");
 

@@ -222,6 +222,20 @@ one line per event there — startup, errors, and anything an addon reported —
 happened five minutes ago is still recoverable. The log is capped at about 1 MB and the previous
 one is kept as `mapsplusplus.log.1`; nothing else is retained.
 
+**Tray → Debug → Client Mod Logging** is off, and should stay off until someone asks for it. The
+two mods injected into the client (`osmw_chat.dll` and `osmw_login.dll`) can each write their own
+log — `osmw_chat.<pid>.log` and `osmw_login.<pid>.log`, one file per client per launch, in the
+game folder. That is a handful of files every launch for something only useful while a problem is
+being chased, so nothing is written unless you turn this on.
+
+If a chat-mod or auto-login problem is being investigated: switch it on, **relaunch your clients**
+(each mod reads the setting once, as it is injected, so windows already open are unaffected),
+reproduce the problem, then send the `osmw_*.log` files from the game folder alongside your
+diagnostics. Switch it back off afterwards — the mods then delete the files they wrote as clients
+are relaunched. While on, each mod keeps only its five newest logs and stops writing past about
+1 MB. The diagnostics report says which state you are in, so an empty game folder is never
+mistaken for a mod that failed to load.
+
 > **If an addon keeps failing, Maps++ turns it off.** Rather than notifying you once a second
 > forever, a repeatedly-failing addon is disabled for the rest of the session and named in one
 > notification. This is not saved — restarting Maps++ gives it another chance. Every failure is in
@@ -510,9 +524,9 @@ Passwords are write-only. After save the field is empty and the hint says the pa
 
 **Settings → Launcher → Auto-login launched clients** is what the launch shortcuts honour. On (the default) clicks through the intro on the new windows only and lets each client claim the next roster row. Off leaves the stock login — already-playing clients are not sent Enter. An empty roster (or every row disabled) also leaves the stock login. **Settings → Addons → Auto-login** is a master switch: off hides the roster editor *and* stops auto-login entirely.
 
-**Auto-login only ever applies to clients Maps++ itself launched.** Consent travels to the mod in an environment variable that exists only for the moment Maps++ spawns the clients, so a client you start yourself — running `osmw_chat_launch.exe` from Explorer, say — always gets the stock login screen, whatever your Maps++ settings say. Each client writes an `osmw_login.<pid>.log` in the game folder that names which of the two gates stopped it, if either did.
+**Auto-login only ever applies to clients Maps++ itself launched.** Consent travels to the mod in an environment variable that exists only for the moment Maps++ spawns the clients, so a client you start yourself — running `osmw_chat_launch.exe` from Explorer, say — always gets the stock login screen, whatever your Maps++ settings say. With **Tray → Debug → Client Mod Logging** on, each client writes an `osmw_login.<pid>.log` in the game folder that names which of the two gates stopped it, if either did.
 
-Use a distinct account per window. If the client says the account is already logged in, that is a server rule — Maps++ will not work around it. For the same reason, **an account you pick explicitly is never swapped for another**: if a live client already holds it, the new window simply stays at the stock login screen and its `osmw_login.<pid>.log` says `requested row … unavailable`.
+Use a distinct account per window. If the client says the account is already logged in, that is a server rule — Maps++ will not work around it. For the same reason, **an account you pick explicitly is never swapped for another**: if a live client already holds it, the new window simply stays at the stock login screen — and says `requested row … unavailable` in its `osmw_login.<pid>.log`, if client mod logging is on.
 
 When you launch from Maps++, it copies `osmw_login.dll`, `osmw_chat.dll` and `osmw_chat_launch.exe` from Maps++'s `Lib\` folder into the game folder, then starts the helper. Browse in Settings still points at `main.exe`; overlay attach is still `main.exe`. The deployed set is stamped with the Maps++ version that wrote it (`osmw_payload.ini` in the game folder) and refreshed when that version changes — so a mod fix in a new Maps++ actually reaches the client. A file locked by a running client is skipped with a warning in `mapsplusplus.log`; close every client and launch again to pick it up. **Tray → Debug → Copy Diagnostics** reports the deployed version and flags it as stale.
 
@@ -916,6 +930,7 @@ format would stop an older already-deployed `osmw_login.dll` from reading it at 
 | `ItemIdOffset` | Override for the inventory item-id address, e.g. `0x2E2028`. Only needed if a game update moves it; blank uses the built-in value (or whatever signature calibration resolves), `0` turns thumbnails off. When set, it wins over signature calibration — which is the point, since the case it exists for is calibration landing on the wrong address |
 | `[Hotkeys]` | One entry per rebindable action, in AutoHotkey chord syntax (`^`=Ctrl, `!`=Alt, `+`=Shift). A blank value means **Not bound**; rebind or unbind from **Settings → Hotkeys** |
 | `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
+| `[Debug] ModLogging` | `1` = the two injected mods write their own per-client logs into the game folder; `0` (the default) = they write nothing and delete what an earlier session left. Like `[Chat]` below, this key belongs to the DLLs and lives in the `config.ini` **next to `main.exe`**. Toggle it from **Tray → Debug → Client Mod Logging** |
 
 After editing `config.ini`, use **Reload** from the tray menu or **Ctrl+Alt+R**.
 

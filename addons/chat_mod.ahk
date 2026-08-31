@@ -137,6 +137,15 @@ global _ChatMod_RenderedPreset := -1
 ; ShowMessage. Broadcast reports its hotkey clashes through the same route.
 global _ChatMod_LastRejection := ""
 
+; A position-reset request is outstanding until this tick, or 0 for none. The
+; DLL acknowledges by writing the key back to 0; see
+; _ChatMod_RequestPositionReset.
+global _ChatMod_ResetDeadline := 0
+global _CHATMOD_RESET_POLL_MS := 400
+; The mod re-reads its settings about every 2s, so allow three of those before
+; deciding nothing heard.
+global _CHATMOD_RESET_WAIT_MS := 6500
+
 RegisterAddon(Map(
     "name",              "ChatMod",
     "settingsLabel",     "Chat Mod",
@@ -656,8 +665,9 @@ _ChatMod_OnSettingsWeb() {
     fields.Push(Map("type", "button", "id", "resetPosition",
         "label", "Reset chat window position",
         "hint", "Forgets where the chat window was put and docks it against "
-              . "its own client again. Takes effect within a couple of "
-              . "seconds; it does not wait for Save."))
+              . "its own client again. It acts on the client at the game path "
+              . "set under Launcher, does not wait for Save, and reports back "
+              . "once a running client has done it."))
     fields.Push(Map("type", "info", "text",
         "The position is remembered relative to the game window, so each "
         . "client's chat window comes back beside its own client rather than "
@@ -1090,10 +1100,28 @@ _ChatMod_OnSettingsAction(actionId) {
 ;
 ; A one-shot command rather than a setting, and deliberately NOT in
 ; _CHATMOD_SPEC: a spec entry would make it a field, and the tab would re-issue
-; the command on every Save. The DLL consumes it and writes it back to 0 within
-; one settings poll. It is also why Maps++ never clears WinRelX/WinRelY itself
-; — the DLL owns those keys and this addon never IniDeletes in [Chat].
+; the command on every Save. It is also why Maps++ never clears WinRelX/WinRelY
+; itself — the DLL owns those keys and this addon never IniDeletes in [Chat].
+;
+; The DLL writing the key back to 0 is an ACKNOWLEDGEMENT, and this watches for
+; it rather than assuming. The first version simply wrote the key and announced
+; success, which is wrong in three situations a user will actually hit: no
+; client is running, the game path points at an install they are not looking
+; at, or the deployed mod predates this command and cannot understand it. All
+; three looked identical to "it worked", and the window not moving was the only
+; clue. Waiting for the ack tells them which it was.
+;
+; It doubles as the button's cooldown: while a request is outstanding the
+; button says so instead of queuing another write.
 _ChatMod_RequestPositionReset() {
+    global _ChatMod_ResetDeadline, _CHATMOD_RESET_WAIT_MS, _CHATMOD_RESET_POLL_MS
+
+    if (_ChatMod_ResetDeadline != 0) {
+        TrayTip("Already asked — still waiting for a client to pick it up.",
+            "Chat Mod")
+        return false
+    }
+
     cfgPath := _ChatMod_IniPath()
     if (cfgPath = "") {
         TrayTip("Set the game path under Launcher first.", "Chat Mod", "Iconx")
@@ -1104,14 +1132,70 @@ _ChatMod_RequestPositionReset() {
         IniWrite("1", cfgPath, "Chat", "ResetPosition")
     } catch as err {
         LogWarn("ChatMod", "Could not request a position reset: " err.Message)
-        TrayTip("Could not write to the game's config.ini.", "Chat Mod", "Iconx")
+        TrayTip("Could not write to " cfgPath ".", "Chat Mod", "Iconx")
         return false
     }
-    LogInfo("ChatMod", "Requested a chat window position reset")
-    TrayTip("The chat window will move back beside its client within a couple "
-        . "of seconds. With no client running, the next one to start does it.",
-        "Chat Mod")
+
+    LogInfo("ChatMod", "Requested a chat window position reset in " cfgPath)
+    _ChatMod_ResetDeadline := A_TickCount + _CHATMOD_RESET_WAIT_MS
+    TrayTip("Asking the chat mod to re-dock the window…", "Chat Mod")
+    SetTimer(_ChatMod_PollPositionReset, _CHATMOD_RESET_POLL_MS)
     return true
+}
+
+; Watches for the DLL to zero the key. Success is the mod telling us it acted;
+; a timeout is the mod never having heard, which is a different problem and
+; gets a different message.
+_ChatMod_PollPositionReset() {
+    global _ChatMod_ResetDeadline
+
+    if (_ChatMod_ResetDeadline = 0) {
+        SetTimer(_ChatMod_PollPositionReset, 0)
+        return
+    }
+    cfgPath := _ChatMod_IniPath()
+    if (cfgPath = "") {
+        _ChatMod_EndPositionReset()
+        return
+    }
+
+    if (IniRead(cfgPath, "Chat", "ResetPosition", "0") != "1") {
+        _ChatMod_EndPositionReset()
+        LogInfo("ChatMod", "Position reset acknowledged by the chat mod")
+        TrayTip("Done — the chat window is back beside its client.", "Chat Mod")
+        return
+    }
+
+    if (A_TickCount < _ChatMod_ResetDeadline)
+        return
+
+    ; The request stays in the file on purpose: the next client to start will
+    ; consume it, which is the documented behaviour and usually what was meant.
+    _ChatMod_EndPositionReset()
+    LogWarn("ChatMod", "Position reset was not picked up by any running client")
+    TrayTip(_ChatMod_ResetUnheardText(), "Chat Mod", "Iconi")
+}
+
+_ChatMod_EndPositionReset() {
+    global _ChatMod_ResetDeadline
+    _ChatMod_ResetDeadline := 0
+    SetTimer(_ChatMod_PollPositionReset, 0)
+}
+
+; Why nothing answered, in the order worth checking. A mod older than this
+; command silently ignores the key, which is indistinguishable from no client
+; running unless we say so.
+_ChatMod_ResetUnheardText() {
+    global APP_VERSION
+    stamp := DeployedPayloadVersion()
+    if (stamp != "" && stamp != APP_VERSION) {
+        return "No client answered. The chat mod in your game folder is "
+            . "version " stamp " and does not know this command. Close every "
+            . "client and launch from Maps++ to update it."
+    }
+    return "No running client picked this up — check the game path under "
+        . "Launcher points at the client you are looking at. The request is "
+        . "saved, so the next client you start will do it."
 }
 
 ; Turns a moved preset into the three font keys, in place.

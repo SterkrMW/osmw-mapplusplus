@@ -134,16 +134,33 @@ static DWORD WINAPI worker(LPVOID unused)
     (void)unused;
 
     mw_config_load();
-    /* One log per client: Maps++ runs up to five at once and they would
-     * otherwise truncate each other's file on startup. */
-    _snprintf(logpath, sizeof(logpath), "%s\\osmw_chat.%lu.log",
-              mw_game_dir(), (unsigned long)GetCurrentProcessId());
-    logpath[sizeof(logpath) - 1] = '\0';
-    /* Keep the last five, which is one full Maps++ multi-client session, so a
-     * crash can still be read against the other clients that were up at the
-     * time. Older ones are just clutter in the game root. */
-    mw_log_prune(mw_game_dir(), 5);
-    mw_log_open(logpath);
+
+    /* Logging is opt-in, and off is the default.
+     *
+     * A player who is not investigating anything has no use for a file per
+     * client per launch, and Maps++ launches up to five clients at a time, so
+     * the game root filled with them -- pruning kept the count down but the
+     * player still never asked for any of it. [Debug] ModLogging is the one
+     * key, shared with osmw_login.dll and flipped from Maps++'s
+     * Tray -> Debug -> Client Mod Logging; the answer is taken once, here, so a
+     * client keeps whatever it started with for its whole life.
+     *
+     * Off also prunes to nothing, so switching it back off clears out what the
+     * troubleshooting session before it wrote. */
+    if (mw_cfg_int_in("Debug", "ModLogging", 0)) {
+        /* One log per client: Maps++ runs up to five at once and they would
+         * otherwise truncate each other's file on startup. */
+        _snprintf(logpath, sizeof(logpath), "%s\\osmw_chat.%lu.log",
+                  mw_game_dir(), (unsigned long)GetCurrentProcessId());
+        logpath[sizeof(logpath) - 1] = '\0';
+        /* Keep the last five, which is one full Maps++ multi-client session, so
+         * a crash can still be read against the other clients that were up at
+         * the time. Older ones are just clutter in the game root. */
+        mw_log_prune(mw_game_dir(), 5);
+        mw_log_open(logpath);
+    } else {
+        mw_log_prune(mw_game_dir(), 0);
+    }
 
     mw_log("osmw_chat starting");
 

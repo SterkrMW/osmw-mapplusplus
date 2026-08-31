@@ -4,7 +4,7 @@
 ;@Ahk2Exe-SetProductName Maps++
 ;@Ahk2Exe-SetCompanyName osMW
 ; Must match APP_VERSION in variables.ahk — build.ps1 fails the build if it does not.
-;@Ahk2Exe-SetVersion 1.3.0
+;@Ahk2Exe-SetVersion 1.3.1
 #SingleInstance Force
 #Warn
 
@@ -425,6 +425,9 @@ _IconForLabel(lbl) {
     ; TODO: `download` once the icon subset is next regenerated.
     if (InStr(lbl, "Get the update — ") = 1)
         return "rocket_launch"
+    ; Another toggle carrying its own state in the label.
+    if (InStr(lbl, "Client Mod Logging — ") = 1)
+        return "bug_report"
     switch lbl {
         ; `info` and `folder` are not in the subsetted font and would render as
         ; permanent tofu, so these borrow the closest names that are.
@@ -499,6 +502,13 @@ RebuildTrayMenu() {
     debugMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
     debugMenu.Add("Copy Diagnostics", (*) => CopyDiagnosticsReport())
     debugMenu.Add("Open Log Folder", (*) => OpenLogFolder())
+    ; The injected mods' own logs, off by default. State in the label as well as
+    ; the checkmark, since the enhanced tray renders the label and not the mark.
+    modLogOn := ModLoggingEnabled()
+    modLogLabel := "Client Mod Logging — " (modLogOn ? "On" : "Off")
+    debugMenu.Add(modLogLabel, (*) => ToggleModLogging())
+    if modLogOn
+        debugMenu.Check(modLogLabel)
     debugMenu.Add()
     debugMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
     debugMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
@@ -799,6 +809,28 @@ OpenLogFolder() {
     } catch as err {
         TrayTip("Could not open " dir "`n" err.Message, "Maps++", "Iconx")
     }
+}
+
+; The injected mods write nothing unless this is on, so this is the "turn it on,
+; reproduce it, send me the files" step of a support conversation rather than
+; something anyone leaves enabled. Each DLL reads the key once, when it is
+; injected, so clients already running keep whatever they started with — hence
+; the relaunch in the notification.
+ToggleModLogging() {
+    want := !ModLoggingEnabled()
+    if !SetModLogging(want) {
+        TrayTip("Could not write the game folder's config.ini.`n"
+            . "Set a game path in Settings → Launcher first.", "Maps++", "Iconx")
+        return
+    }
+    ; After the callback returns, so the native tray's label and checkmark
+    ; cannot stay stale. The enhanced tray also rebuilds on open.
+    SetTimer(RebuildTrayMenu, -1)
+    TrayTip(want
+        ? "Client mod logging ON.`nRelaunch your clients, reproduce the problem, "
+          . "then send the osmw_*.log files from the game folder."
+        : "Client mod logging OFF.`nExisting logs are cleared as clients relaunch.",
+        "Maps++", "Iconi")
 }
 
 ShowDebugState() {
