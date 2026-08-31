@@ -1585,7 +1585,13 @@ ResolveGameDirectory() {
     return dir
 }
 
-; Copies inject helpers from Maps++\Lib into the game folder.
+; Copies inject helpers from Maps++ into the game folder.
+;
+; DLLs ship in Lib\. osmw_chat_launch.exe ships next to mapsplusplus.exe so an
+; install into the game folder already has it beside main.exe — the launcher
+; looks for the client next to itself and will not start from Lib\. A source
+; tree still keeps the launcher in Lib\, so PayloadSourcePath prefers the
+; script-directory copy and falls back to Lib\.
 ;
 ; This used to refuse whenever the destination existed, on the grounds that a
 ; loaded DLL is locked while clients run. That is true, but it also meant an
@@ -1598,7 +1604,22 @@ ResolveGameDirectory() {
 ; skips, which is the common launch and touches nothing; a missing or different
 ; one re-copies. A locked file still throws — the stamp is then left alone, so
 ; the next launch made with no clients running tries again rather than recording
-; a half-updated set as current.
+; a half-updated set as current. Copying a file onto itself is skipped: that is
+; the in-game-folder install, where src and dst are the same path.
+PayloadSourcePath(payloadName) {
+    ; The chat launcher ships at the release root. Prefer that copy so a leftover
+    ; Lib\osmw_chat_launch.exe from an older install cannot win on upgrade.
+    if (payloadName = "osmw_chat_launch.exe") {
+        root := A_ScriptDir "\" payloadName
+        if FileExist(root)
+            return root
+    }
+    lib := A_ScriptDir "\Lib\" payloadName
+    if FileExist(lib)
+        return lib
+    return ""
+}
+
 EnsureInjectPayload(gameDir) {
     global APP_VERSION
     if (gameDir = "" || !DirExist(gameDir))
@@ -1609,9 +1630,13 @@ EnsureInjectPayload(gameDir) {
     copied := 0
     failed := 0
     for payloadName in payloadNames {
-        src := A_ScriptDir "\Lib\" payloadName
+        src := PayloadSourcePath(payloadName)
         dst := gameDir "\" payloadName
-        if !FileExist(src)
+        if (src = "")
+            continue
+        ; Same path when Maps++ lives in the game folder and this payload
+        ; already sits at the root (the chat launcher, after the release hoist).
+        if (StrLower(src) = StrLower(dst))
             continue
         if (fresh && FileExist(dst))
             continue

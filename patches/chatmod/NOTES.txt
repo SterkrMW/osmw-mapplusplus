@@ -491,8 +491,11 @@ routine, which works even though a suspended process has no module list yet.
 The launcher is deliberately dumb: it always injects, and [Addons] ChatMod
 decides whether the mod does anything. Maps++ drives this: its
 ResolveLaunchExecutable prefers osmw_chat_launch.exe over main.exe, and
-EnsureInjectPayload copies the DLL out of Lib/ into a game folder that lacks
-it. GamePath stays pointed at main.exe, which is what the overlay attaches to.
+EnsureInjectPayload copies the DLLs out of Lib/ (and the launcher from next
+to mapsplusplus.exe) into a game folder that lacks them. The launcher ships
+at the release root rather than Lib/, because it looks for main.exe beside
+itself and the Inno installer puts Maps++ in the game folder. GamePath stays
+pointed at main.exe, which is what the overlay attaches to.
 
 
 The line record, and how channel filtering works

@@ -328,6 +328,17 @@ function Build-Variant {
             Copy-Item -LiteralPath $LibDir -Destination $outDir -Recurse -Force
         }
 
+        # The chat launcher looks for main.exe beside itself. The Inno installer
+        # puts Maps++ in the game folder, so the launcher has to sit at the
+        # release root (next to mapsplusplus.exe) rather than inside Lib\, or a
+        # post-install double-click cannot find the client.
+        $launcherSrc = Join-Path $outDir 'Lib\osmw_chat_launch.exe'
+        if (Test-Path -LiteralPath $launcherSrc) {
+            Move-Item -LiteralPath $launcherSrc `
+                      -Destination (Join-Path $outDir 'osmw_chat_launch.exe') `
+                      -Force
+        }
+
         # Drop a small README naming the variant + its addons.
         $readme = @()
         $readme += "mapsplusplus.exe -- variant: $Name"
