@@ -487,21 +487,29 @@ int lg_autologin_start(void)
     resolve_send4();
 
     if (!lg_hook_install(&g_login_hook, lg_addr[LG_TICK],
-                         (void *)(UINT_PTR)detour_login_tick, 6, &g_login_tramp))
+                         (void *)(UINT_PTR)detour_login_tick, 6, &g_login_tramp,
+                         "login tick prologue"))
         return 0;
 
     if (lg_addr[LG_CHARTICK] && g_send4) {
         if (!lg_hook_install(&g_char_hook, lg_addr[LG_CHARTICK],
-                             (void *)(UINT_PTR)detour_char_tick, 6, &g_char_tramp))
+                             (void *)(UINT_PTR)detour_char_tick, 6, &g_char_tramp,
+                             "character-select tick prologue"))
             lg_log("select: char-tick hook failed -- will stop at character select");
     }
     return 1;
 }
 
-void lg_autologin_stop(void)
+OSMW_RESULT lg_autologin_stop(void)
 {
-    lg_hook_remove(&g_char_hook);
-    lg_hook_remove(&g_login_hook);
+    OSMW_RESULT result;
+
+    result = lg_hook_remove(&g_char_hook);
+    if (result != OSMW_OK)
+        return result;
+    result = lg_hook_remove(&g_login_hook);
+    if (result != OSMW_OK)
+        return result;
     g_login_tramp = NULL;
     g_char_tramp  = NULL;
     g_send4       = NULL;
@@ -514,4 +522,5 @@ void lg_autologin_stop(void)
     SecureZeroMemory(g_password, sizeof(g_password));
     lg_roster_free(&g_roster);
     g_row = NULL;
+    return OSMW_OK;
 }

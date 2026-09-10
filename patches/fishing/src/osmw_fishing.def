@@ -1,0 +1,3 @@
+LIBRARY osmw_fishing
+EXPORTS
+    osmw_mod_query

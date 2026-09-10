@@ -1,0 +1,3 @@
+LIBRARY fixture_unrestored
+EXPORTS
+    osmw_mod_query

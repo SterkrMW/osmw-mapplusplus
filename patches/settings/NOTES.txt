@@ -1,0 +1,321 @@
+osmw_settings.dll -- in-engine settings panel for the native osMW mods
+======================================================================
+
+Spec: mw-tools/tools/client-dll/settings-panel.md
+Target: MW1 v1.0.48.35, main.exe build 0x45650696
+Status: managed Task 10 implementation host-verified 2026-09-05; the legacy
+        panel was working in game on 2026-09-04, but the core-managed build
+        still needs the disabled/signature-miss/active/eject client matrix.
+
+WHAT IT IS
+----------
+An F12 window, drawn with the client's own tooltip frame and bitmap font, that
+toggles the settings of all five native mods and writes them to config.ini.
+Before it, the only ways to change any of those ~60 keys were a text editor or
+Maps++ -- and Maps++ stopped being required when the mod_autoload patch landed,
+so the settings for the mods were reachable only through the tool the mods no
+longer need.
+
+It is also the discovery surface. Without it a player has to be TOLD a mod
+exists before they can use it.
+
+
+ARCHITECTURE
+------------
+The DLL is a passive ABI 1 module. DllMain only disables thread callbacks;
+osmw_mod_query publishes init/shutdown, and core owns every process-global
+service used here.
+
+    core loader -> settings.init
+                     +- [Addons] gate through core config
+                     +- 14 signatures through core's pristine image
+                     +- priority-0 post-UiTick subscription
+
+    core UiTick broker -> original, THEN st_panel_tick()
+                                      +- hotkey edge
+                                      +- open / close node
+
+    settings.shutdown -> unsubscribe -> destroy an open node -> return clean
+
+    the node, once it exists:
+        draw proc  -> frame (0x4615B0) + rows (0x49C8D0)
+        input proc -> hit test, st_row_advance, write config.ini
+
+Files:
+    dllmain.c   passive entry, descriptor, managed init/shutdown/subscription
+    settings.c  THE ROW TABLE -- the only place settings are described
+    panel.c     node lifetime, layout, drawing, input
+    keys.c      the client's scancode array, edge-triggered
+    config.c    thin adapter over core's read/write config service
+    scan.c      translates generated rows into core resolver requests
+    log.c       formats locally and sends completed messages to core
+
+
+THE LOAD-BEARING DECISIONS
+--------------------------
+
+1. POST-UiTick IS THE NORMAL PLACE A NODE MAY BE CREATED OR DESTROYED.
+   Both node walkers iterate a global cursor at 0x7BAD98 and re-read it after
+   each proc returns, so relinking the list from inside a draw or input proc
+   corrupts the iteration. The hotkey and the [ Close ] button therefore only
+   set g_want_open; the actual open and close happen in st_panel_tick, after
+   the client's own pass has finished. Core now guarantees that placement;
+   settings no longer owns or writes the UiTick prologue.
+
+   Corollary, learned the hard way in osmw_minimap: CLEANUP CANNOT BE DRIVEN BY
+   THE THING WHOSE ABSENCE IT IS CLEANING UP AFTER. Its teardown used to live
+   in the draw proc, which stops being called once the window is gone -- so the
+   node was never freed, and an invisible node swallowed every click in its
+   rect until the process exited.
+
+2. UiDestroyNode TAKES TWO ARGUMENTS, (handle, list_sel).
+   The generated signature makes it plain: `mov al,[esp+8]` then
+   `mov edx,[esp+4]`. Called with one, the callee reads rubbish for list_sel,
+   searches the wrong list, does not find the node, and never frees it -- the
+   invisible-click-eater again. This cost osmw_minimap most of a day.
+   Confirm a client function's arity from the CALLER'S STACK CLEANUP, never
+   from the pushes visible beside the call.
+
+3. DrawText MODE 1, NOT 0.
+   mode 1 (0x49B920) is plain glyphs, 780 of the client's 863 call sites.
+   mode 0 (0x49A390) draws on a filled backdrop -- right for the stock minimap
+   coord readout, which sits over map terrain, wrong here. osmw_minimap copied
+   the readout's call and got a black box behind every row.
+
+4. THE PANEL SIZE IS ARITHMETIC, NOT TASTE.
+   0x4615B0 tiles the info.mda frame as 16px corners with 8px edges, so it
+   needs (w-16)/8 and (h-16)/8 whole. 320x400 gives 38 and 48. Check that
+   before resizing.
+
+5. CLICKS ARE EDGE-TRIGGERED, AND THE EVENT MUST BE CONSUMED.
+   The client re-asserts 0xF5 every frame while the button is held (osmw_minimap
+   proved it: a 250 ms cooldown turned one press into clicks exactly 250 ms
+   apart). Each node also clears [0x7029BC] itself, and only the node under the
+   cursor is called. Closing releases any pending click too -- otherwise a
+   latched click is dispatched to the world the instant the node is freed, at
+   the cursor position, which reads as a ground click.
+
+6. THE KEYBOARD IS THE CLIENT'S ARRAY, NOT GetAsyncKeyState.
+   Players run up to five clients at once; GetAsyncKeyState is global and would
+   open the panel in all five. 0x7E6BA0 is fed only while that window has focus.
+   ONE array: 0x7E6C00 is the EXTENDED (0xE0-prefixed) half, not "pressed this
+   frame" -- osmw_fightspeed's first build ORed them and was wrong.
+
+7. F12, AND NEVER ESCAPE.
+   Escape already opens the client's log-off menu. A mod must not take a key the
+   client has bound: the failure is not that the panel also closes, it is that
+   someone reaching for log off gets whichever handler wins. F12 is free, and is
+   also the last key the scancode table can hold (arrays are 0x59 entries).
+
+8. NO [Addons] Settings ROW IN THE PANEL.
+   A switch whose only effect is to hide the switch is a trap; recovering means
+   hand-editing the ini, the exact thing this mod exists to avoid. The key is
+   still read at startup so it can be set in the file.
+
+
+HOW SETTINGS REACH THE OTHER MODS
+---------------------------------
+config.ini, and nothing else. No cross-DLL calls, no shared header, no exported
+settings struct, no init-order dependency.
+
+    osmw_minimap     reads on demand, every use          -- already live
+    osmw_chat        polls the ini every 2 s (window.c)  -- already live
+    osmw_fightspeed  settings_poll(), added 2026-09-04
+    osmw_weather     settings_poll(), added 2026-09-04
+
+An earlier design had every mod grow an osmw_reload_config export that this one
+would find with GetProcAddress and call. It was dropped, and the reason is worth
+recording: it was designed against a WRONG READING OF THE TREE. Grepping for
+cfg_int(...) assignments showed them at install sites, so all four mods looked
+like they cached; chatmod in fact re-reads on a timer, which only reading
+window.c revealed. Polling turned out to be both correct and better -- it
+deletes an ABI, it makes each mod independently useful (Notepad edits go live
+too), and it is testable before any UI exists.
+
+The cost is up to ~2 s between a click and the world changing. Acceptable
+because this is the discover-and-set path, not the toggle-mid-fight path --
+osmw_fightspeed still has F11 for that.
+
+The only thing this mod asks about another is module status, through core, to
+grey a row whose DLL is absent. ACTIVE and DISABLED modules count as installed;
+missing, incompatible, failed and unloaded modules do not. No feature DLL is
+looked up or called directly.
+
+
+TRAPS IN THE SECTION NAMES
+--------------------------
+osmw_fightspeed reads [Fight], NOT [FightSpeed] -- even though its [Addons] gate
+key IS "FightSpeed". Both names are in shipped config.ini files. Do not
+"correct" either to match the other; it silently orphans every existing setting.
+
+osmw_weather's WX_SECTION is ALSO "Fight", a leftover from the mod it was cloned
+from. Harmless only because every weather read passes "Weather" explicitly
+through cfg_int_in. Anything added there must do the same.
+
+
+SIGNATURES
+----------
+14 module-owned signatures, all resolved through core. They are copies of
+already-proven Minimap_* / Fightspeed_*
+patterns rather than fresh generations. Copying is strictly safer: those were
+made by make_signature.py, which refuses to emit a pattern until it matches
+exactly once, and they have been in service. Two names resolving to one address
+costs nothing -- scan.c counts matches per PATTERN, not per address.
+
+Settings_UiDestroyNode is the one new pattern. The minimap has no signature for
+it (it derives the address from a fixed E8 byte 17 into its UiCreateCall match);
+this mod calls the function directly, so it needs the address on its own terms.
+Generated at 0x45E650, 30 bytes, 1 match.
+
+Settings_KeyArray is the only OPTIONAL one. Without it the hotkey is dead and
+the panel cannot be opened, which is a degraded mod rather than a broken client.
+Everything else is required: a panel that cannot draw its frame or read its
+clicks should not exist at all.
+
+The old fifteenth signature was Settings_UiTick. It is intentionally excluded
+from generated module output because only core resolves and owns that hook.
+
+    python patches/settings/tools/scan_offsets.py --game-root <game>
+
+
+TRIAL LOG (legacy history retained below)
+-----------------------------------------
+2026-09-04  BUILT. All 15 signatures resolve exactly once against the patched
+            client. x86 DLL, KERNEL32 only, osmw_prepare_unload exported
+            undecorated. modhash clean across all six mods.
+            NOT RUN IN A CLIENT. Everything above is static verification and
+            reasoning from the decoded client, exactly like osmw_fightspeed's
+            first build -- and that one needed twenty-one runs to get right, so
+            treat this as unproven until it has been on screen.
+            What to check on the first run, in order:
+              1. Does F12 open a framed window at all, and does the frame's
+                 edge art meet its corners? (If not, the 320x400 arithmetic or
+                 the info.mda array is wrong.)
+              2. Does F12 close it again, and does the FIRST click afterwards
+                 land in the world normally rather than being swallowed or
+                 doubled? (That is the pending-click release.)
+              3. Does one click toggle exactly one row, once? (Edge trigger.)
+              4. Does a toggled row survive closing and reopening the panel?
+                 (That is the ini write actually landing.)
+              5. Does [Fight] Mode change the battle speed within ~2 s, and does
+                 F11 still work afterwards? (That is the new poll not fighting
+                 its own writer.)
+            The failure mode to watch for above all others is an invisible node
+            eating clicks in a 320x400 block in the middle of the screen. If
+            that happens, the destroy path is wrong -- see decisions 1 and 2.
+
+2026-09-04  FIRST RUN. Stood down: "UiTick FAILED (0 matches, expected 1)",
+            while the offline scanner said all 15 were fine. That disagreement
+            between the file scanner and the in-process scanner IS the
+            diagnostic -- it can only mean the bytes changed after load.
+
+            CAUSE: osmw_minimap hooks UiTick (walk.c) with a 7-byte prologue
+            steal, writing E9+jmp+2 nops. Settings_UiTick's pattern begins with
+            exactly those seven bytes (8A 44 24 04 83 EC 08). minimap is the
+            third autoload name and settings is the sixth, so by the time this
+            mod scanned, its anchor no longer existed.
+
+            This is a CLASS, not a minimap problem: any pattern anchored on a
+            function prologue is destroyed by any earlier-loading mod that hooks
+            that function, and load order is a list in mod_autoload.py that has
+            nothing to do with the mod being broken.
+
+            Rejected fixes:
+              - anchor past the stolen prologue: trades one fragile assumption
+                (nobody hooks it) for another (they steal exactly 7 bytes).
+              - anchor on a call site and decode the rel32, the way this mod
+                gets UiDestroyNode: UiTick has 87 call sites.
+              - reorder the autoload list so settings loads first: just moves
+                the failure to whichever mod now scans second.
+
+            FIX, two parts:
+            1. scan.c now reads main.exe FROM DISK (path from
+               GetModuleFileNameA(NULL), so it is by construction the running
+               binary) and matches against that pristine .text. Immune to every
+               mod's patches, not just this one. Costs one 2.4 MB read at
+               startup. Addresses are loaded_base + rva; opOffset operands are
+               read from the disk bytes, which is valid because this client has
+               no DYNAMICBASE -- and scan.c now REFUSES to resolve anything if
+               the loaded base is not the linked base, rather than computing
+               addresses that would be wild jumps.
+            2. hook.c now CHAINS when the target already starts with E9,
+               instead of refusing. The existing jmp's destination is the
+               previous detour, so our trampoline becomes `jmp previous` and
+               both mods get their pass:
+                 client -> our jmp -> our detour -> our trampoline
+                        -> their detour -> their trampoline -> real function
+               Before this, starts_with_relative_branch() refused the install --
+               safe, and it did fire correctly, but it left the mod dead.
+               Known limit: if THEY unhook first the original bytes go back over
+               our jmp and our trampoline points into a possibly-unloaded
+               module. Neither mod unloads except at process exit.
+
+            Verified offline: all 15 signatures still match exactly once in the
+            disk .text and compute the same addresses. Rebuilt, KERNEL32-only
+            imports unchanged. NOT yet re-run in a client.
+
+2026-09-04  SECOND RUN: WORKING IN GAME. Panel opens on F12, draws the frame
+            and all 19 rows, reads correct values, toggles, writes config.ini,
+            and closes. The disk-scan + hook-chain fix is confirmed good: this
+            is running with its UiTick hook chained in front of osmw_minimap's.
+
+            ONE COSMETIC DEFECT, visible in the first screenshot: the panel
+            background is TRANSLUCENT. The info.mda frame's border draws, but
+            the world shows through the interior, and where a nameplate or
+            floating combat text sits behind the panel it collides with the
+            row text -- an NPC name landed straight across the "Animation
+            speed" row's value. Legibility, not correctness.
+            DIAGNOSED, and it is not a bug in our call. 0x4615B0 blits all
+            NINE slots including the centre fill (slot 4, at 0x4616A6) -- the
+            slot order is 0,1,2,3,5,4,6,7,8, so the fill is drawn after the
+            top edges, exactly as intended. The frame is fine.
+            The interior is transparent because of the ARTWORK plus the blit
+            format: 0x44ADD0 is an RLE sprite decoder (0x320 = 800-pixel
+            stride) whose control bytes 0xFD/0xFE/0xFF drive skip / run /
+            literal, so a "skip" run leaves the destination untouched. It is
+            NOT an alpha blend. info.mda's centre piece is therefore an empty
+            run: the client's tooltip frame is a BORDER, and its interior was
+            always meant to show through.
+            Consequence worth writing down: DRAWING THE BOX SEVERAL TIMES TO
+            BUILD UP OPACITY CANNOT WORK. Transparent stays transparent.
+            Two real options, neither implemented yet:
+              a) DrawText mode 0 (0x49A390) for the rows -- glyphs on a filled
+                 backdrop, which is precisely how the stock minimap coord
+                 readout stays legible over terrain. One-line change, and it
+                 reverses decision 3 above: that decision assumed the frame was
+                 opaque, and it is not. Cost is a dark box behind each row.
+              b) Draw our own solid fill before the frame, the way osmw_weather
+                 does its tint pass with direct surface writes. Best result, a
+                 genuinely solid panel, but it needs a fill routine this mod
+                 does not have.
+            Note osmw_minimap's phase 1 left "Frame" as its one unfinished
+            item, so this artwork had never been exercised by either mod before
+            now -- which is why nobody had found this.
+            ACCEPTED 2026-09-04: judged sufficiently usable in game, shipped as
+            is. The transparency above is a KNOWN STATE, not an open defect --
+            do not treat it as a bug to fix, and do not redo the diagnosis. The
+            two options are recorded only in case it ever starts to annoy.
+
+2026-09-05  TASK 10 MANAGED MIGRATION, HOST-VERIFIED.
+            - DllMain is passive. The DLL's sole undecorated export is
+              osmw_mod_query; there is no worker or prepare-unload export.
+            - Init performs the Settings gate, central logging/config access,
+              all 14 module-owned core resolver calls, panel setup, and one
+              priority-0 post-UiTick subscription.
+            - The old chain-capable hook.c and Settings_UiTick signature were
+              removed. Settings contains no UiTick write or trampoline.
+            - Shutdown revokes the subscription before panel teardown and
+              returns with no live token or claim.
+            - test_lifecycle.exe loads the real DLL and passes query ABI,
+              passive DllMain, disabled, required miss, optional miss, active
+              callback, post-original node create/destroy, open-node teardown,
+              unsubscribe, and FreeLibrary checks.
+            - Build contract passes: x86 /MT, KERNEL32-only imports, sole
+              osmw_mod_query export, and source stamp includes the core SDK.
+            NOT DEPLOYED. The old implementation's in-game result above does
+            not validate this managed build. Run the Task 10 client matrix
+            only with core as bootstrap; never autoload this passive DLL alone.
+
+2026-09-06  Added the live [Chat] RememberActiveTab toggle to the native panel.
+            The panel now has 24 rows, filling its 24-row unscrolled band.
+            The managed lifecycle fixture and PE contract pass unchanged.

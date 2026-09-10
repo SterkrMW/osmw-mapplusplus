@@ -1,4 +1,4 @@
-"""Build osmw_chat.dll (32-bit) with MSVC into Lib/, and deploy it for testing.
+"""Build the managed osmw_chat.dll and compatibility launcher into Lib/.
 
 The target is an MSVC-built 2006 binary and we call into it with __thiscall,
 so this uses cl.exe from the x86 toolchain, not the mingw64 that happens to be
@@ -15,6 +15,7 @@ thing being shipped -- was written correctly.
 
     python patches/chatmod/tools/build.py
     python patches/chatmod/tools/build.py --debug
+    python patches/chatmod/tools/build.py --test --no-deploy
     python patches/chatmod/tools/build.py --clean       remove the intermediates
     python patches/chatmod/tools/build.py --no-deploy   Lib/ only
 """
@@ -31,15 +32,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
 from paths import PROJ, LIB, add_game_root_arg, find_game_root  # noqa: E402
 import modhash  # noqa: E402
+import peutil  # noqa: E402
 
 SRC = PROJ / "patches" / "chatmod" / "src"
+SDK = PROJ / "patches" / "core" / "sdk"
+TESTS = PROJ / "patches" / "chatmod" / "tests"
 OBJ = PROJ / "patches" / "chatmod" / "build"
 OUT = LIB / "osmw_chat.dll"
+TEST_OUT = OBJ / "test_lifecycle.exe"
+APPROVED_IMPORT_DLLS = {"kernel32.dll", "user32.dll", "gdi32.dll"}
 
 SOURCES = ["dllmain.c", "scan.c", "hook.c", "config.c", "font.c",
            "window.c", "geometry.c", "clear.c", "mirror.c", "mention.c",
            "chips.c", "tabs.c", "timestamps.c", "scroll.c", "cooldown.c",
-           "block.c", "probe.c", "log.c"]
+           "block.c", "links.c", "backgrounds.c", "probe.c", "log.c"]
 LAUNCHER_SOURCES = ["launcher.c"]
 LAUNCHER_OUT = LIB / "osmw_chat_launch.exe"
 
@@ -115,6 +121,41 @@ def verify_is_win32(path: Path, want_dll: bool) -> None:
           % (path.name, "DLL" if is_dll else "EXE", len(data)))
 
 
+def export_names(path: Path) -> list[str]:
+    image = peutil.load_pe(path)
+    pe_offset = struct.unpack_from("<I", image.data, 0x3C)[0]
+    export_rva = struct.unpack_from("<I", image.data,
+                                    pe_offset + 24 + 96)[0]
+    if export_rva == 0:
+        return []
+    directory = peutil.rva_to_off(image, export_rva)
+    count = struct.unpack_from("<I", image.data, directory + 24)[0]
+    names_rva = struct.unpack_from("<I", image.data, directory + 32)[0]
+    names_offset = peutil.rva_to_off(image, names_rva)
+    names = []
+    for index in range(count):
+        name_rva = struct.unpack_from(
+            "<I", image.data, names_offset + index * 4)[0]
+        names.append(peutil.read_cstr(
+            image.data, peutil.rva_to_off(image, name_rva)))
+    return sorted(names)
+
+
+def verify_pe_contract(path: Path) -> None:
+    image = peutil.load_pe(path)
+    imported = set(image.imports)
+    unexpected = imported - APPROVED_IMPORT_DLLS
+    if unexpected:
+        raise SystemExit("%s imports unapproved DLL(s): %s" %
+                         (path.name, ", ".join(sorted(unexpected))))
+    exports = export_names(path)
+    if exports != ["osmw_mod_query"]:
+        raise SystemExit("%s exports %r; expected only osmw_mod_query" %
+                         (path.name, exports))
+    print("  verified imports: %s" % ", ".join(sorted(imported)))
+    print("  verified sole export: osmw_mod_query")
+
+
 def check_not_locked() -> None:
     """A loaded DLL cannot be overwritten; say so plainly instead of leaking
     LNK1104 out of the linker."""
@@ -152,6 +193,8 @@ def clean() -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--debug", action="store_true", help="unoptimised build with symbols")
+    ap.add_argument("--test", action="store_true",
+                    help="run the real-DLL managed lifecycle fixture")
     ap.add_argument("--clean", action="store_true",
                     help="delete build intermediates and exit")
     ap.add_argument("--no-deploy", action="store_true",
@@ -171,7 +214,7 @@ def main() -> int:
     cflags = [
         "/nologo", "/c", "/W4", "/GS-", "/MT",
         "/D_CRT_SECURE_NO_WARNINGS", "/DWIN32_LEAN_AND_MEAN",
-        "/I", str(SRC),
+        "/I", str(SRC), "/I", str(SDK),
         "/Fo:" + str(OBJ) + "\\",
     ]
     cflags += ["/Od", "/Zi", "/Fd:" + str(OBJ / "osmw_chat.pdb")] if args.debug else ["/O2"]
@@ -205,7 +248,7 @@ def main() -> int:
     # Write a batch file rather than passing this to `cmd /c` inline: the paths
     # contain spaces and cmd's own quote handling mangles a one-liner.
     bat = OBJ / "_build.bat"
-    bat.write_text("\r\n".join([
+    commands = [
         "@echo off",
         'call "%s" x86 || exit /b 1' % vcvars,
         "cl " + " ".join(cflags) + " " + " ".join('"%s"' % s for s in srcs) + " || exit /b 1",
@@ -213,7 +256,17 @@ def main() -> int:
         "cl " + " ".join(cflags) + " " + " ".join('"%s"' % s for s in lsrcs) + " || exit /b 1",
         "link " + " ".join(launcher_link) + " " + " ".join('"%s"' % o for o in lobjs)
         + " || exit /b 1",
-    ]) + "\r\n", encoding="utf-8")
+    ]
+    if args.test:
+        test_obj = OBJ / "test_lifecycle.obj"
+        test_link = ["/nologo", "/MACHINE:X86", "/OUT:" + str(TEST_OUT),
+                     "kernel32.lib", "user32.lib", "gdi32.lib"]
+        commands.extend([
+            "cl " + " ".join(cflags) + ' "%s" || exit /b 1' %
+            (TESTS / "test_lifecycle.c"),
+            "link " + " ".join(test_link) + ' "%s" || exit /b 1' % test_obj,
+        ])
+    bat.write_text("\r\n".join(commands) + "\r\n", encoding="utf-8")
 
     print("building %s and %s ..." % (OUT.name, LAUNCHER_OUT.name))
     proc = subprocess.run(["cmd", "/c", str(bat)], capture_output=True, text=True)
@@ -229,9 +282,22 @@ def main() -> int:
         return proc.returncode
 
     verify_is_win32(OUT, want_dll=True)
+    verify_pe_contract(OUT)
     verify_is_win32(LAUNCHER_OUT, want_dll=False)
     print("ok: %s" % OUT)
     print("ok: %s" % LAUNCHER_OUT)
+
+    if args.test:
+        verify_is_win32(TEST_OUT, want_dll=False)
+        test = subprocess.run([str(TEST_OUT), str(OUT)],
+                              capture_output=True, text=True)
+        for line in ((test.stdout or "") + (test.stderr or "")).splitlines():
+            if line.strip():
+                print("  " + line.strip())
+        if test.returncode != 0:
+            print("TEST FAILED: %s (exit %d)" %
+                  (TEST_OUT.name, test.returncode))
+            return test.returncode
 
     # Record what these were built from, so build.ps1 can tell later
     # whether Lib/ still matches the sources. See patches/common/modhash.py.

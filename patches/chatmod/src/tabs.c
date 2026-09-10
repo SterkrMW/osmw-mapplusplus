@@ -99,6 +99,8 @@ static mw_tab_t TABS[MAX_TABS];
 static int      TAB_COUNT;
 static int      g_active_tab;
 static char     g_tab_spec[256];
+static int      g_remember_active = 1;
+static char     g_saved_active[256];
 
 /* Channel names accepted in the [Chat] Tabs setting. */
 static const struct { const char *name; int channel; } CHANNEL_NAMES[] = {
@@ -137,7 +139,10 @@ static void parse_tabs(const char *spec)
 
     for (tab = work; tab && *tab && TAB_COUNT < MAX_TABS; tab = next_tab) {
         char *colon, *item, *next_item;
+        char name[TAB_NAME_MAX];
         unsigned mask = 0;
+        int duplicate = 0;
+        int i;
 
         next_tab = strchr(tab, '|');
         if (next_tab)
@@ -178,7 +183,20 @@ static void parse_tabs(const char *spec)
                 mask |= (1u << ch);
         }
 
-        _snprintf(TABS[TAB_COUNT].name, TAB_NAME_MAX, "%s", tab);
+        _snprintf(name, sizeof(name), "%s", tab);
+        name[sizeof(name) - 1] = '\0';
+        for (i = 0; i < TAB_COUNT; i++) {
+            if (!_stricmp(TABS[i].name, name)) {
+                duplicate = 1;
+                break;
+            }
+        }
+        if (duplicate) {
+            mw_log("tabs: duplicate name \"%s\" ignored", name);
+            continue;
+        }
+
+        _snprintf(TABS[TAB_COUNT].name, TAB_NAME_MAX, "%s", name);
         TABS[TAB_COUNT].name[TAB_NAME_MAX - 1] = '\0';
         TABS[TAB_COUNT].mask = mask;
         TAB_COUNT++;
@@ -197,22 +215,81 @@ static void parse_tabs(const char *spec)
     }
 }
 
+static int tab_index_by_name(const char *name)
+{
+    int i;
+
+    if (!name || !name[0])
+        return -1;
+    for (i = 0; i < TAB_COUNT; i++) {
+        if (!_stricmp(TABS[i].name, name))
+            return i;
+    }
+    return -1;
+}
+
 /* Re-read the tab definitions if the setting changed. Returns 1 if it did. */
 static int refresh_tabs(void)
 {
     const char *spec = mw_cfg_str("Tabs", DEFAULT_TABS);
+    char active_name[TAB_NAME_MAX] = "";
+    int index;
 
     if (!strcmp(spec, g_tab_spec))
         return 0;
+
+    if (g_active_tab >= 0 && g_active_tab < TAB_COUNT) {
+        _snprintf(active_name, sizeof(active_name), "%s", TABS[g_active_tab].name);
+        active_name[sizeof(active_name) - 1] = '\0';
+    }
 
     _snprintf(g_tab_spec, sizeof(g_tab_spec), "%s", spec);
     g_tab_spec[sizeof(g_tab_spec) - 1] = '\0';
     mw_log("tabs: reading Tabs=%s", g_tab_spec);
     parse_tabs(g_tab_spec);
 
-    if (g_active_tab >= TAB_COUNT)
+    index = tab_index_by_name(active_name);
+    if (active_name[0])
+        g_active_tab = index >= 0 ? index : 0;
+    else if (g_active_tab < 0 || g_active_tab >= TAB_COUNT)
         g_active_tab = 0;
     return 1;
+}
+
+static void load_active_tab(void)
+{
+    int index;
+
+    g_remember_active = mw_cfg_int("RememberActiveTab", 1) != 0;
+    g_active_tab = 0;
+    g_saved_active[0] = '\0';
+    if (!g_remember_active)
+        return;
+
+    (void)mw_cfg_copy("ActiveTab", "", g_saved_active, sizeof(g_saved_active));
+    index = tab_index_by_name(g_saved_active);
+    if (index >= 0) {
+        g_active_tab = index;
+        mw_log("tabs: restored active tab \"%s\"", TABS[index].name);
+    } else if (g_saved_active[0]) {
+        mw_log("tabs: saved active tab \"%s\" no longer exists; using \"%s\"",
+               g_saved_active, TABS[0].name);
+    }
+}
+
+static void persist_active_tab(void)
+{
+    const char *name;
+
+    if (!g_remember_active || g_active_tab < 0 || g_active_tab >= TAB_COUNT)
+        return;
+    name = TABS[g_active_tab].name;
+    if (!_stricmp(name, g_saved_active))
+        return;
+
+    _snprintf(g_saved_active, sizeof(g_saved_active), "%s", name);
+    g_saved_active[sizeof(g_saved_active) - 1] = '\0';
+    mw_cfg_set_str("ActiveTab", g_saved_active);
 }
 
 /* Enough of the message ring to spot traffic on the tabs you are not looking
@@ -259,6 +336,22 @@ static unsigned active_mask(void)
 unsigned mw_tabs_mask(void)
 {
     return active_mask();
+}
+
+int mw_tabs_active_index(void)
+{
+    return g_active_tab >= 0 && g_active_tab < TAB_COUNT ? g_active_tab : -1;
+}
+
+const char *mw_tabs_active_name(void)
+{
+    int index = mw_tabs_active_index();
+    return index >= 0 ? TABS[index].name : "";
+}
+
+int mw_tabs_point_is_strip(int y)
+{
+    return g_strip_on && y >= 0 && y < STRIP_H;
 }
 
 /* How much the chat window's client rect is currently displaced to make room
@@ -501,6 +594,7 @@ void mw_tabs_set(int index, const char *why)
     if (index >= TAB_COUNT)
         index = 0;
     g_active_tab = index;
+    persist_active_tab();
     g_unread[index] = 0;
     g_mention[index] = 0;
 
@@ -509,6 +603,7 @@ void mw_tabs_set(int index, const char *why)
     /* Renumbers the private ring, so this also drops the window's cached line
      * list and forces a repaint. */
     mw_mirror_rebuild(active_mask());
+    mw_backgrounds_on_tab_changed();
     if (hwnd && IsWindow(hwnd))
         InvalidateRect(hwnd, NULL, FALSE);
 
@@ -528,7 +623,7 @@ int mw_tabs_on_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT *resul
         int y = (int)(short)HIWORD(lp);
         RECT client;
 
-        if (y >= 0 && y < STRIP_H && GetClientRect(hwnd, &client)) {
+        if (mw_tabs_point_is_strip(y) && GetClientRect(hwnd, &client)) {
             int pane_w = client.right - client.left;
             int i;
 
@@ -576,9 +671,18 @@ int mw_tabs_on_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT *resul
 void mw_tabs_sync_hotkey(HWND hwnd)
 {
     const char *spec;
+    int remember;
 
     /* Piggy-backs on the settings poll; see strip_enabled. */
     g_strip_on = mw_cfg_int("TabStrip", 1) != 0;
+    remember = mw_cfg_int("RememberActiveTab", 1) != 0;
+    if (remember != g_remember_active) {
+        g_remember_active = remember;
+        mw_log("tabs: remembering the active tab %s",
+               g_remember_active ? "enabled" : "disabled");
+        if (g_installed && g_remember_active)
+            persist_active_tab();
+    }
 
     /* Editing Tabs redefines what each one shows, so the mirror has to be
      * rebuilt under the new mask. */
@@ -628,7 +732,8 @@ int mw_tabs_install(HWND hwnd)
 
     /* prologue is `mov eax, 0x8230` -- exactly 5 bytes, no relative branch */
     if (!mw_hook_install(&g_render_hook, mw_addr[MW_RENDER],
-                         (void *)(UINT_PTR)render_detour, 5)) {
+                         (void *)(UINT_PTR)render_detour, 5,
+                         "chat render prologue")) {
         mw_log("tabs: could not hook the render routine");
         return 0;
     }
@@ -638,7 +743,8 @@ int mw_tabs_install(HWND hwnd)
      * 5 would land mid-instruction. */
     if (mw_addr[MW_PRESENT] &&
         mw_hook_install(&g_present_hook, mw_addr[MW_PRESENT],
-                        (void *)(UINT_PTR)present_detour, 6)) {
+                        (void *)(UINT_PTR)present_detour, 6,
+                        "chat window present prologue")) {
         g_present_orig = (render_fn)g_present_hook.trampoline;
     } else {
         mw_log("tabs: could not hook the present; the strip will not be drawn");
@@ -646,6 +752,7 @@ int mw_tabs_install(HWND hwnd)
     }
 
     refresh_tabs();
+    load_active_tab();
 
     g_brush[BRUSH_STRIP_BG]   = CreateSolidBrush(COL_STRIP_BG);
     g_brush[BRUSH_TAB_ACTIVE] = CreateSolidBrush(COL_TAB_ACTIVE);
@@ -668,9 +775,10 @@ int mw_tabs_install(HWND hwnd)
     mw_tabs_sync_hotkey(hwnd);
 
     g_installed = 1;
-    g_active_tab = 0;
+    update_title();
     mw_log("tabs: installed (post message 0x%04X \"%s\", wParam 0 cycles, "
-           "1..%d selects a tab)", g_tab_msg, TAB_MESSAGE_NAME, TAB_COUNT);
+           "1..%d selects a tab; active \"%s\")", g_tab_msg,
+           TAB_MESSAGE_NAME, TAB_COUNT, TABS[g_active_tab].name);
 
     /* mirror.c seeds itself with a straight copy, which is right for getting a
      * populated ring immediately but skips the per-message decoration. Rebuild
@@ -680,12 +788,13 @@ int mw_tabs_install(HWND hwnd)
     return 1;
 }
 
-void mw_tabs_remove(void)
+OSMW_RESULT mw_tabs_remove(void)
 {
     HWND hwnd = mw_window_hwnd();
+    OSMW_RESULT result;
 
     if (!g_installed)
-        return;
+        return OSMW_OK;
     if (g_hotkey_registered && hwnd && IsWindow(hwnd))
         UnregisterHotKey(hwnd, TAB_HOTKEY_ID);
     g_hotkey_registered = 0;
@@ -695,8 +804,12 @@ void mw_tabs_remove(void)
         SetWindowTextA(hwnd, g_base_title);
 
     /* Present first: it draws into state the render hook owns. */
-    mw_hook_remove(&g_present_hook);
-    mw_hook_remove(&g_render_hook);
+    result = mw_hook_remove(&g_present_hook);
+    if (result != OSMW_OK)
+        return result;
+    result = mw_hook_remove(&g_render_hook);
+    if (result != OSMW_OK)
+        return result;
 
     {
         int i;
@@ -714,4 +827,5 @@ void mw_tabs_remove(void)
 
     g_installed = 0;
     mw_log("tabs: removed");
+    return OSMW_OK;
 }

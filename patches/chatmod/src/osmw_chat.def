@@ -1,7 +1,3 @@
 LIBRARY osmw_chat
 EXPORTS
-    ; Called remotely by the injector before FreeLibrary, so the worker thread
-    ; is stopped and joined before this DLL's code is unmapped. Listed here
-    ; rather than relying on __declspec alone so the name stays undecorated
-    ; and the injector can find it by string.
-    osmw_prepare_unload
+    osmw_mod_query

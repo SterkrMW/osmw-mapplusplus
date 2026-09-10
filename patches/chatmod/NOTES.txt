@@ -6,9 +6,13 @@ channel tab bar that splits System announcements out of the main chat pane,
 and a client-level blocked-name list that hides a character's chat on this
 PC (overlay included) without rewriting the real ring.
 
-Delivery: a 32-bit DLL injected into main.exe. main.exe is NEVER modified on
-disk. Every hook point is resolved by pattern scan at runtime, so a client
-update that moves code disables the mod instead of corrupting the process.
+Status: MANAGED ABI 1 LIFECYCLE/CLAIMS HOST-VERIFIED (2026-09-05). Live
+first-launch font timing and the full managed client matrix remain pending.
+
+Managed delivery: a passive 32-bit feature DLL loaded first by osmw_core.dll.
+Core owns configuration, logging, pristine-image resolution, the post-UiTick
+callback and item-link send queue. The production client still runs the legacy
+autoload set until the final atomic cutover; this build has not been deployed.
 
 Plan: docs/superpowers/plans/2026-08-29-chat-window-qol.md
 
@@ -40,7 +44,9 @@ Files
     block.c                client-level name list: drop at append so the
                            overlay never sees it; skip leftovers in the
                            chat-window mirror; Ctrl+click at HitTest+0xAA
-    launcher.c             osmw_chat_launch.exe
+    links.c                item-link compose/click/reply/panel feature
+    launcher.c             osmw_chat_launch.exe compatibility name; loads
+                           osmw_core.dll only
   tools/scan_offsets.py    resolve ChatMod_* signatures, refresh caches
   tools/build.py           build the DLL and the launcher into the game root
   tools/inject_test.py     inject/eject/status/clear/launch for development
@@ -969,6 +975,239 @@ loaded, append hooked / missing, whisper site matched or refused, added
 leaves fonts/tabs/everything else up.
 
 
+
+Chat item links (links.c) -- the composing half
+------------------------------------------------
+ALT+click an inventory item and its compose token goes into the chat input.
+The server does the rest: it resolves the token against that player's own
+inventory, snapshots the item, and broadcasts the name wrapped in markers the
+stock renderer swallows. So an unmodded client reads the line as ordinary
+text. Wire contract: mw-tools tools/client-dll/item-links.md.
+
+THE CHAT INPUT IS NOT A WIN32 EDIT, and it is not the login widget either.
+It is a static instance of the client's own edit-box class:
+
+    0x0065fbb0  instance      (ctor 0x409060, run by the CRT init at 0x4ce070)
+    0x004f71e8  vtable        -- its +0xa0 is 0x409090, the chat send routine,
+                                 which is what identifies the instance
+    0x0047bcc0  AppendString  vtable+0x68  __thiscall(const char*), ret 4
+    0x0047bda0  Clear         vtable+0x70  __thiscall(), no args
+    0x0047bfa0  GetLength     __thiscall(), no args
+    [inst+0x120] text cap, 0xa0 (160) for this box, -1 would be unlimited
+    [inst+0xcc]  glyph cells, 16 bytes each -- never memcpy a string here
+
+The client does this to itself at 0x433dce (the quick-chat panel that puts
+"Heal me please!" in the box): Clear then AppendString. ChatInputInstance is
+anchored on that site, so the signature both finds the instance and pins the
+call pair being copied. We use AppendString WITHOUT Clear, so the token lands
+at the caret and what the player already typed survives.
+
+DO NOT use vtable+0x18 (0x47ae20), which is what login drives. It is the KEY
+handler: it gates on the box being enabled and focused, routes 0x08..0x1b
+through a special-key table, and drops the character outright while Ctrl is
+held (GetKeyState(VK_CONTROL) at 0x47ae5b). AppendString bypasses all of it.
+
+THE CAP IS ENFORCED PER CHARACTER. Once full, the raw insert resets its
+pending byte, inserts nothing and returns 0x80004005. AppendString does not
+check up front, so appending to a nearly-full box inserts a PREFIX of the
+token -- and half a token is not a token: it passes the server's sanitiser
+and gets broadcast as literal text. insert_token checks GetLength first and
+refuses as a whole.
+
+WHERE THE CLICK IS CAUGHT. The inventory is in the MAIN game window, which
+nothing subclasses, so this is the one feature here that does not go through
+the chat window's message handler.
+
+The callback dispatches TWICE: on the UI event byte, then on ebx, which says
+which control was hit. The 24 inventory slots are ebx 0x64..0x7b, one control
+each, and that case is:
+
+    0042862f  cmp [0x743820], ebp        ; 0 = inventory mode, else pets
+    00428635  lea eax, [ebx - 0x64]      ; slot = control - 0x64, so 0..23
+    00428638  mov [0x6aa6e4], eax        ; the client publishes the slot here
+    00428647  cmp eax, 0x18              ; range-checked for us
+    00428650  lea edx, [eax + eax*4]     ; edx = slot * 5
+    00428653  cmp [edx*4 + 0x6aa748], ebp ; HOOKED, 7 bytes; edx*4 = slot*20
+    0042865a  jl  0x4288ab               ; empty slot: client does nothing
+    0042866d  call 0x409690              ; the pick-up we pre-empt
+
+The grid base and the abort address are read out of the hooked bytes (the
+cmp's disp32, and where the following jl goes) rather than given signatures of
+their own, so they cannot drift from the site.
+
+GETTING THIS WRONG COST A TEST CYCLE, so: the first version hooked 0x4284a4,
+which also compares a slot against the same grid array and which the RE notes
+describe as "the inventory click handler". It is not. It is in the ebx==1
+case, a single button whose other branch walks pet records at stride 0x74, and
+an inventory click never goes near it. Every signature resolved, the hook
+installed, the log looked perfect, and nothing happened. Resolving the ebx
+jump table (index 0x428a3c, targets 0x428a20) is what identifies the grid
+block; "it compares against 0x6aa748" is not enough, several blocks do.
+
+Eating the click matters: left alone the client's next move is the 0x409690
+call that lifts the item onto the cursor, which is not what ALT+click should
+do. The jl target is the client's own "empty slot, nothing to do" path -- same
+frame, same stack -- so it is exactly the no-op the click should have been.
+Same trick as the Ctrl+click swallow above.
+
+NO EDGE DETECTION IS NEEDED, and that is checked rather than assumed. Window
+callbacks run every frame, so a naive hook would fire continuously while the
+button is held. This one cannot: the callback opens with a switch on the UI
+event byte at 0x42821b (index table 0x428914, jump table 0x428904), and
+resolving both shows only 0xF5 (WM_LBUTTONDOWN) enters the block the hook sits
+in. 0xF2 -- the synthesised "still down" event that arrives every frame -- goes
+to a different handler, and 0xF4 mousemove goes straight to the do-nothing
+path. Once per press, on the press.
+
+Setting: [Chat] ItemLinks, polled with the rest, so it takes effect within a
+settings poll rather than at next launch.
+
+CLICKING is built too. A click in the pane maps to a line record (0x410 bytes
+at chatobj+0x80, drawn bottom-up from index 0, one per message however many
+rows it wraps to) by walking up from the pane bottom accumulating +0x408
+heights. The record's text at +0x000 is the COMPOSED line, and composition
+happens before markup is stripped, so the markers are still there to decode.
+
+Whole message, not a sub-span: a click anywhere on a line carrying a link
+opens it. Measuring x would mean reproducing the client's wrap, and the
+client's own HitTest is no help -- it fires on the sender NAME for click-to-PM,
+not on the body. A line with no link falls through untouched, so click-to-PM
+still works.
+
+The request is ItemInfo (0x7000d) kind 200 with the link id in the slot field,
+built and sent directly through SendPacket 0x454060 rather than the client's
+request builder (which exists to add the inventory page offset). The reply is
+caught at 0x4567be, where esi points at the incoming text just before the
+client copies it to its tooltip buffer. NOT consumed: the stock copy is
+harmless because the tooltip only draws while a game panel hovers a slot, and
+the click happened over the chat window. The "#O#J" sentinel is what
+distinguishes a link reply from a hover reply, so the two cannot race.
+
+THE PANEL is the CLIENT'S OWN tooltip renderer, 0x44c760, __cdecl(int zero,
+void *record). A linked item therefore looks exactly like the same item
+hovered in the inventory -- no GDI, no markup parser, no palette to keep in
+step. The first version hand-drew a GDI panel in the chat pane and was thrown
+away: matching the game's look by hand is a losing game, and it also put the
+panel in the wrong window.
+
+The renderer positions itself from the mouse globals, clamped to 800x600:
+
+    0044c7c2  mov ecx, [mouseY]      ; renderer + 0x64
+    0044c7c8  mov eax, [mouseX]      ; renderer + 0x69
+    0044c7cd  ...  x = mouseX - 0x64 ; y = mouseY - height - 0x10
+
+Both globals are read out of the renderer at those fixed offsets, so they
+cannot drift from the function consuming them. Positioning is just parking the
+mouse position for the call and putting it straight back; nothing observes it
+in between because it all happens inside one frame's draw.
+
+Horizontally that means centred (400 - 0x64, against a fixed 0xc8 width).
+Vertically the box is pinned near the TOP, and the height drops out of the
+arithmetic entirely:
+
+    0044c7cf  sub esi, ebp        ; y = mouseY - height
+    0044c7d4  sub esi, 0x10       ;   - 0x10
+    0044c7df  jge 0x44c7e4
+    0044c7e1  lea esi, [ecx+0x20] ; NEGATIVE -> y = mouseY + 0x20
+
+An anchor low enough to drive that subtraction negative lands the box at
+anchor + 0x20 flat. Height is floored at 0x50 (0044c7b8), so any anchor below
+0x50 + 0x10 = 96 always takes that branch. That is what stops a long tooltip
+running off the bottom -- it grows downwards from a fixed top rather than
+upwards from a fixed bottom, so the height nobody outside the renderer knows
+stops mattering.
+
+The `record` argument is the same 20-byte item record the shop list ships
+(ShopPackets.npcVendor): int32 id at +0, uint16 SPRITE at +8, stack count byte
+at +0x10. Only the sprite matters here:
+
+    0044c774  cmp word ptr [eax+8], bx      ; validity, signed
+    0044c849  movsx ecx, word ptr [eax+8]
+    0044c854  mov edx, [ecx*4 + 0x817000]   ; the sprite table
+
+There is no "draw no icon" value -- a negative sprite fails that first test and
+the renderer returns having drawn nothing at all. So a zeroed record draws
+sprite 0 for EVERY item, which is what the first build did. The server now
+sends item.file encoded onto the front of the reply, after the sentinel, as the
+same swallowed `#x` digits a link id uses (so an older mod build renders
+nothing extra rather than stray characters).
+
+The count byte at +0x10 is only read when the first argument is non-zero, and
+we pass zero, so it can be left alone.
+
+DISMISSING IT: right-click (like every other window in this client) and
+Escape (which opens the logoff menu, so the panel must not sit on top of it),
+both polled with GetKeyState from the same per-frame thunk that draws it. A
+left click in the chat pane dismisses it too, but that alone is useless once an
+active channel has scrolled the link out of the pane.
+
+And LEAVING THE WORLD dismisses it, which is not a key at all. Drawing from the
+screen present means drawing on every screen the client has, so a panel left
+open at logout came back over the server-select list. The gate is the client's
+game state at 0x74313c (ChatMod_GameState, the same global Maps++ reads):
+below 5 the client is loading or at login. An unresolved signature reads as
+"in world", so a missed scan costs the gate, not the feature.
+
+WHERE IT DRAWS, and the site that looked right and was not. The draw context
+0x7e6a04 is null outside a render, so this cannot be drawn when the reply
+arrives; it has to be called from the frame.
+
+The obvious site is the window manager's draw pass 0x45e7b0(list), which walks
+its list calling [node+0x20] and falls out at 0x45e8ee. That is genuinely
+"after every window has drawn" -- but the pass opens with
+
+    0045e7c6  mov eax, [esi]      ; list head
+    0045e7c8  cmp eax, esi
+    0045e7cf  je  0x45e95b        ; EMPTY LIST -> straight to the exit
+
+so with no panel open it never reaches 0x45e8ee at all. The chat window is a
+real Win32 window, not a manager node, so in ordinary play both lists (0x629374
+and 0x6293a0) are empty and a hook there simply never runs. The symptom said
+exactly that and was still easy to misread: the log reported the panel shown
+and nothing appeared, until F9 opened the timer panel and the tooltip appeared
+alongside it. One window in the list was all it took.
+
+The site that always runs is the screen present -- an indirect call through a
+function pointer at 0x7e69f4 that every one of the client's ~60 frame loops
+ends with:
+
+    push [0x7e6a04]   ; the draw context
+    call [0x7e69f4]
+    add  esp, 4
+
+So links.c hooks no code for this at all: it swaps that pointer for a __cdecl
+thunk that draws and chains. One slot covers every loop the client has, and
+the context is by definition valid, since it is the argument. The only writer
+is the display-mode setter 0x4a0bb0, which picks between 0x4a0bf0 and 0x4a0d20;
+mw_links_poll re-asserts the swap in case it ever runs again.
+
+The general lesson, which is the same one the ALT+click hook already taught:
+a site being on the right code path is not the same as it being reached. Check
+the early exits before concluding a silent hook is a wrong address.
+
+The text goes into the client's tooltip buffer only for the duration of the
+call and is restored after, so hovering an item while the panel is open still
+shows that item.
+
+Watch out for OBJ_FONT: wingdi.h already defines it. Do not reuse the name.
+
+REPEAT CLICKS: the mod keeps the last 4 replies for 60 seconds and serves a
+re-opened link from that instead of asking again. Re-opening is the ordinary
+way the feature gets used -- open, read, close, check it again -- and it is
+also the shape of the obvious abuse. Caching is safe because the server froze
+the item at link time and rendered the reply for THIS viewer, so nothing in it
+belongs to anyone else; what drifts is the market-price line and the reader's
+own level colouring, hence the expiry. An entry already in the cache is
+refreshed in place rather than appended, so hammering one link cannot evict the
+other three. Empty slots hold id -1, because link id 0 is real.
+
+None of that is a security control -- a modified client ignores every line of
+it. The server rate-limits the request separately
+(ActionType.ChatLinkInspect).
+
+STILL TO DO: equipment linking (the token grammar has an 'E' kind but only the
+inventory click is hooked), and pets.
+
 Deferred, with reasons
 ----------------------
   - A typed "/clear" command. The chat window forwards every key message
@@ -1376,3 +1615,162 @@ Trial log
             so the LEA disp32 is our copy. [Addons] ChatMod=0 stands the whole
             mod down ("client untouched"). Overlay hide, Ctrl+click swallow,
             two-client share, and click-to-PM still need a logged-in Bar A.
+2026-09-05  TASK 14 MANAGED MIGRATION. DllMain is passive and the sole export
+            is osmw_mod_query. Init resolves all 38 chat-owned signatures via
+            core's pristine image, installs both six-byte CreateFontA call
+            hooks before any deferred work, installs the main-window item-link
+            hooks, then registers one priority-0 post-UiTick callback. The old
+            indefinitely sleeping HWND worker and osmw_prepare_unload export
+            are gone.
+
+            Chat normally owns five early ranges and 24 ranges after its HWND
+            appears: the WndProc ownership sentinel; unique prologues/calls;
+            three chip immediates; twelve dynamically enumerated mirror
+            operands; and the screen-present pointer. Every write follows an
+            exact core claim.
+            Shutdown unsubscribes, restores the one chat dispatcher, and
+            restores/releases all 29 ranges in reverse. ItemInfo sends now use
+            core's copied send queue. The compatibility launcher and
+            inject_test.py load/eject core only, and the eject path refuses
+            FreeLibrary after a nonzero prepare result.
+
+            `tools/build.py --test --no-deploy` loads the real DLL and verifies
+            passive query, disabled/missing/optional/conflict paths, early font
+            claims before subscription, absent-HWND polling, the complete
+            29-claim HWND path, wrong-owner rejection, reverse restoration and
+            clean unload. All 38 real client signatures resolve uniquely in a
+            report-only scan. The host logs init-to-font-hook latency, but the
+            actual core-worker-versus-first-CreateFont timing must be measured
+            in the live atomic cutover before the Task 14 exit is claimed.
+2026-09-05  CORE-ONLY LIVE CUTOVER FOLLOW-UPS. The managed core reaches chat
+            before the client initialises [ScreenPresent]. The first live run
+            therefore had four early claims and logged `present slot
+            unavailable`; compose, request and reply all worked, but the item
+            panel drew nothing. links.c now keeps that data hook pending and
+            acquires it from the first post-UiTick callback where the pointer
+            is non-NULL. The live core-only client logged the delayed hook at
+            004A0BF0, then ALT+click compose, server reply, panel draw and cache
+            reopen all passed. The real-DLL fixture reproduces the NULL-first
+            sequence, requires one idempotent delayed acquisition, and verifies
+            exact pointer restoration.
+
+            The same live log exposed one remaining self-overlap: the old
+            Ctrl+click detour claimed the six-byte LEA at HitTest+AA while the
+            mirror already claimed its disp32. The hook now starts at the
+            following five-byte MOV at HitTest+B0; eax still carries the slot
+            offset, and the fallback trampoline replays that MOV. The two
+            claims are adjacent. The host claim service now rejects overlaps
+            like core does, requires the whisper claim, and the complete
+            29-range lifecycle passes with zero failures.
+2026-09-06  PET CHAT LINKS. The first pet hook at 0x004286AF was wrong: that
+            code is the pet branch of an item/pet trade panel, not the player's
+            owned-pet GUI. It installed and scanned cleanly but never ran for a
+            roster click. A temporary hook on the window manager's shared
+            indirect callback at 0x0045E93E then crashed while the Pet GUI was
+            opening and was removed completely. Do not reuse that broad probe.
+
+            The actual Pet panel callback is 0x004459A4..0x00446D83. Its 0xF5
+            dispatch maps six visible roster controls, edi 0x64..0x69, to case
+            19 at 0x004467C3. [0x743150] is the first visible pet, so the stock
+            mapping is slot = [0x743150] + edi - 0x64. The following code
+            scales by 0x74, tests [slot*0x74 + 0x73C008], and branches empty
+            rows to the callback's common no-op exit at 0x00446D60 before it
+            stores the selection at [0x5E631C].
+
+            PetClickSlot now resolves uniquely at RVA 0x467C3 on reference
+            build 0x45650696. The narrow hook owns only the six-byte scroll
+            load; its matched instructions yield the scroll global, live pet
+            grid and no-op exit. A populated ALT+Click is always consumed and
+            [[iPxx]] is appended only when it fits in full, so stock selection
+            stays untouched even when the chat input is full. The item reply
+            parser, request queue, four-entry cache and detached panel
+            lifecycle remain shared and continue to use #O#J.
+
+            Chat now owns six early ranges and 30 after its HWND appears. The
+            real-DLL fixture covers installed and missing-optional-signature
+            paths, then restores all 30 claims in exact reverse order with zero
+            failures. All 40 ChatMod signatures resolve exactly once after
+            the dedicated pet renderer below was added.
+
+            Live acceptance passed against the repo client later that day. The
+            Pet GUI opened without a crash; ALT+Click logged roster row 101 as
+            slot 1 with a populated id, inserted [[iPAB]], requested link 0,
+            and displayed the 279-character detached pet text with sprite 50.
+            This verifies the corrected roster callback through compose,
+            server expansion, click request, reply and fallback panel draw.
+
+            DEDICATED PET TOOLTIP. Trade/vendor entries distinguish pets with
+            file+10000. Their draw branch at 0x00440AE8 uses a 296-pixel pet
+            panel and the stock markup engine, then resolves
+            NPC\\NPC%da.MDA and draws MainCommand3 at panel+0x44,+0x60. Chat
+            replies now carry the same tagged display code: item.file below
+            10000, 10000+pet.file above it. links.c splits the value BEFORE
+            calling a renderer; a tagged value must never index the item
+            sprite table.
+
+            PetTooltipBranch is one optional unique anchor at RVA 0x40AE8.
+            Its internal find/release/load/draw calls and the item renderer's
+            shared frame/text operands are accepted only after their opcodes
+            are checked. A signature/layout miss keeps item links and pet
+            compose active, drawing received pet text with safe sprite 50.
+            The real-DLL lifecycle fixture covers that optional miss. Build,
+            PE contract, 40-signature scan and lifecycle all pass. The tagged
+            pet model panel subsequently passed in the logged-in repo client.
+
+            LINK HIT-TEST OFF BY 25 PIXELS. Live request/reply logs showed the
+            failure was older than the pet renderer: the first link after
+            login emitted no request, and later clicks requested the previous
+            registry id. A first Rumor Scroll message requested the preceding
+            pet link and drew file 450; its duplicate requested the first
+            Rumor Scroll id and drew item sprite 66.
+
+            DrawLines does not anchor record zero at the client edge. At
+            0x0047A7E9..0x0047A807 it computes clientTop+clientBottom-0x19,
+            then subtracts each record's +0x408 height. line_at incorrectly
+            began at clientBottom-clientTop, placing its walk 25 pixels low
+            and therefore in an older record. It now copies the stock anchor
+            exactly and logs y/anchor/record/id for the first 12 linked-line
+            clicks. Build, PE checks and the full lifecycle fixture pass.
+
+            The same handler also returned immediately whenever a panel was
+            already open, consuming even a click on another valid linked line.
+            It now dismisses first, continues when the selected record has a
+            link, and replaces the panel in one click. Non-link chat clicks
+            retain the old dismiss-and-consume behaviour.
+
+            LIVE ACCEPTANCE: confirmed resolved in the repo client. A first
+            link now opens without a priming duplicate, a subsequent distinct
+            pet/item link resolves its own registry id, and an open panel is
+            replaced by one linked-line click.
+
+2026-09-06  Per-tab chat backgrounds implemented, host-verified and deployed
+            to the repo client for live acceptance. The stock cycle routine
+            at RVA 0x7A890 and its index operand at RVA 0x3E6880 each resolve
+            uniquely; both are optional so a miss preserves the stock global
+            double-click behaviour. backgrounds.c keeps the stock 32x32,
+            24-bit BMP loader, selects the active tab's slot by name, writes
+            TabBackgrounds through core config, and restores the startup slot
+            before releasing its exact four-byte data claim.
+
+            The single ChatMod WndProc consumes managed double-clicks so the
+            original cannot cycle a second time. The tab strip, conservative
+            channel/scroll gutters, and any occupied DrawLines row are
+            excluded. Line occupancy reuses links.c's corrected bottom anchor
+            instead of duplicating it. A failed BMP restores the previous
+            index, is not persisted, and cycling advances to the next valid
+            slot. The real-DLL lifecycle fixture covers tab changes,
+            persistence, excluded gestures, failed assets, optional-signature
+            stand-down, and exact reverse restoration with zero failures.
+            LIVE ACCEPTANCE 2026-09-06: confirmed working in the repo client.
+
+2026-09-06  REMEMBER ACTIVE TAB implemented and host-verified. With
+            RememberActiveTab=1, selecting a tab writes its bounded display
+            name to [Chat] ActiveTab. Startup resolves that name against the
+            current Tabs definition, so reordered tabs retain their identity;
+            a removed or invalid name safely falls back to the first tab.
+            Turning the option off starts on the first tab and stops writes
+            without clearing the saved choice. Live Tabs edits also preserve
+            the active identity where possible. No new client signature or
+            memory claim is involved. The real-DLL fixture covers restore,
+            write, per-tab background interaction, and opt-out with zero
+            failures.

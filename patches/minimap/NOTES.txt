@@ -1,0 +1,235 @@
+osmw_minimap.dll
+
+Purpose
+-------
+Adds a 200px stock-styled NPC list beside the Tab minimap. Rows are sorted,
+scrollable, show grid coordinates, mark an NPC on first click and optionally
+auto-walk on a second click. Routing uses the client's live 16-bit collision
+grid and sends one ordinary PlayerMove per simplified straight leg.
+
+Reference specification
+-----------------------
+mw-tools/tools/client-dll/minimap-autowalk.md
+
+Managed lifecycle (ABI 1)
+-------------------------
+DllMain is passive. The sole export is osmw_mod_query, with module id
+"minimap". Init requires core config, pristine signature resolution, region
+claims and post-UiTick services, then gates on [Addons] MinimapList.
+
+The managed module submits 30 private signature requests through core. The old
+Minimap_UiTick row remains only in legacy game catalogs and is excluded from
+generated/runtime input. Minimap never maps main.exe and never reads a live
+shared-hook prologue.
+
+The former worker waited indefinitely for a world and then for the minimap to
+open. It is gone. One priority-0 post-UiTick callback now performs bounded work:
+
+  1. mm_grid_poll();
+  2. mm_panel_idle();
+  3. mm_walk_tick();
+  4. nonblocking world/minimap transition diagnostics.
+
+This keeps panel destruction after the client's original node walk and lets a
+route continue with the minimap closed. A client that has not loaded a map or
+never opens the minimap simply stays in that state; no thread sleeps inside the
+DLL.
+
+Owned runtime ranges (reference build 0x45650696)
+-------------------------------------------------
+Every byte-changing operation is preceded by a core claim:
+
+  0x4423BF  5 bytes  CALL_SITE  OpenMinimap -> UiCreateNode call
+  0x4423D0  5 bytes  CALL_SITE  paired UiDestroyNode call
+  0x43A740  7 bytes  CODE       SendPlayerMove prologue (AutoWalk=1 only)
+
+The first two redirects move the stock minimap left and create/destroy its
+companion panel. The third is the one remaining trampoline: it detects a manual
+move, cancels any active route, and always forwards the move. Minimap's own
+moves call the trampoline directly so they are not mistaken for player input.
+
+Core owns 0x45E7B0 UiTick. There is no minimap UiTick trampoline, E9 chaining,
+or panel-draw fallback tick.
+
+Shutdown order and unsafe unload
+--------------------------------
+Shutdown first makes the callback inert and returns the post-tick token. It
+then stops/restores/releases SendPlayerMove, destroys any live panel, restores
+and releases the close call and finally the open call. Search scratch and grid
+transition state are reset last.
+
+Core snapshots each claimed range when granting it. release_region succeeds
+only after the original bytes are restored. If unsubscribe or claim release
+fails, shutdown returns the error and retains its binding so core keeps the DLL
+mapped and may retry; it never reports success with a pointer into unmapped
+module code.
+
+Configuration and logging
+-------------------------
+All reads use core's config.ini -> defaults.ini -> literal chain. The current
+keys used by this module are:
+
+  [Addons] MinimapList=1
+  [Minimap] AutoWalk=1
+  [Minimap] ShowEventNpcs=0
+  [Debug] DumpGrid=0
+
+Diagnostic lines are formatted locally and submitted to core's tagged process
+log. DumpGrid remains an explicit debug file written under core's game_dir.
+
+Movement safety retained from the live implementation
+------------------------------------------------------
+- Manual movement is forwarded, never swallowed; it cancels an active route.
+- A panel-close click gets one 300ms cancellation exemption but is forwarded.
+- Move legs are spaced by at least 50ms.
+- Arrival uses the server's 48px waypoint radius.
+- One stall re-plan is allowed after 2s; a route has a 45s hard deadline.
+- The pathfinder refuses diagonal corner cutting and map-link recovery cells.
+- AutoWalk=0 installs and claims no SendPlayerMove hook. A second row click
+  returns disabled and cannot fall through to the raw resolved address.
+
+Managed host verification (2026-09-05)
+---------------------------------------
+`python patches/minimap/tools/build.py --test --no-deploy` builds the real
+release DLL and runs it against executable x86-shaped call/prologue targets.
+The fixture verifies:
+
+- passive LoadLibrary/query and ABI/capability/disabled gates;
+- 30 private resolver calls and no UiTick request;
+- required-signature, claim-collision and subscription-failure rollback;
+- exact claim address/length/kind before each of the three writes;
+- nonblocking map-not-loaded and minimap-never-opened ticks;
+- shifted map/panel creation, routed second-click movement, manual-move cancel
+  and post-tick cleanup after a close path bypasses the destroy redirect;
+- AutoWalk=0 panel-only mode;
+- callback/claim reverse teardown and byte restoration;
+- unsafe release refusal, retry, inert revoked callback and clean FreeLibrary.
+
+The configured native game install lacks Minimap_* catalog sections. A dry-run
+scan against `mw-tools/client` resolves all 30 managed private requests exactly
+once. Production autoload was not changed and this DLL was not deployed. Full
+managed settings+timers+minimap coexistence and interaction testing remain.
+
+Historical lessons retained
+---------------------------
+- Before client map initialisation, BSS globals are zero and handle 0 does not
+  mean the minimap is open. Positive grid scales plus a populated character
+  array are the world-ready gate.
+- UiDestroyNode takes (handle, list selector). Declaring one argument leaked
+  invisible nodes that continued intercepting clicks.
+- Destroying a node from its own draw/input walk corrupts the client's walker;
+  cleanup must happen after stock UiTick.
+- Clearing the click event byte alone does not handle its later reassertion.
+- A raw-address fallback made AutoWalk=0 still capable of sending movement;
+  managed Task 12 removed that path.
+
+Persistent map markers - slice 1 and 2 (2026-09-07)
+---------------------------------------------------
+Spec: mw-tools/tools/client-dll/map-markers.md
+
+New sources: markers.c (model + TSV format, host-testable), markers_io.c
+(shared file, named mutex, atomic replace, mtime poll), markers_map.c (map
+identity, transform, MDA bank and blit). New fixture tests/test_markers.c,
+compiled from the sources rather than the DLL, since the store is not on the
+export surface.
+
+Eight new signatures: MapFileName, ScaleX, ScaleY, MapUnitsW, MapUnitsH,
+LoadMda, BlitMda, RenderSurface. All 38 resolve exactly once.
+
+Verified in the live client:
+- Map identity is the number in the "MAPnnn.MAP" string at Minimap_MapFileName.
+  No packet observer needed. Minimap_MapUnitsW/H are the extent.
+- Transform confirmed on MAP002: 8000x6000 map units, scale 0.050/0.050, which
+  is exactly 400/8000 and 300/6000. Projection matched hand calculation and the
+  independently logged grid cell.
+- The marker glyph blits from the module's own system\osmw_markers.mda through
+  the client's own loader and BlitMdaFrame, and lands on the player indicator.
+  The sprite's stored centre does the anchoring; no offset arithmetic.
+
+Lessons from this slice
+-----------------------
+- The map name buffer is written BEFORE the extent globals, and the node rect
+  only exists once the player has opened the minimap. A once-per-map report has
+  to latch each fact separately; latching on the first one silently loses the
+  rest. Cost two live round trips to find.
+- DrawText anchors a glyph top-left. The stock player indicator is a sprite the
+  client centres, so a text-based position spike cannot be compared with it
+  without knowing the font metrics. Blitting a real sprite sidesteps this
+  entirely, because the MDA carries its own centre. Do not tune a text glyph to
+  match a sprite.
+- Minimap_* catalog sections live in mw-tools/client/signatures.ini, NOT in the
+  configured native install. Regenerating sigs.h against the wrong game root
+  silently rewrites it with only the sections that root happens to have.
+- A label with a control character round-trips out but not back in: the parser
+  rejects it. mm_markers_upsert now rejects on the way in, so the model cannot
+  hold a marker that would vanish on next load.
+
+Persistent map markers - slices 3 and 4 (2026-09-07)
+----------------------------------------------------
+Marker layer (five kinds, three label modes, hover, culling) and the Marks list
+in the side panel, with row selection writing the stock banner and the second
+click reusing the existing auto-walk. Three more signatures: LoadMda, BlitMda,
+RenderSurface, plus MdaCount for diagnostics. 39 in total.
+
+The layer draws from the MAP's draw proc, hooked at its prologue, not from the
+panel's. That is not a preference; see below.
+
+Lessons from these slices
+-------------------------
+- Node draw order is creation order, and the panel is a separate node from the
+  map. Drawing the marker layer from the panel's proc worked until the player
+  left-clicked the map, after which the map's content was painted back over
+  glyphs the panel had already drawn, and they stayed hidden until both nodes
+  were recreated. The blit was succeeding throughout. Anything that belongs
+  visually to the map must draw from the map's own proc.
+- A hook prologue length must land on an instruction boundary. The draw proc
+  begins `A1 A0 56 5E 00` (5 bytes) then `83 EC 30`; passing 6 copied the `83`
+  and left `EC 30`, so the trampoline ran a truncated instruction and the
+  client died the instant the minimap opened. Disassemble the prologue, do not
+  estimate it.
+- BlitMdaFrame fails SILENTLY. It searches the MDA table ([0x74308C] entries of
+  0x144 bytes from [0x743B1C]) for the handle and returns 0 without drawing on
+  a miss, and again if the animation name is not in that MDA. Check the return
+  value; a layer that discards it cannot tell "nothing to draw" from "refused".
+- A diagnostic that only reports state computed before a loop cannot see a
+  failure inside it. The first version of the layer diagnostic reported
+  "drawing" while every blit was being discarded.
+- DrawText mode 0 (0x49A390) for text over map terrain, mode 1 for text on the
+  panel frame. The stock coordinate readout uses mode 0 for exactly this
+  reason; marker labels were unreadable until they did the same.
+
+Persistent map markers - slice 5, the editor (2026-09-07)
+---------------------------------------------------------
+Add / Move / Kind / Name / Del in the Marks action row, and a label field.
+Six more signatures: TypedCount, TypedAt, TypedClear, KeyEvent, CtrlArray,
+CtrlCount. 45 in total.
+
+Label entry does NOT construct one of the client's text controls. The class,
+its constructor chain (0x47AB10) and its size (<= 0x150) are all identified,
+but getting a C++ object's construction and teardown right from static analysis
+alone is a crash if wrong, and a 31-byte label did not justify that while the
+rest was being proven. It keeps its own buffer and reads the client's own
+typed-character queue. The cost is no IME composition; reusing the stock
+control is the upgrade path.
+
+Lessons from this slice
+-----------------------
+- The chat input holds the "accepting input" bit (bit 4 of +0x1C) PERMANENTLY,
+  not only while focused. The plan had been to decline to drain the typed queue
+  while any other control was accepting; that guard is always true, so the
+  field never received a character. Taking focus the way the client's own modal
+  windows do -- clear the bit on whoever holds it, restore on close -- is the
+  only workable option. Restore on EVERY exit path: a leak here leaves the
+  player unable to type in chat until relog.
+- The typed-character queue is WM_CHAR-shaped. Backspace (0x08), Enter (0x0D)
+  and Escape (0x1B) arrive as characters IN THE QUEUE, not as virtual keys. A
+  printable-only filter silently ate backspace while the code looked for it in
+  the key bytes.
+- The virtual key is in 0x7029BD *or* 0x7029BE; the login screen reads the
+  first and falls back to the second. Reading only one misses keys.
+- Draw each button at the origin of the column it is hit-tested in. Drawing the
+  row as a single string put [Name] a column away from the zone that tested it,
+  so it fired [Kind]. Different label widths guarantee this drift.
+- An empty-state early return must not skip the controls that create the first
+  item. "No marks on this map" returned before the action row, which removed
+  [Add] on exactly the maps that needed it.

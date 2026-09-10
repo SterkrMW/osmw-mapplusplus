@@ -295,7 +295,8 @@ int mw_time_install(void)
     /* Function-to-void* goes through UINT_PTR, as font.c does at its own call
      * sites: same width on Win32, but the direct conversion is not standard C. */
     if (!mw_patch_direct_call(&g_compose_hook, site,
-                              (void *)(UINT_PTR)compose_detour, &original)) {
+                              (void *)(UINT_PTR)compose_detour, &original,
+                              "chat line-composer call")) {
         mw_log("timestamps: could not patch the line composer; "
                "falling back to stamping the message text");
         return 0;
@@ -312,12 +313,13 @@ int mw_time_install(void)
     return 1;
 }
 
-void mw_time_remove(void)
+OSMW_RESULT mw_time_remove(void)
 {
-    if (!g_compose_hooked)
-        return;
-    mw_hook_remove(&g_compose_hook);
+    OSMW_RESULT result = mw_hook_remove(&g_compose_hook);
+    if (result != OSMW_OK)
+        return result;
     g_compose_hooked = 0;
+    return OSMW_OK;
 }
 
 /* Fallback only. Prefixes the stamp onto a MIRRORED record's text, which puts

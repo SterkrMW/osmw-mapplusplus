@@ -452,9 +452,13 @@ int mw_font_install(void)
 
     /* Function-to-void* goes through UINT_PTR: they are the same width on
      * Win32, but the direct conversion is not standard C. */
-    if (!mw_patch_call(&g_small_hook, small_call, (void *)(UINT_PTR)chip_font_shim))
+    if (!mw_patch_call(&g_small_hook, small_call,
+                       (void *)(UINT_PTR)chip_font_shim,
+                       "chat chip CreateFontA call"))
         return 0;
-    if (!mw_patch_call(&g_large_hook, large_call, (void *)(UINT_PTR)text_font_shim)) {
+    if (!mw_patch_call(&g_large_hook, large_call,
+                       (void *)(UINT_PTR)text_font_shim,
+                       "chat text CreateFontA call")) {
         mw_hook_remove(&g_small_hook);
         return 0;
     }
@@ -464,11 +468,16 @@ int mw_font_install(void)
     return 1;
 }
 
-void mw_font_remove(void)
+OSMW_RESULT mw_font_remove(void)
 {
-    if (!g_installed)
-        return;
-    mw_hook_remove(&g_large_hook);
-    mw_hook_remove(&g_small_hook);
+    OSMW_RESULT result;
+
+    result = mw_hook_remove(&g_large_hook);
+    if (result != OSMW_OK)
+        return result;
+    result = mw_hook_remove(&g_small_hook);
+    if (result != OSMW_OK)
+        return result;
     g_installed = 0;
+    return OSMW_OK;
 }

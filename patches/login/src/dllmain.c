@@ -1,169 +1,179 @@
-/* Entry point. Resolves signatures, claims a roster row, installs hooks, then
- * returns -- a thread parked inside this DLL is a thread whose code disappears
- * on unload.
+/* Passive managed-module entry point and lifecycle.
+ *
+ * Core owns loading, configuration, logging, signature resolution and runtime
+ * region arbitration. Login keeps its specialised two-prologue trampoline
+ * hooks and its per-launch environment consent/roster-row selection.
  */
 #include "osmw_login.h"
 
-#include <stdio.h>
+#define LG_REQUIRED_CAPABILITIES \
+    (OSMW_CAP_CONFIG | OSMW_CAP_SIGNATURES | OSMW_CAP_REGION_CLAIMS)
 
-static HMODULE g_self;
-static HANDLE  g_worker;
-
-/* Per-launch consent, set by whoever started this process.
- *
- * [Addons] AutoLogin cannot answer "did the user ask for auto-login THIS time":
- * it is a persistent value, so whatever Maps++ last wrote there also applied to
- * a client the player started by hand afterwards, which is how running
- * osmw_chat_launch.exe on its own ended up logging in by itself. That key also
- * doubles as Maps++'s own addon-enable flag, so it cannot simply be parked at 0
- * between launches either.
- *
- * An environment variable is the natural carrier: it belongs to the process
- * tree rather than to the disk. Maps++ sets it immediately before Run() and
- * clears it after, and both launchers pass NULL for lpEnvironment in
- * CreateProcess, so main.exe inherits it through the injection chain with no
- * launcher change. A client the player starts from Explorer inherits Explorer's
- * environment, which has no such variable, and so logs in normally.
- *
- * Absent means no. Present-but-"0" also means no, so a stray leftover in a
- * shell cannot turn it on.
- */
+/* Per-launch consent, set by whoever started this process. Persistent config
+ * cannot express whether this particular launch asked for auto-login. */
 #define LG_CONSENT_VAR "OSMW_AUTOLOGIN"
+#define LG_ROW_VAR     "OSMW_LOGIN_ROW"
+
+static const OSMW_CORE_API_V1 *g_api;
+static OSMW_OWNER g_owner = OSMW_INVALID_OWNER;
+
+const OSMW_CORE_API_V1 *lg_core_api(void)
+{
+    return g_api;
+}
+
+OSMW_OWNER lg_core_owner(void)
+{
+    return g_owner;
+}
+
+static void clear_binding(void)
+{
+    g_owner = OSMW_INVALID_OWNER;
+    g_api = NULL;
+}
 
 static int lg_launch_consent(void)
 {
-    char  buf[16];
-    DWORD n = GetEnvironmentVariableA(LG_CONSENT_VAR, buf, sizeof(buf));
+    char buf[16];
+    DWORD length = GetEnvironmentVariableA(LG_CONSENT_VAR, buf, sizeof(buf));
 
-    /* 0 = not set (or unreadable); >= sizeof(buf) = far longer than "1", which
-     * is not something we wrote, so treat it as absent rather than guessing. */
-    if (n == 0 || n >= sizeof(buf))
+    if (length == 0 || length >= sizeof(buf))
         return 0;
     return buf[0] != '0' && buf[0] != '\0';
 }
 
-/* Which roster row this particular client must take, carried the same way and
- * for the same reason as the consent variable above.
- *
- * Without it a client claims the first enabled row nobody live holds. That is
- * fine for one batch, but it leaves the player no way to say "these five
- * windows are my main team and those five are my alts" -- and the assignment is
- * not even in spawn order, since each client's worker thread races the others
- * for the claim table. Maps++ sets this immediately before the Run() for the one
- * client it applies to, and clears it once the batch is spawned.
- *
- * The value is an opaque roster row id rather than an index, so it stays correct
- * when the player reorders rows in the editor. Absent means "next free row",
- * i.e. exactly the behaviour that shipped before this existed.
- *
- * Must match _AUTOLOGIN_ROW_VAR in addons\auto_login.ahk.
- */
-#define LG_ROW_VAR "OSMW_LOGIN_ROW"
-
-int lg_launch_row(char *out, int cap)
+int lg_launch_row(char *output, int capacity)
 {
-    DWORD n;
+    DWORD length;
 
-    if (!out || cap <= 0)
+    if (output == NULL || capacity <= 0)
         return 0;
-    out[0] = '\0';
-    n = GetEnvironmentVariableA(LG_ROW_VAR, out, (DWORD)cap);
-    /* Same guard as the consent variable: a value too long to be a row id is
-     * not something we wrote, so treat it as absent rather than acting on a
-     * truncated prefix that could name the wrong row. */
-    if (n == 0 || n >= (DWORD)cap) {
-        out[0] = '\0';
+    output[0] = '\0';
+    length = GetEnvironmentVariableA(LG_ROW_VAR, output, (DWORD)capacity);
+    if (length == 0 || length >= (DWORD)capacity) {
+        output[0] = '\0';
         return 0;
     }
-    return out[0] != '\0';
+    return output[0] != '\0';
 }
 
-static DWORD WINAPI worker(LPVOID unused)
+static OSMW_RESULT cleanup_resources(
+    const OSMW_CORE_API_V1 *api, OSMW_OWNER owner)
 {
-    char logpath[MAX_PATH];
-    int  failed;
+    OSMW_RESULT result;
 
-    (void)unused;
+    (void)api;
+    (void)owner;
+    result = lg_autologin_stop();
+    if (result != OSMW_OK)
+        return result;
+    lg_resolve_reset();
+    clear_binding();
+    return OSMW_OK;
+}
 
-    lg_config_load();
+static OSMW_RESULT rollback_init(OSMW_RESULT failure)
+{
+    OSMW_RESULT cleanup = cleanup_resources(g_api, g_owner);
+    return cleanup == OSMW_OK ? failure : cleanup;
+}
 
-    /* Opt-in, off by default, one shared key with osmw_chat.dll -- see the same
-     * block in patches/chatmod/src/dllmain.c for the reasoning. Off prunes to
-     * nothing, so switching logging back off clears what it wrote. */
-    if (lg_cfg_int_in("Debug", "ModLogging", 0)) {
-        _snprintf(logpath, sizeof(logpath), "%s\\osmw_login.%lu.log",
-                  lg_game_dir(), (unsigned long)GetCurrentProcessId());
-        logpath[sizeof(logpath) - 1] = '\0';
-        lg_log_prune(lg_game_dir(), 5);
-        lg_log_open(logpath);
-    } else {
-        lg_log_prune(lg_game_dir(), 0);
-    }
+static OSMW_RESULT __cdecl login_init(
+    const OSMW_CORE_API_V1 *api, OSMW_OWNER owner)
+{
+    OSMW_RESULT result;
 
-    lg_log("osmw_login starting");
+    if (api == NULL || owner == OSMW_INVALID_OWNER)
+        return OSMW_E_INVALID_ARGUMENT;
+    if (api->struct_size < OSMW_CORE_API_V1_0_SIZE ||
+            OSMW_ABI_MAJOR(api->abi_version) !=
+                OSMW_ABI_MAJOR(OSMW_CORE_ABI_V1_0))
+        return OSMW_E_INCOMPATIBLE_ABI;
+    if ((api->capabilities & LG_REQUIRED_CAPABILITIES) !=
+            LG_REQUIRED_CAPABILITIES ||
+            api->game_dir == NULL || api->log == NULL ||
+            api->config_read_int == NULL ||
+            api->resolve_signature == NULL ||
+            api->claim_region == NULL || api->release_region == NULL)
+        return OSMW_E_UNAVAILABLE;
+    if (g_api != NULL)
+        return OSMW_E_BUSY;
+
+    g_api = api;
+    g_owner = owner;
+    lg_log("osmw_login managed init");
 
     if (!lg_cfg_int_in("Addons", "AutoLogin", 1)) {
-        lg_log("[Addons] AutoLogin=0 -- standing down, client untouched");
-        return 0;
+        lg_log("[Addons] AutoLogin=0 -- module disabled, client untouched");
+        return OSMW_MOD_DISABLED;
     }
-
-    /* Both gates must agree: the ini says the feature is enabled at all, the
-     * environment says this particular launch asked for it. */
     if (!lg_launch_consent()) {
-        lg_log("%s not set -- this client was not launched with auto-login, "
-               "standing down, client untouched", LG_CONSENT_VAR);
-        return 0;
+        lg_log("%s not set -- this launch did not request auto-login", LG_CONSENT_VAR);
+        return OSMW_MOD_DISABLED;
     }
 
-    failed = lg_resolve_all();
-    if (failed) {
-        lg_log("resolve: %d signature(s) failed -- standing down, client untouched",
-               failed);
-        return 0;
-    }
-    lg_log("resolve: all %d signatures OK", LG_SIG_COUNT);
-
-    if (lg_timestamp != 0x45650696U) {
-        lg_log("note: build 0x%08X is not the reference build 0x45650696; "
-               "signatures still matched, so continuing", lg_timestamp);
+    result = lg_resolve_all();
+    if (result != OSMW_OK) {
+        lg_log("resolve: required signature failed (%ld); module standing down",
+               (long)result);
+        return rollback_init(result);
     }
 
-    if (!lg_autologin_start())
-        lg_log("autologin: start failed -- client left untouched where possible");
+    if (!lg_autologin_start()) {
+        lg_log("autologin: start failed; rolling back");
+        return rollback_init(OSMW_E_INTERNAL);
+    }
 
-    lg_log("startup complete");
-    return 0;
+    lg_log("startup complete; 10 private signatures and up to two claimed prologues");
+    return OSMW_OK;
 }
 
-__declspec(dllexport) DWORD WINAPI osmw_prepare_unload(LPVOID unused)
+static OSMW_RESULT __cdecl login_shutdown(
+    const OSMW_CORE_API_V1 *api, OSMW_OWNER owner)
 {
-    (void)unused;
-    if (g_worker) {
-        WaitForSingleObject(g_worker, 5000);
-        CloseHandle(g_worker);
-        g_worker = NULL;
-    }
-    lg_log("prepare_unload: worker stopped, safe to FreeLibrary");
-    return 0;
+    OSMW_RESULT result;
+
+    if (g_api == NULL)
+        return OSMW_OK;
+    if (api != g_api)
+        return OSMW_E_INVALID_ARGUMENT;
+    if (owner != g_owner)
+        return OSMW_E_WRONG_OWNER;
+
+    result = cleanup_resources(api, owner);
+    if (result != OSMW_OK)
+        lg_log("shutdown: resource cleanup failed (%ld)", (long)result);
+    return result;
 }
 
-BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
+OSMW_RESULT __cdecl osmw_mod_query(
+    DWORD core_abi_version, DWORD output_size,
+    OSMW_MOD_DESCRIPTOR_V1 *output)
+{
+    if (OSMW_ABI_MAJOR(core_abi_version) !=
+            OSMW_ABI_MAJOR(OSMW_CORE_ABI_V1_0))
+        return OSMW_E_INCOMPATIBLE_ABI;
+    if (output == NULL)
+        return OSMW_E_INVALID_ARGUMENT;
+    if (output_size < OSMW_MOD_DESCRIPTOR_V1_MIN_SIZE)
+        return OSMW_E_BUFFER_TOO_SMALL;
+
+    ZeroMemory(output, sizeof(*output));
+    output->struct_size = sizeof(*output);
+    output->required_core_abi = OSMW_CORE_ABI_V1_0;
+    output->module_version = OSMW_MODULE_VERSION(1, 0);
+    output->module_id = "login";
+    output->display_name = "osMW Auto Login";
+    output->init = login_init;
+    output->shutdown = login_shutdown;
+    return OSMW_OK;
+}
+
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
     (void)reserved;
-
-    switch (reason) {
-    case DLL_PROCESS_ATTACH:
-        g_self = inst;
-        (void)g_self;
-        DisableThreadLibraryCalls(inst);
-        g_worker = CreateThread(NULL, 0, worker, NULL, 0, NULL);
-        break;
-
-    case DLL_PROCESS_DETACH:
-        lg_autologin_stop();
-        lg_log("osmw_login unloading");
-        lg_log_close();
-        break;
-    }
+    if (reason == DLL_PROCESS_ATTACH)
+        DisableThreadLibraryCalls(instance);
     return TRUE;
 }

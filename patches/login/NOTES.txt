@@ -5,16 +5,24 @@ Goal: each launched client fills the stock login screen, submits credentials,
 picks a roster character, and enters the world. main.exe is never modified on
 disk.
 
-Status: in-game verified 2026-08-30 (account fill, password +0x7C, submit
-+0xA0, character select). Maps++ UI/launch wiring is a separate repo — see
+Status: managed ABI 1 lifecycle and both exact prologue claims host-verified
+2026-09-05. The legacy build was in-game verified 2026-08-30 (account fill,
+password +0x7C, submit +0xA0, character select). The managed build is not yet
+deployed; live validation waits for the atomic core-only autoload cutover.
+Maps++ UI/launch wiring is a separate repo — see
 docs/superpowers/plans/2026-08-30-mapsplusplus-autologin.md (copy that file
 into the Maps++ tree). This repo is done for the DLL.
 
-Delivery: 32-bit DLL injected at launch (same path as osmw_chat). Hook points
-are pattern-scanned at runtime.
+Managed delivery: passive 32-bit feature DLL loaded and initialised by
+osmw_core.dll. Core owns config, tagged logging, pristine-image signature
+resolution, and range arbitration. The module retains its specialised
+trampolines and environment/roster behavior. The launcher remains for the
+legacy production path until final cutover.
 
-Delivery: 32-bit DLL injected at launch (same path as osmw_chat). Hook points
-are pattern-scanned at runtime.
+Host fixture: `tools/build.py --test --no-deploy` loads the real DLL, checks
+side-effect-free query/passive DllMain, both gates, resolver failure, claim
+conflict rollback, two claim-before-write prologues, reverse restore/release,
+wrong-owner rejection, and clean unload. It also runs the DPAPI roster tests.
 
 Reference build: TimeDateStamp 0x45650696, ImageBase 0x00400000, no ASLR.
 SHA-256 285C3BE50304E3B70A817E5089477F3E18774C16357C8BB394CA6B308F8E034E

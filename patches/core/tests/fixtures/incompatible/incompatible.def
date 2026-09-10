@@ -1,0 +1,3 @@
+LIBRARY fixture_incompatible
+EXPORTS
+    osmw_mod_query

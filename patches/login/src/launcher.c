@@ -1,10 +1,12 @@
-/* osmw_login_launch.exe -- start the client with the login mod, or edit the roster.
+/* osmw_login_launch.exe -- compatibility core launcher, or roster editor.
 
- *   osmw_login_launch.exe           inject osmw_login.dll (and chat, if present)
+ *   osmw_login_launch.exe           inject osmw_core.dll when main.exe does not
+ *                                   already self-load it
  *   osmw_login_launch.exe --roster  Win32 roster editor, no game launch
  *
  * Same-bitness 32-bit so LoadLibraryA can be used as a remote thread start.
- * Whether the mod does anything is [Addons] AutoLogin; the launcher stays dumb.
+ * Feature discovery and [Addons] gates belong to the core. The launcher keeps
+ * its historical filename and roster UI but owns no feature DLL directly.
  */
 #include <windows.h>
 #include <stdio.h>
@@ -53,6 +55,55 @@ static int has_flag(const char *cmd, const char *flag)
     return 0;
 }
 
+/* Does this main.exe load the mods by itself?
+ *
+ * mw-tools' tools/client-patch/mod_autoload.py replaces the 7-byte CRT entry
+ * prologue with a jmp into a cave that LoadLibraryA's the mod DLLs, so a
+ * patched client already has them before we could inject. A second LoadLibraryA
+ * would only bump the refcount -- DllMain does not run twice -- so injecting
+ * anyway is harmless, but it makes the log claim something that did not happen
+ * and leaks a reference.
+ *
+ * Probed on disk rather than in the process: we start the client suspended, and
+ * a suspended process has no module list to look at yet.
+ *
+ * Deliberately strict. Rather than "these bytes are not stock", which any other
+ * build would also satisfy, this requires the exact shape the patch writes -- a
+ * rel32 jmp, two nops, and a target inside the cave that patch claims. Anything
+ * else reads as "not self-loading", so an exe we do not recognise keeps the old
+ * behaviour instead of quietly losing its mods.
+ */
+#define ENTRY_FILE_OFFSET 0x000CD360UL   /* VA 0x004CD360, .text is mapped 1:1 */
+#define ENTRY_VA          0x004CD360UL
+#define AUTOLOAD_CAVE_LO  0x004CED0CUL
+#define AUTOLOAD_CAVE_HI  0x004CED8CUL
+
+static int client_self_loads(const char *exe)
+{
+    HANDLE f;
+    unsigned char got[7];
+    DWORD  read = 0, target;
+    LONG   rel;
+
+    f = CreateFileA(exe, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE)
+        return 0;
+    if (SetFilePointer(f, ENTRY_FILE_OFFSET, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER ||
+        !ReadFile(f, got, sizeof(got), &read, NULL) || read != sizeof(got)) {
+        CloseHandle(f);
+        return 0;
+    }
+    CloseHandle(f);
+
+    if (got[0] != 0xE9 || got[5] != 0x90 || got[6] != 0x90)
+        return 0;
+    rel = (LONG)((DWORD)got[1] | ((DWORD)got[2] << 8) |
+                 ((DWORD)got[3] << 16) | ((DWORD)got[4] << 24));
+    target = ENTRY_VA + 5 + (DWORD)rel;
+    return target >= AUTOLOAD_CAVE_LO && target < AUTOLOAD_CAVE_HI;
+}
+
 static int inject_dll(HANDLE proc, const char *dll)
 {
     LPTHREAD_START_ROUTINE load_library;
@@ -86,10 +137,11 @@ static int inject_dll(HANDLE proc, const char *dll)
 
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 {
-    char dir[MAX_PATH], exe[MAX_PATH], login_dll[MAX_PATH], chat_dll[MAX_PATH];
+    char dir[MAX_PATH], exe[MAX_PATH], core_dll[MAX_PATH];
     char cmd[MAX_PATH * 2];
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
+    int self_load;
 
     (void)inst; (void)prev; (void)show;
 
@@ -102,10 +154,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         return lg_roster_ui(dir);
 
     _snprintf(exe, sizeof(exe), "%s\\main.exe", dir);
-    _snprintf(login_dll, sizeof(login_dll), "%s\\osmw_login.dll", dir);
-    _snprintf(chat_dll, sizeof(chat_dll), "%s\\osmw_chat.dll", dir);
-    exe[sizeof(exe) - 1] = login_dll[sizeof(login_dll) - 1] =
-        chat_dll[sizeof(chat_dll) - 1] = '\0';
+    _snprintf(core_dll, sizeof(core_dll), "%s\\osmw_core.dll", dir);
+    exe[sizeof(exe) - 1] = core_dll[sizeof(core_dll) - 1] = '\0';
 
     if (GetFileAttributesA(exe) == INVALID_FILE_ATTRIBUTES) {
         MessageBoxA(NULL, "main.exe is not next to this launcher.\n\n"
@@ -113,9 +163,14 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
                     APP_TITLE, MB_ICONERROR | MB_OK);
         return 1;
     }
-    if (GetFileAttributesA(login_dll) == INVALID_FILE_ATTRIBUTES) {
-        MessageBoxA(NULL, "osmw_login.dll is not next to this launcher.\n\n"
-                    "Build it with patches\\login\\tools\\build.py, or run\n"
+    /* A self-loading client owns the whole question: it loads what is there and
+     * ignores what is not, so neither the missing-DLL refusal below nor the
+     * injection afterwards is ours to make. */
+    self_load = client_self_loads(exe);
+
+    if (!self_load && GetFileAttributesA(core_dll) == INVALID_FILE_ATTRIBUTES) {
+        MessageBoxA(NULL, "osmw_core.dll is not next to this launcher.\n\n"
+                    "Build it with patches\\core\\tools\\build.py, or run\n"
                     "main.exe directly for an unmodified client.",
                     APP_TITLE, MB_ICONERROR | MB_OK);
         return 1;
@@ -134,22 +189,12 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         return 1;
     }
 
-    if (!inject_dll(pi.hProcess, login_dll)) {
+    if (!self_load && !inject_dll(pi.hProcess, core_dll)) {
         DWORD err = GetLastError();
         TerminateProcess(pi.hProcess, 1);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
-        fail("Injecting osmw_login.dll", err);
-        return 1;
-    }
-
-    if (GetFileAttributesA(chat_dll) != INVALID_FILE_ATTRIBUTES &&
-        !inject_dll(pi.hProcess, chat_dll)) {
-        DWORD err = GetLastError();
-        TerminateProcess(pi.hProcess, 1);
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        fail("Injecting osmw_chat.dll", err);
+        fail("Injecting osmw_core.dll", err);
         return 1;
     }
 

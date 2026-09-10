@@ -73,6 +73,22 @@ $MapDir        = Join-Path $RepoRoot 'maps'
 $UiDir         = Join-Path $RepoRoot 'ui'
 $LibDir        = Join-Path $RepoRoot 'Lib'
 $AvatarDir     = Join-Path $RepoRoot 'avatars'
+$ManagedModulesCsv = 'osmw_chat.dll,osmw_login.dll,osmw_minimap.dll,osmw_fightspeed.dll,osmw_weather.dll,osmw_settings.dll,osmw_timers.dll,osmw_inventory.dll,osmw_fishing.dll'
+$NativePayloadFiles = @(
+    'osmw_core.dll',
+    'osmw_core_api.ini',
+    'osmw_chat.dll',
+    'osmw_login.dll',
+    'osmw_minimap.dll',
+    'osmw_fightspeed.dll',
+    'osmw_weather.dll',
+    'osmw_settings.dll',
+    'osmw_timers.dll',
+    'osmw_inventory.dll',
+    'osmw_fishing.dll',
+    'osmw_chat_launch.exe',
+    'osmw_login_launch.exe'
+)
 
 # The version lives in variables.ahk; main.ahk carries a matching
 # ;@Ahk2Exe-SetVersion literal so the compiled exe's file properties agree.
@@ -328,14 +344,13 @@ function Build-Variant {
             Copy-Item -LiteralPath $LibDir -Destination $outDir -Recurse -Force
         }
 
-        # The chat launcher looks for main.exe beside itself. The Inno installer
-        # puts Maps++ in the game folder, so the launcher has to sit at the
-        # release root (next to mapsplusplus.exe) rather than inside Lib\, or a
-        # post-install double-click cannot find the client.
-        $launcherSrc = Join-Path $outDir 'Lib\osmw_chat_launch.exe'
-        if (Test-Path -LiteralPath $launcherSrc) {
+        # Both compatibility launchers look for main.exe beside themselves.
+        # Hoist both to the release root; their normal launch paths inject only
+        # osmw_core.dll and the login-named one retains its --roster UI.
+        foreach ($launcherName in @('osmw_chat_launch.exe', 'osmw_login_launch.exe')) {
+            $launcherSrc = Join-Path (Join-Path $outDir 'Lib') $launcherName
             Move-Item -LiteralPath $launcherSrc `
-                      -Destination (Join-Path $outDir 'osmw_chat_launch.exe') `
+                      -Destination (Join-Path $outDir $launcherName) `
                       -Force
         }
 
@@ -343,6 +358,8 @@ function Build-Variant {
         $readme = @()
         $readme += "mapsplusplus.exe -- variant: $Name"
         $readme += "Version: $Version"
+        $readme += "Managed core ABI: 1.0"
+        $readme += "Managed modules: $ManagedModulesCsv"
         $readme += "Built: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
         $readme += ""
         $readme += "Bundled addons:"
@@ -383,8 +400,8 @@ if (Test-Path -LiteralPath $shadowCheck) {
     }
 }
 
-# The native mods (patches\chatmod, patches\login) compile to the DLLs in Lib\,
-# which every release copies and which Maps++ deploys into a game folder. Their
+# The native mods under patches\ compile to the DLLs in Lib\, which every
+# release copies and which Maps++ deploys into a game folder. Their
 # sources live here now, so a release must not be cut from Lib\ binaries that
 # predate them -- that drift is exactly what moving the sources in was meant to
 # end. modhash.py compares recorded source hashes rather than mtimes, because
@@ -404,7 +421,7 @@ if (-not $SkipMods) {
         & $python.Source $modHash --check | Write-Host
         if ($LASTEXITCODE -ne 0) {
             Write-Host "Rebuilding the native mods..." -ForegroundColor Cyan
-            foreach ($mod in @('chatmod', 'login')) {
+            foreach ($mod in @('core', 'chatmod', 'login', 'minimap', 'fightspeed', 'weather', 'settings', 'timers', 'inventory')) {
                 $modBuild = Join-Path $RepoRoot "patches\$mod\tools\build.py"
                 if (-not (Test-Path -LiteralPath $modBuild)) { continue }
                 & $python.Source $modBuild --no-deploy | Write-Host
@@ -418,6 +435,32 @@ if (-not $SkipMods) {
             }
         }
     }
+}
+
+# A release is never allowed to consume a partial native set, including when
+# -SkipMods deliberately bypasses source-hash rebuilding. The runtime deployer
+# stages this same list transactionally before launch.
+$missingPayload = @()
+foreach ($payloadName in $NativePayloadFiles) {
+    $payloadPath = Join-Path $LibDir $payloadName
+    if (-not (Test-Path -LiteralPath $payloadPath -PathType Leaf)) {
+        $missingPayload += $payloadName
+    }
+}
+if ($missingPayload.Count -gt 0) {
+    throw "Managed native payload is incomplete in Lib\: $($missingPayload -join ', ')"
+}
+
+$apiMetadataPath = Join-Path $LibDir 'osmw_core_api.ini'
+$apiMetadataText = Get-Content -LiteralPath $apiMetadataPath -Raw
+if ($apiMetadataText -notmatch '(?m)^Format=1\s*$' -or
+    $apiMetadataText -notmatch '(?m)^Abi=1\.0\s*$' -or
+    $apiMetadataText -notmatch ('(?m)^Modules=' + [regex]::Escape($ManagedModulesCsv) + '\s*$')) {
+    throw "Lib\osmw_core_api.ini does not describe core ABI 1.0 and the complete managed-module list."
+}
+$defaultsText = Get-Content -LiteralPath $DefaultsIni -Raw
+if ($defaultsText -notmatch ('(?m)^Modules=' + [regex]::Escape($ManagedModulesCsv) + '\s*$')) {
+    throw "defaults.ini [Core] Modules does not match the packaged managed-module list."
 }
 
 $compiler = Resolve-Ahk2Exe -Override $Ahk2ExePath

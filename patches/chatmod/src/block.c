@@ -14,8 +14,10 @@
  *      client during tab work).
  *
  * Ctrl+left-click a sender name: the client's HitTest already has the name
- * in hand at the whisper-build site (HitTest+0xAA). Diverting there swallows
- * the whisper without reimplementing line geometry. Unblock is Settings-only.
+ * in hand immediately after HitTest+0xAA. Diverting at the following
+ * instruction swallows the whisper without reimplementing line geometry and
+ * keeps this hook's claim adjacent to, rather than overlapping, the mirror's
+ * disp32 claim. Unblock is Settings-only.
  *
  * Append is an OPTIONAL signature: a miss stands this feature's overlay drop
  * down, not the rest of the chat mod. keep_message still hides leftovers in
@@ -36,7 +38,8 @@
 #define CH_SYSTEM 6
 #define CH_INFO   7
 
-#define WHISPER_SITE  0xAA      /* HitTest + 0xAA: lea esi, [eax+MsgArray+8] */
+#define WHISPER_LEA   0xAA      /* lea esi, [eax+MsgArray+8], mirror-owned disp32 */
+#define WHISPER_SITE  0xB0      /* following mov edx, imm32; eax is still slot*0xC0 */
 
 #define MW_BLOCK_ADDED  1
 #define MW_BLOCK_NOOP   0
@@ -273,7 +276,8 @@ static unsigned char *name_ring(void)
     return m ? m : mw_addr[MW_MSGARRAY];
 }
 
-/* HitTest+0xAA: eax is slot*0xC0, name lives at ring+eax+8.
+/* HitTest+0xB0, immediately after the LEA at +0xAA: eax is still slot*0xC0
+ * and name lives at ring+eax+8.
  * Return 1 to swallow the whisper, 0 to let the client build it. */
 static int __cdecl whisper_ctrl(unsigned slot_bytes)
 {
@@ -342,7 +346,8 @@ static int hook_append(void)
     }
     /* 7 bytes: mov ecx,[esp+4]; cmp ecx,5 -- next insn is a ja we must not
      * relocate. Signature pins these exact bytes. */
-    if (!mw_hook_install(&g_append_hook, target, (void *)append_gate, 7)) {
+    if (!mw_hook_install(&g_append_hook, target, (void *)append_gate, 7,
+                         "chat append prologue")) {
         mw_log("block: could not hook append");
         return 0;
     }
@@ -355,6 +360,7 @@ static int hook_append(void)
 static int hook_whisper(void)
 {
     unsigned char *hit = mw_addr[MW_HITTEST];
+    unsigned char *lea;
     unsigned char *site;
     DWORD          want, have;
 
@@ -363,26 +369,31 @@ static int hook_whisper(void)
     if (!hit || !mw_addr[MW_MSGARRAY])
         return 0;
 
+    lea  = hit + WHISPER_LEA;
     site = hit + WHISPER_SITE;
     if (!name_ring())
         return 0;
     want = (DWORD)(UINT_PTR)(name_ring() + MSG_NAME);
-    have = *(DWORD *)(site + 2);
+    have = *(DWORD *)(lea + 2);
     /* 8D B0 disp32 = lea esi, [eax+ring+8]. After the mirror this is our
-     * copy, not the real MsgArray -- that is why name_ring() exists. */
-    if (site[0] != 0x8D || site[1] != 0xB0 || have != want) {
-        mw_log("block: whisper site %p is not lea esi,[eax+name] "
-               "(have %02X %02X disp 0x%08X, want 0x%08X)",
-               site, site[0], site[1], have, want);
+     * copy, not the real MsgArray -- that is why name_ring() exists. Hook the
+     * following five-byte MOV so its exact claim cannot overlap that disp32. */
+    if (lea[0] != 0x8D || lea[1] != 0xB0 || have != want ||
+            site[0] != 0xBA) {
+        mw_log("block: whisper site %p is not the expected LEA/MOV pair "
+               "(lea %02X %02X disp 0x%08X, want 0x%08X; next %02X)",
+               lea, lea[0], lea[1], have, want, site[0]);
         return 0;
     }
-    if (!mw_hook_install(&g_whisper_hook, site, (void *)whisper_gate, 6)) {
+    if (!mw_hook_install(&g_whisper_hook, site, (void *)whisper_gate, 5,
+                         "chat whisper-click site")) {
         mw_log("block: could not hook whisper site");
         return 0;
     }
     g_whisper_cont = g_whisper_hook.trampoline;
     g_whisper_hooked = 1;
-    mw_log("block: Ctrl+click hooked at HitTest+%02X (%p)", WHISPER_SITE, site);
+    mw_log("block: Ctrl+click hooked at HitTest+%02X (%p), adjacent to "
+           "mirror LEA", WHISPER_SITE, site);
     return 1;
 }
 
@@ -396,16 +407,23 @@ int mw_block_install(void)
     return 1;
 }
 
-void mw_block_remove(void)
+OSMW_RESULT mw_block_remove(void)
 {
+    OSMW_RESULT result;
+
     if (g_whisper_hooked) {
-        mw_hook_remove(&g_whisper_hook);
+        result = mw_hook_remove(&g_whisper_hook);
+        if (result != OSMW_OK)
+            return result;
         g_whisper_hooked = 0;
         g_whisper_cont = NULL;
     }
     if (g_append_hooked) {
-        mw_hook_remove(&g_append_hook);
+        result = mw_hook_remove(&g_append_hook);
+        if (result != OSMW_OK)
+            return result;
         g_append_hooked = 0;
         g_append_cont = NULL;
     }
+    return OSMW_OK;
 }

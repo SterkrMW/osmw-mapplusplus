@@ -41,6 +41,8 @@ static void poll_settings(void)
     mw_block_poll();
     mw_scroll_refresh();
     mw_cooldown_refresh();
+    mw_links_poll();
+    mw_backgrounds_poll();
     /* After mention_refresh: a change here rebuilds the ring, and the rebuild
      * re-applies both decorations, so the mention settings should be current
      * before it runs. */
@@ -81,6 +83,11 @@ static LRESULT CALLBACK chat_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return result;
     if (mw_tabs_on_message(hwnd, msg, wp, lp, &result))
         return result;
+    /* After tabs: a click on the strip is the strip's, not a link's. */
+    if (mw_links_on_message(hwnd, msg, wp, lp, &result))
+        return result;
+    if (mw_backgrounds_on_message(hwnd, msg, wp, lp, &result))
+        return result;
     if (mw_geometry_on_message(hwnd, msg, wp, lp, &result))
         return result;
 
@@ -89,10 +96,19 @@ static LRESULT CALLBACK chat_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
 int mw_window_install(HWND hwnd)
 {
+    WNDPROC live;
+
     if (g_installed)
         return 1;
     if (!hwnd || !IsWindow(hwnd)) {
         mw_log("window: no chat window to subclass");
+        return 0;
+    }
+
+    live = (WNDPROC)(UINT_PTR)GetWindowLongA(hwnd, GWL_WNDPROC);
+    if (live != (WNDPROC)(UINT_PTR)mw_addr[MW_WNDPROC]) {
+        mw_log("window: current WndProc %p is not resolved stock %p; "
+               "refusing competing subclass", live, mw_addr[MW_WNDPROC]);
         return 0;
     }
 
@@ -109,13 +125,30 @@ int mw_window_install(HWND hwnd)
     return 1;
 }
 
-void mw_window_remove(void)
+OSMW_RESULT mw_window_remove(void)
 {
+    WNDPROC live;
+
     if (!g_installed)
-        return;
-    if (g_hwnd && IsWindow(g_hwnd) && g_orig_proc)
-        SetWindowLongA(g_hwnd, GWL_WNDPROC, (LONG)(UINT_PTR)g_orig_proc);
+        return OSMW_OK;
+    if (g_hwnd && IsWindow(g_hwnd) && g_orig_proc) {
+        live = (WNDPROC)(UINT_PTR)GetWindowLongA(g_hwnd, GWL_WNDPROC);
+        if (live != chat_proc) {
+            mw_log("window: live WndProc %p no longer belongs to chat; "
+                   "refusing unsafe restore", live);
+            return OSMW_E_BUSY;
+        }
+        SetLastError(ERROR_SUCCESS);
+        if (SetWindowLongA(g_hwnd, GWL_WNDPROC,
+                           (LONG)(UINT_PTR)g_orig_proc) == 0 &&
+                GetLastError() != ERROR_SUCCESS) {
+            mw_log("window: WndProc restore failed: %lu", GetLastError());
+            return OSMW_E_INTERNAL;
+        }
+    }
     g_installed = 0;
     g_hwnd = NULL;
+    g_orig_proc = NULL;
     mw_log("window: subclass removed");
+    return OSMW_OK;
 }

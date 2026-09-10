@@ -50,6 +50,7 @@ global _CHATMOD_SPEC := [
     Map("key", "FontWidth",         "kind", "int",  "lo", -1, "hi", 64),
     Map("key", "Tabs",              "kind", "str"),
     Map("key", "TabStrip",          "kind", "bool"),
+    Map("key", "RememberActiveTab", "kind", "bool"),
     Map("key", "TabHotkey",         "kind", "str"),
     Map("key", "Timestamps",        "kind", "bool"),
     Map("key", "TimestampFormat",   "kind", "str"),
@@ -67,8 +68,8 @@ global _CHATMOD_SPEC := [
 
 ; Every key the DLL treats as on unless told otherwise. Timestamps is the only
 ; one that ships off, so it is the only one absent from here.
-global _CHATMOD_DEFAULT_ON := ["TabStrip", "WheelScroll", "CooldownMessage",
-    "HighlightMentions", "RememberGeometry"]
+global _CHATMOD_DEFAULT_ON := ["TabStrip", "RememberActiveTab", "WheelScroll",
+    "CooldownMessage", "HighlightMentions", "RememberGeometry"]
 
 ; Measured against the real renderer by patches\chatmod\tools\fontpresets.py;
 ; keep the two in step, and treat the tool as the source of truth because it
@@ -589,6 +590,11 @@ _ChatMod_OnSettingsWeb() {
         "label", "Show the clickable tab strip in the chat window",
         "value", _ChatMod_AsBool("TabStrip", s["TabStrip"]),
         "default", _ChatMod_AsBool("TabStrip", _ChatMod_ReadDefault("TabStrip"))))
+    fields.Push(Map("type", "checkbox", "id", "RememberActiveTab",
+        "label", "Remember the active tab between character logins",
+        "value", _ChatMod_AsBool("RememberActiveTab", s["RememberActiveTab"]),
+        "default", _ChatMod_AsBool("RememberActiveTab",
+            _ChatMod_ReadDefault("RememberActiveTab"))))
     fields.Push(Map("type", "button", "id", "editTabs",
         "label", "Edit tabs…",
         "hint", "Name each tab and tick the channels it shows, with no syntax "

@@ -14,6 +14,32 @@
 
 #include <string.h>
 
+/* Tell the core the bytes we just wrote are the ones we intend.
+ *
+ * A claim snapshots the bytes we are about to overwrite, so that snapshot is the
+ * pre-patch original - compared against live memory it differs for every patch we
+ * have applied, which is the normal state of this module.  Sealing supplies the
+ * other half, and only sealed claims are ever reported as tampered.  Without this
+ * call our own correct patches read as intrusions in the client attestation.
+ *
+ * Sealing everything we own rather than one token: this sits at the choke point
+ * every write in the module goes through, which knows the address but not the
+ * claim covering it.  A seal that is awkward to call is a seal that gets skipped,
+ * and a write site added later is covered here without anyone remembering to.
+ *
+ * Advisory.  An old core has no seal_region and our regions simply go unwatched,
+ * which is exactly where they were before this existed.
+ */
+static void lg_seal_claims(void)
+{
+    const OSMW_CORE_API_V1 *api = lg_core_api();
+
+    if (!OSMW_STRUCT_HAS(api, OSMW_CORE_API_V1, seal_region) ||
+            api->seal_region == NULL) {
+        return;
+    }
+    (void)api->seal_region(lg_core_owner(), OSMW_INVALID_TOKEN);
+}
 static int write_bytes(void *dst, const void *src, int len)
 {
     DWORD old, dummy;
@@ -22,6 +48,7 @@ static int write_bytes(void *dst, const void *src, int len)
     memcpy(dst, src, len);
     VirtualProtect(dst, len, old, &dummy);
     FlushInstructionCache(GetCurrentProcess(), dst, len);
+    lg_seal_claims();
     return 1;
 }
 
@@ -40,16 +67,21 @@ static int starts_with_relative_branch(const unsigned char *p)
            (p[0] == 0x0F && p[1] >= 0x80 && p[1] <= 0x8F);
 }
 
-int lg_hook_install(lg_hook_t *h, void *target, void *detour, int prologue_len, void **jmp_to)
+int lg_hook_install(lg_hook_t *h, void *target, void *detour, int prologue_len,
+                    void **jmp_to, const char *label)
 {
+    const OSMW_CORE_API_V1 *api = lg_core_api();
     unsigned char *t = (unsigned char *)target;
     unsigned char *tramp;
     unsigned char  patch[LG_MAX_PROLOGUE];
+    OSMW_REGION_CLAIM_V1 claim;
+    OSMW_RESULT result;
     int i;
 
     memset(h, 0, sizeof(*h));
 
-    if (!target || !detour) {
+    if (!target || !detour || !label || !api || !api->claim_region ||
+            !api->release_region || lg_core_owner() == OSMW_INVALID_OWNER) {
         lg_log("hook: refusing install, target or detour is NULL");
         return 0;
     }
@@ -83,6 +115,22 @@ int lg_hook_install(lg_hook_t *h, void *target, void *detour, int prologue_len, 
     h->target     = target;
     h->trampoline = tramp;
     h->len        = prologue_len;
+
+    ZeroMemory(&claim, sizeof(claim));
+    claim.struct_size = sizeof(claim);
+    claim.address = target;
+    claim.length = (DWORD)prologue_len;
+    claim.kind = OSMW_REGION_CODE;
+    claim.label = label;
+    result = api->claim_region(lg_core_owner(), &claim, &h->claim_token);
+    if (result != OSMW_OK) {
+        lg_log("hook: claim failed for %s at %p (%ld)",
+               label, target, (long)result);
+        h->trampoline = NULL;
+        VirtualFree(tramp, 0, MEM_RELEASE);
+        return 0;
+    }
+
     if (jmp_to)
         *jmp_to = tramp;
     MemoryBarrier();
@@ -92,6 +140,12 @@ int lg_hook_install(lg_hook_t *h, void *target, void *detour, int prologue_len, 
             *jmp_to = NULL;
         h->trampoline = NULL;
         VirtualFree(tramp, 0, MEM_RELEASE);
+        result = api->release_region(lg_core_owner(), h->claim_token);
+        if (result == OSMW_OK)
+            h->claim_token = OSMW_INVALID_TOKEN;
+        else
+            lg_log("hook: claim release failed after write refusal (%ld)",
+                   (long)result);
         lg_log("hook: VirtualProtect failed for %p", target);
         return 0;
     }
@@ -102,14 +156,30 @@ int lg_hook_install(lg_hook_t *h, void *target, void *detour, int prologue_len, 
     return 1;
 }
 
-void lg_hook_remove(lg_hook_t *h)
+OSMW_RESULT lg_hook_remove(lg_hook_t *h)
 {
-    if (!h || !h->active)
-        return;
-    write_bytes(h->target, h->saved, h->len);
-    if (h->trampoline)
-        VirtualFree(h->trampoline, 0, MEM_RELEASE);
-    lg_log("hook: removed %p", h->target);
-    h->active     = 0;
-    h->trampoline = NULL;
+    const OSMW_CORE_API_V1 *api = lg_core_api();
+    OSMW_RESULT result;
+
+    if (!h)
+        return OSMW_OK;
+    if (h->active) {
+        if (!write_bytes(h->target, h->saved, h->len)) {
+            lg_log("hook: could not restore %p; claim retained", h->target);
+            return OSMW_E_PATCH_STILL_ACTIVE;
+        }
+        h->active = 0;
+        if (h->trampoline)
+            VirtualFree(h->trampoline, 0, MEM_RELEASE);
+        h->trampoline = NULL;
+        lg_log("hook: removed %p", h->target);
+    }
+    if (h->claim_token == OSMW_INVALID_TOKEN)
+        return OSMW_OK;
+    if (!api || !api->release_region)
+        return OSMW_E_UNAVAILABLE;
+    result = api->release_region(lg_core_owner(), h->claim_token);
+    if (result == OSMW_OK)
+        h->claim_token = OSMW_INVALID_TOKEN;
+    return result;
 }

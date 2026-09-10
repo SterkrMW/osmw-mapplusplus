@@ -398,7 +398,8 @@ int mw_geometry_install(HWND hwnd)
 
     /* prologue is `mov eax, [abs32]` -- exactly 5 bytes, no relative branch */
     if (!mw_hook_install(&g_repos_hook, mw_addr[MW_REPOSITION],
-                         (void *)(UINT_PTR)reposition_detour, 5)) {
+                         (void *)(UINT_PTR)reposition_detour, 5,
+                         "chat reposition prologue")) {
         mw_log("geometry: could not hook the reposition routine");
         return 0;
     }
@@ -418,11 +419,12 @@ int mw_geometry_install(HWND hwnd)
     return 1;
 }
 
-void mw_geometry_remove(void)
+OSMW_RESULT mw_geometry_remove(void)
 {
-    if (!g_installed)
-        return;
-    mw_hook_remove(&g_repos_hook);
+    OSMW_RESULT result = mw_hook_remove(&g_repos_hook);
+    if (result != OSMW_OK)
+        return result;
     g_installed = 0;
     mw_log("geometry: removed");
+    return OSMW_OK;
 }

@@ -19,7 +19,7 @@ Maps++ runs in the background and appears in your system tray as **osMW Maps++**
 | **Multi-box helpers** | Optional addons arrange windows, toggle chat, open inventory, and send battle commands to all fighting characters. |
 | **Radial menus** | **Ctrl+Alt+A** rings your common actions around the cursor; choose **Clients** there to jump between alts. One click each. |
 
-Maps++ reads information from the running game client (`main.exe`). It never patches `main.exe`. Launching can copy inject helpers (`osmw_login.dll`, `osmw_chat.dll`, `osmw_chat_launch.exe`) into the game folder if they are not already there, then start the helper instead of `main.exe` directly so those mods load before the client initialises.
+Maps++ reads information from the running game client (`main.exe`). It never patches `main.exe`. Launching preflights and transactionally installs `osmw_core.dll`, its ABI metadata, all seven managed feature DLLs, and both compatibility launchers, then starts the chat-named launcher so the core is present before the client initialises.
 
 ---
 
@@ -387,7 +387,7 @@ Useful when multi-boxing: hide chat on alts to reduce clutter, or shrink chat gl
 
 Configured from **Settings → Chat Mod**.
 
-`osmw_chat.dll` is a separate mod that Maps++ loads into the client for you: launching from Maps++ copies it into the game folder and starts `osmw_chat_launch.exe`, which injects it before the client initialises. This panel is how you configure it. It improves the game's own chat window rather than drawing a new one:
+`osmw_chat.dll` is a core-managed feature that Maps++ installs for you. The historical `osmw_chat_launch.exe` entry point now injects only `osmw_core.dll` when the client does not already self-load it; the core starts chat first so its font hooks are early. This panel is how you configure it. It improves the game's own chat window rather than drawing a new one:
 
 - A readable font, chosen from four **tested presets** — *Default* (the client's own Courier New), *Crisp*, *Large* and *Wide* — or set by hand with *Custom*. **18 pixels is a hard ceiling**: above it the client cuts the bottom of every line, underscores first. Nothing can be set to avoid that, which is why the presets stop where they do. Pick *Default* to put the chat back to stock.
 - Channel tabs with a clickable strip, so you can watch trade without the rest. **Edit tabs…** opens an editor where you name each tab and tick the channels it shows — there is no syntax to learn, and it refuses anything the client would silently cut.
@@ -525,11 +525,11 @@ Passwords are write-only. After save the field is empty and the hint says the pa
 
 **Settings → Launcher → Auto-login launched clients** is what the launch shortcuts honour. On (the default) clicks through the intro on the new windows only and lets each client claim the next roster row. Off leaves the stock login — already-playing clients are not sent Enter. An empty roster (or every row disabled) also leaves the stock login. **Settings → Addons → Auto-login** is a master switch: off hides the roster editor *and* stops auto-login entirely.
 
-**Auto-login only ever applies to clients Maps++ itself launched.** Consent travels to the mod in an environment variable that exists only for the moment Maps++ spawns the clients, so a client you start yourself — running `osmw_chat_launch.exe` from Explorer, say — always gets the stock login screen, whatever your Maps++ settings say. With **Tray → Debug → Client Mod Logging** on, each client writes an `osmw_login.<pid>.log` in the game folder that names which of the two gates stopped it, if either did.
+**Auto-login only ever applies to clients Maps++ itself launched.** Consent travels to the mod in an environment variable that exists only for the moment Maps++ spawns the clients, so a client you start yourself — running `osmw_chat_launch.exe` from Explorer, say — always gets the stock login screen, whatever your Maps++ settings say. With **Tray → Debug → Client Mod Logging** on, the tagged `osmw_core.<pid>.log` in the game folder names which gate stopped the managed login feature, if either did.
 
 Use a distinct account per window. If the client says the account is already logged in, that is a server rule — Maps++ will not work around it. For the same reason, **an account you pick explicitly is never swapped for another**: if a live client already holds it, the new window simply stays at the stock login screen — and says `requested row … unavailable` in its `osmw_login.<pid>.log`, if client mod logging is on.
 
-When you launch from Maps++, it copies `osmw_login.dll` and `osmw_chat.dll` from Maps++'s `Lib\` folder into the game folder, and `osmw_chat_launch.exe` from next to `mapsplusplus.exe` if it is not already there, then starts the helper. An install that already lives in the game folder has the launcher in place from the start. Browse in Settings still points at `main.exe`; overlay attach is still `main.exe`. The deployed set is stamped with the Maps++ version that wrote it (`osmw_payload.ini` in the game folder) and refreshed when that version changes — so a mod fix in a new Maps++ actually reaches the client. A file locked by a running client is skipped with a warning in `mapsplusplus.log`; close every client and launch again to pick it up. **Tray → Debug → Copy Diagnostics** reports the deployed version and flags it as stale.
+When you launch from Maps++, it preflights the complete core/API/feature/launcher set, validates ABI 1.0 and the exact seven-module manifest, stages every changed file, and commits `osmw_payload.ini` last. An incomplete package or locked destination blocks the launch; already-replaced entries are rolled back and the next launch retries after every client is closed. An install that already lives in the game folder has both launchers in place from the start. Browse in Settings still points at `main.exe`; overlay attach is still `main.exe`. The stamp records the Maps++ version, core ABI, and module list. **Tray → Debug → Copy Diagnostics** reports the deployed version and flags it as stale.
 
 ---
 

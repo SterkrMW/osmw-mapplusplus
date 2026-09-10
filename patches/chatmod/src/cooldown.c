@@ -198,7 +198,8 @@ int mw_cooldown_install(void)
 
     site += FLOOD_CALL_DELTA;
     if (!mw_patch_direct_call(&g_hook, site,
-                              (void *)(UINT_PTR)flood_detour, &original)) {
+                              (void *)(UINT_PTR)flood_detour, &original,
+                              "chat flood-message call")) {
         mw_log("cooldown: could not patch the flood message call");
         return 0;
     }
@@ -216,10 +217,11 @@ int mw_cooldown_install(void)
     return 1;
 }
 
-void mw_cooldown_remove(void)
+OSMW_RESULT mw_cooldown_remove(void)
 {
-    if (!g_hooked)
-        return;
-    mw_hook_remove(&g_hook);
+    OSMW_RESULT result = mw_hook_remove(&g_hook);
+    if (result != OSMW_OK)
+        return result;
     g_hooked = 0;
+    return OSMW_OK;
 }

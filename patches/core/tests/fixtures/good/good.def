@@ -1,0 +1,3 @@
+LIBRARY fixture_good
+EXPORTS
+    osmw_mod_query

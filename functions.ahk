@@ -1575,7 +1575,7 @@ CenterWindowOnMonitor(hwnd, monIdx) {
 }
 
 ; Folder that contains main.exe, derived from GamePath (which may be main.exe
-; or osmw_chat_launch.exe). Roster files and inject payloads live here.
+; or a compatibility launcher). Roster files and managed payloads live here.
 ResolveGameDirectory() {
     global gGamePath
     if (gGamePath = "")
@@ -1585,76 +1585,254 @@ ResolveGameDirectory() {
     return dir
 }
 
-; Copies inject helpers from Maps++ into the game folder.
-;
-; DLLs ship in Lib\. osmw_chat_launch.exe ships next to mapsplusplus.exe so an
-; install into the game folder already has it beside main.exe — the launcher
-; looks for the client next to itself and will not start from Lib\. A source
-; tree still keeps the launcher in Lib\, so PayloadSourcePath prefers the
-; script-directory copy and falls back to Lib\.
-;
-; This used to refuse whenever the destination existed, on the grounds that a
-; loaded DLL is locked while clients run. That is true, but it also meant an
-; install that deployed the payloads once kept them for good: every later fix to
-; the mods shipped in Lib\ and then sat there, because the game folder already
-; had a file by that name. Auto-login's per-client row assignment is the first
-; feature to need a newer DLL than an existing install has.
-;
-; So the deployed set carries the APP_VERSION that wrote it. A matching stamp
-; skips, which is the common launch and touches nothing; a missing or different
-; one re-copies. A locked file still throws — the stamp is then left alone, so
-; the next launch made with no clients running tries again rather than recording
-; a half-updated set as current. Copying a file onto itself is skipped: that is
-; the in-game-folder install, where src and dst are the same path.
-PayloadSourcePath(payloadName) {
-    ; The chat launcher ships at the release root. Prefer that copy so a leftover
-    ; Lib\osmw_chat_launch.exe from an older install cannot win on upgrade.
-    if (payloadName = "osmw_chat_launch.exe") {
-        root := A_ScriptDir "\" payloadName
+ManagedPayloadModules() {
+    return [
+        "osmw_chat.dll",
+        "osmw_login.dll",
+        "osmw_minimap.dll",
+        "osmw_fightspeed.dll",
+        "osmw_weather.dll",
+        "osmw_settings.dll",
+        "osmw_timers.dll",
+        "osmw_inventory.dll",
+        "osmw_fishing.dll"
+    ]
+}
+
+ManagedPayloadModuleCsv() {
+    csv := ""
+    for moduleName in ManagedPayloadModules()
+        csv .= (csv = "" ? "" : ",") moduleName
+    return csv
+}
+
+ManagedPayloadFiles() {
+    files := ["osmw_core.dll", "osmw_core_api.ini"]
+    for moduleName in ManagedPayloadModules()
+        files.Push(moduleName)
+    ; Both historical entry points remain shippable. Each now injects only the
+    ; core when main.exe does not already self-load it.
+    files.Push("osmw_chat_launch.exe")
+    files.Push("osmw_login_launch.exe")
+    return files
+}
+
+PayloadDestPath(gameDir, payloadName) {
+    if (payloadName = "osmw_fishing.mda")
+        return gameDir "\system\osmw_fishing.mda"
+    return gameDir "\" payloadName
+}
+
+; Optional art bank. Missing it must not fail launch: the fishing panel then
+; keeps the same 456x280 geometry and falls back to text/arrows.
+DeployOptionalFishingMda(gameDir, sourceRoot := "") {
+    src := PayloadSourcePath("osmw_fishing.mda", sourceRoot)
+    if (src = "")
+        return
+    dst := PayloadDestPath(gameDir, "osmw_fishing.mda")
+    SplitPath(dst, , &dstDir)
+    if (dstDir != "" && !DirExist(dstDir))
+        DirCreate(dstDir)
+    try FileCopy(src, dst, true)
+    catch as err
+        LogWarn("Launch", "Could not copy osmw_fishing.mda into system\: "
+            . err.Message)
+}
+
+; DLLs and ABI metadata ship in Lib\. Both launchers ship at the release root
+; because they must sit beside main.exe after installation. A source checkout
+; still keeps the launcher builds in Lib\, so prefer the root copy and fall back.
+PayloadSourcePath(payloadName, sourceRoot := "") {
+    if (sourceRoot = "")
+        sourceRoot := A_ScriptDir
+    if (payloadName = "osmw_chat_launch.exe"
+        || payloadName = "osmw_login_launch.exe") {
+        root := sourceRoot "\" payloadName
         if FileExist(root)
             return root
     }
-    lib := A_ScriptDir "\Lib\" payloadName
+    lib := sourceRoot "\Lib\" payloadName
     if FileExist(lib)
         return lib
     return ""
 }
 
-EnsureInjectPayload(gameDir) {
-    global APP_VERSION
-    if (gameDir = "" || !DirExist(gameDir))
-        return
-    stampPath := gameDir "\osmw_payload.ini"
-    fresh := (IniRead(stampPath, "Payload", "Version", "") = APP_VERSION)
-    payloadNames := ["osmw_login.dll", "osmw_chat.dll", "osmw_chat_launch.exe"]
-    copied := 0
-    failed := 0
-    for payloadName in payloadNames {
-        src := PayloadSourcePath(payloadName)
-        dst := gameDir "\" payloadName
-        if (src = "")
-            continue
-        ; Same path when Maps++ lives in the game folder and this payload
-        ; already sits at the root (the chat launcher, after the release hoist).
-        if (StrLower(src) = StrLower(dst))
-            continue
-        if (fresh && FileExist(dst))
-            continue
-        try {
-            FileCopy(src, dst, true)
-            copied++
-            LogInfo("Launch", "Deployed " payloadName " into the game folder")
-        } catch as err {
-            failed++
-            LogWarn("Launch", "Could not deploy " payloadName ": " err.Message
-                . " — close every client and launch again to pick it up")
+_CleanupPayloadStages(entries) {
+    for entry in entries {
+        stage := entry["stage"]
+        if (stage != "" && FileExist(stage)) {
+            try FileDelete(stage)
         }
     }
-    if (copied && !failed) {
-        try IniWrite(APP_VERSION, stampPath, "Payload", "Version")
-        catch as err
-            LogWarn("Launch", "Could not stamp the deployed payload: " err.Message)
+}
+
+_RollbackPayloadEntries(entries) {
+    rollbackOk := true
+    Loop entries.Length {
+        entry := entries[entries.Length - A_Index + 1]
+        if !entry["committed"]
+            continue
+        dst := entry["dst"]
+        backup := entry["backup"]
+        try {
+            if FileExist(dst)
+                FileDelete(dst)
+            if entry["hadOld"]
+                FileMove(backup, dst, true)
+        } catch as err {
+            rollbackOk := false
+            LogWarn("Launch", "Could not roll back " entry["name"] ": " err.Message
+                . " — recovery copy kept at " backup)
+        }
     }
+    return rollbackOk
+}
+
+; Stage and commit the entire core/API/feature/launcher set before a client is
+; allowed to start. A filesystem cannot replace twelve files in one primitive,
+; so this is launch-atomic: a failed commit rolls already-moved entries back,
+; retains the old stamp, and returns false. The next launch retries the set.
+EnsureManagedPayload(gameDir, sourceRoot := "") {
+    global APP_VERSION
+    if (gameDir = "" || !DirExist(gameDir))
+        return false
+
+    expectedAbi := "1.0"
+    expectedModules := ManagedPayloadModuleCsv()
+    payloadNames := ManagedPayloadFiles()
+
+    ; Preflight every release input before touching the game directory. Missing
+    ; one feature is a broken package even though the runtime itself can degrade
+    ; around an independently missing feature.
+    sources := Map()
+    for payloadName in payloadNames {
+        src := PayloadSourcePath(payloadName, sourceRoot)
+        if (src = "") {
+            LogWarn("Launch", "Managed payload is incomplete: missing " payloadName)
+            return false
+        }
+        sources[payloadName] := src
+    }
+
+    metadata := sources["osmw_core_api.ini"]
+    metadataFormat := IniRead(metadata, "CoreApi", "Format", "")
+    metadataAbi := IniRead(metadata, "CoreApi", "Abi", "")
+    metadataModules := IniRead(metadata, "CoreApi", "Modules", "")
+    if (metadataFormat != "1" || metadataAbi != expectedAbi
+        || metadataModules != expectedModules) {
+        LogWarn("Launch", "Managed payload metadata is incompatible: expected ABI "
+            expectedAbi " and the release module manifest")
+        return false
+    }
+
+    stampPath := gameDir "\osmw_payload.ini"
+    fresh := (
+        IniRead(stampPath, "Payload", "Version", "") = APP_VERSION
+        && IniRead(stampPath, "Payload", "CoreAbi", "") = expectedAbi
+        && IniRead(stampPath, "Payload", "Modules", "") = expectedModules
+    )
+    if fresh {
+        for payloadName in payloadNames {
+            if !FileExist(gameDir "\" payloadName) {
+                fresh := false
+                break
+            }
+        }
+    }
+    if fresh {
+        DeployOptionalFishingMda(gameDir, sourceRoot)
+        return true
+    }
+
+    token := DllCall("GetCurrentProcessId", "UInt") "-" A_TickCount
+    entries := []
+    for payloadName in payloadNames {
+        src := sources[payloadName]
+        dst := gameDir "\" payloadName
+        ; Same path for an in-game-folder installation. It was already preflighted.
+        if (StrLower(src) = StrLower(dst))
+            continue
+        stage := dst ".osmw-stage-" token
+        backup := dst ".osmw-old-" token
+        try {
+            if FileExist(stage)
+                FileDelete(stage)
+            if FileExist(backup)
+                FileDelete(backup)
+            FileCopy(src, stage, true)
+        } catch as err {
+            if FileExist(stage) {
+                try FileDelete(stage)
+            }
+            _CleanupPayloadStages(entries)
+            LogWarn("Launch", "Could not stage " payloadName ": " err.Message)
+            return false
+        }
+        entries.Push(Map(
+            "name", payloadName, "stage", stage, "dst", dst,
+            "backup", backup, "hadOld", false, "committed", false))
+    }
+
+    ; Build the new stamp off to the side and commit it through the same rollback
+    ; path. Its absence/mismatch is what forces a retry after an interrupted set.
+    stampStage := stampPath ".osmw-stage-" token
+    stampBackup := stampPath ".osmw-old-" token
+    try {
+        if FileExist(stampStage)
+            FileDelete(stampStage)
+        if FileExist(stampBackup)
+            FileDelete(stampBackup)
+        IniWrite(APP_VERSION, stampStage, "Payload", "Version")
+        IniWrite(expectedAbi, stampStage, "Payload", "CoreAbi")
+        IniWrite(expectedModules, stampStage, "Payload", "Modules")
+    } catch as err {
+        if FileExist(stampStage) {
+            try FileDelete(stampStage)
+        }
+        _CleanupPayloadStages(entries)
+        LogWarn("Launch", "Could not stage managed payload stamp: " err.Message)
+        return false
+    }
+    entries.Push(Map(
+        "name", "osmw_payload.ini", "stage", stampStage, "dst", stampPath,
+        "backup", stampBackup, "hadOld", false, "committed", false))
+
+    try {
+        for entry in entries {
+            dst := entry["dst"]
+            backup := entry["backup"]
+            entry["hadOld"] := !!FileExist(dst)
+            if entry["hadOld"]
+                FileMove(dst, backup, true)
+            try FileMove(entry["stage"], dst, true)
+            catch as err {
+                if entry["hadOld"] && FileExist(backup)
+                    try FileMove(backup, dst, true)
+                throw err
+            }
+            entry["committed"] := true
+            LogInfo("Launch", "Deployed " entry["name"] " into the game folder")
+        }
+    } catch as err {
+        rollbackOk := _RollbackPayloadEntries(entries)
+        _CleanupPayloadStages(entries)
+        LogWarn("Launch", "Managed payload commit failed: " err.Message
+            . (rollbackOk ? " — previous payload restored"
+                : " — rollback was incomplete; launch remains blocked"))
+        return false
+    }
+
+    ; All replacements and the stamp committed. Old copies are no longer needed.
+    for entry in entries {
+        backup := entry["backup"]
+        if FileExist(backup) {
+            try FileDelete(backup)
+            catch as err
+                LogWarn("Launch", "Could not remove payload backup " backup ": " err.Message)
+        }
+    }
+    DeployOptionalFishingMda(gameDir, sourceRoot)
+    return true
 }
 
 ; Which mod build the game folder is actually running, for diagnostics. A stale
@@ -1716,8 +1894,8 @@ SetModLogging(enabled) {
     return true
 }
 
-; Prefer the 32-bit inject helper when it is present; overlay attach still
-; waits for main.exe. GamePath in config.ini stays pointing at main.exe.
+; Prefer the historical chat-named 32-bit core helper when it is present;
+; overlay attach still waits for main.exe. GamePath stays pointing at main.exe.
 ResolveLaunchExecutable(gameDir) {
     global PROCESS_EXE
     helper := gameDir "\osmw_chat_launch.exe"
@@ -1741,7 +1919,8 @@ BuildGameLaunchCommand(&workDir) {
     gameDir := ResolveGameDirectory()
     if (gameDir = "")
         return ""
-    EnsureInjectPayload(gameDir)
+    if !EnsureManagedPayload(gameDir)
+        return ""
     beforeFn := GetFuncByName("_AutoLogin_BeforeLaunch")
     if beforeFn
         beforeFn(gameDir)

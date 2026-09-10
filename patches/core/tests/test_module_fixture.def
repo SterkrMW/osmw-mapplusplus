@@ -1,0 +1,3 @@
+LIBRARY test_module_fixture
+EXPORTS
+    osmw_mod_query

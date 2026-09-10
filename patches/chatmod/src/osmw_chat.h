@@ -1,38 +1,31 @@
-/* osmw_chat -- chat window QoL mod for the MythWar (osMW) client.
- *
- * Injected into main.exe. Resolves its hook points by pattern scan at runtime
- * (patterns generated from signatures.ini into sigs.h) so a client update that
- * moves code disables the mod instead of corrupting the process.
- *
- * Phase 1 is scaffolding only: resolve, verify, log. No behaviour is changed.
- */
+/* osmw_chat -- managed chat window QoL module for the MythWar client. */
 #ifndef OSMW_CHAT_H
 #define OSMW_CHAT_H
 
 #include <windows.h>
+#include "osmw_core_api.h"
 #include "sigs.h"
+
+/* ---- managed core binding ---------------------------------------------- */
+
+const OSMW_CORE_API_V1 *mw_core_api(void);
+OSMW_OWNER mw_core_owner(void);
 
 /* ---- resolved target addresses ------------------------------------------ */
 
 /* Absolute addresses in the host process, indexed by the MW_* enum in sigs.h.
  * NULL means that signature did not resolve. */
 extern unsigned char *mw_addr[MW_ADDR_COUNT];
-extern unsigned char *mw_base;        /* main.exe image base */
-extern unsigned int   mw_timestamp;   /* PE TimeDateStamp, identifies the build */
 
 /* ---- log.c --------------------------------------------------------------- */
 
-void mw_log_open(const char *path);
-void mw_log_prune(const char *dir, int keep);
-void mw_log_close(void);
 void mw_log(const char *fmt, ...);
 
 /* ---- scan.c -------------------------------------------------------------- */
 
-/* Scan main.exe's .text for every signature. Returns the number of required
- * signatures that failed (0 = proceed). Optional misses leave mw_addr[] NULL
- * for that slot and do not count. */
-int  mw_resolve_all(void);
+/* Adapt the generated chat catalog to core's pristine-image resolver. */
+OSMW_RESULT mw_resolve_all(void);
+void mw_resolve_reset(void);
 
 /* ---- hook.c -------------------------------------------------------------- */
 
@@ -44,25 +37,37 @@ typedef struct {
     unsigned char  saved[MW_MAX_PROLOGUE];    /* original bytes, for removal */
     int            len;                       /* how many bytes we replaced */
     int            active;
+    OSMW_TOKEN     claim;
 } mw_hook_t;
+
+OSMW_RESULT mw_claim_region(void *address, DWORD length,
+                            OSMW_REGION_KIND kind, const char *label,
+                            OSMW_TOKEN *token);
+OSMW_RESULT mw_release_region(OSMW_TOKEN *token);
+DWORD mw_claim_count(void);
+OSMW_RESULT mw_claim_cleanup_result(void);
+int mw_write_bytes(void *dst, const void *src, DWORD len);
 
 /* Redirect `target` to `detour`, relocating `prologue_len` bytes into a
  * trampoline. `prologue_len` must be >= 5 and land on an instruction boundary
  * -- callers pass a value verified against the signature, so there is no
  * length disassembler here. Returns 1 on success. */
-int  mw_hook_install(mw_hook_t *h, void *target, void *detour, int prologue_len);
-void mw_hook_remove(mw_hook_t *h);
+int  mw_hook_install(mw_hook_t *h, void *target, void *detour,
+                     int prologue_len, const char *label);
+OSMW_RESULT mw_hook_remove(mw_hook_t *h);
 
 /* Rewrite an indirect `call [iat]` site (6 bytes) into a direct `call detour`
  * plus a nop. Used for the CreateFontA call sites, where the arguments are
  * already on the stack. Returns 1 on success. */
-int  mw_patch_call(mw_hook_t *h, void *site, void *detour);
+int  mw_patch_call(mw_hook_t *h, void *site, void *detour,
+                   const char *label);
 
 /* Repoint a direct `call rel32` (5 bytes) at `detour`, returning the address it
  * previously called in *original. The callee itself is left alone, so other
  * callers of it are unaffected -- necessary when the callee is shared, as the
  * CRT sprintf behind the line composer is. */
-int  mw_patch_direct_call(mw_hook_t *h, void *site, void *detour, void **original);
+int  mw_patch_direct_call(mw_hook_t *h, void *site, void *detour,
+                          void **original, const char *label);
 
 /* ---- font.c -------------------------------------------------------------- */
 
@@ -70,7 +75,7 @@ int  mw_patch_direct_call(mw_hook_t *h, void *site, void *detour, void **origina
  * during the client's startup init, so this must be installed before then --
  * i.e. the mod has to be injected at launch, not into a running client. */
 int  mw_font_install(void);
-void mw_font_remove(void);
+OSMW_RESULT mw_font_remove(void);
 
 /* Apply a font settings change without restarting the client. MUST be called
  * on the game thread; the settings poll in the window procedure is that. */
@@ -82,7 +87,7 @@ void mw_font_poll(void);
  * exposing a *_on_message handler, which this dispatches to; nothing else may
  * call SetWindowLongA(GWL_WNDPROC) on the chat window. */
 int     mw_window_install(HWND hwnd);
-void    mw_window_remove(void);
+OSMW_RESULT mw_window_remove(void);
 LRESULT mw_window_call_original(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 HWND    mw_window_hwnd(void);
 
@@ -98,7 +103,7 @@ void mw_window_poll_settings(void);
 /* Intercepts the reposition routine so the window stays where the player puts
  * it, and widens the size limits the client pins shut. */
 int  mw_geometry_install(HWND hwnd);
-void mw_geometry_remove(void);
+OSMW_RESULT mw_geometry_remove(void);
 int  mw_geometry_on_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT *result);
 
 /* ---- clear.c ------------------------------------------------------------- */
@@ -118,7 +123,7 @@ int  mw_parse_hotkey(const char *spec, UINT *mods, UINT *vk);
  * atlas builder, so it must be installed before any font re-apply triggers
  * one. */
 int  mw_chips_install(void);
-void mw_chips_remove(void);
+OSMW_RESULT mw_chips_remove(void);
 
 /* ---- mirror.c ------------------------------------------------------------ */
 
@@ -126,7 +131,7 @@ void mw_chips_remove(void);
  * private copy, so the window can be given a filtered view without disturbing
  * the several other subsystems that read the real one. */
 int            mw_mirror_install(void);
-void           mw_mirror_remove(void);
+OSMW_RESULT    mw_mirror_remove(void);
 unsigned char *mw_mirror_base(void);   /* NULL when not installed */
 
 /* Which slot of the CLIENT's ring one of our slots came from, or -1. The line
@@ -177,7 +182,7 @@ void mw_mention_decorate(unsigned char *rec);
  * actually remaining. Reads the client's own gate and per-channel cooldown
  * table; changes nothing about what is allowed, which the server enforces. */
 int  mw_cooldown_install(void);
-void mw_cooldown_remove(void);
+OSMW_RESULT mw_cooldown_remove(void);
 void mw_cooldown_refresh(void);
 
 /* ---- scroll.c ------------------------------------------------------------ */
@@ -203,7 +208,7 @@ int  mw_scroll_on_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT *re
  * Returns 0 if the site could not be hooked; the mod then falls back to
  * stamping the record's text, which lands after the name. */
 int  mw_time_install(void);
-void mw_time_remove(void);
+OSMW_RESULT mw_time_remove(void);
 
 /* Re-read the settings; on a change, rebuild the ring so the toggle applies to
  * the messages already on screen and not just to the next arrival. */
@@ -233,12 +238,15 @@ void mw_time_stats(int *stamped, int *no_time);
 /* ---- tabs.c -------------------------------------------------------------- */
 
 int  mw_tabs_install(HWND hwnd);
-void mw_tabs_remove(void);
+OSMW_RESULT mw_tabs_remove(void);
 int  mw_tabs_on_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT *result);
 void mw_tabs_sync_hotkey(HWND hwnd);
 void mw_tabs_cycle(const char *why);
 void mw_tabs_set(int index, const char *why);
 unsigned mw_tabs_mask(void);    /* channel bitmask for the active tab */
+int         mw_tabs_active_index(void);
+const char *mw_tabs_active_name(void);
+int         mw_tabs_point_is_strip(int y);
 
 /* Pixels the chat window's client rect is currently displaced by to make room
  * for the tab strip; 0 when the strip is off or not mid-render. Anything that
@@ -251,15 +259,46 @@ int mw_tabs_rect_shift(void);
  * the overlay never sees them, and skips leftovers in the chat-window mirror.
  * Ctrl+click a sender name adds; unblock is Settings-only. */
 int  mw_block_install(void);
-void mw_block_remove(void);
+OSMW_RESULT mw_block_remove(void);
 void mw_block_poll(void);
 int  mw_block_blocked(const unsigned char *rec);
 int  mw_block_add(const char *name);    /* 1 added, 0 no-op, -1 list full */
 
+/* ---- links.c ------------------------------------------------------------- */
+
+/* Chat item and pet links. ALT+click an inventory slot or populated pet row to
+ * put its compose token into the chat input; the server turns that into a link
+ * everyone can read. Hooks callbacks in the MAIN game window, so unlike every
+ * other feature here it does not go through the chat window's message handler. */
+int  mw_links_install(void);
+OSMW_RESULT mw_links_remove(void);
+void mw_links_poll(void);
+
+/* Click a chat line carrying a link to ask the server for the item or pet behind it.
+ * A line with no link is passed through, so click-to-PM is untouched. */
+int  mw_links_on_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT *result);
+
+/* True when y belongs to a currently composed chat line. Shared with the
+ * background gesture so its hit test cannot drift from links.c. */
+int mw_links_line_occupied(int y);
+
+/* Close an open link panel. The panel itself is drawn by the client's own
+ * tooltip renderer from a per-frame hook inside links.c. */
+void mw_links_dismiss(void);
+
+/* ---- backgrounds.c ------------------------------------------------------ */
+
+/* Per-tab wrappers around the client's stock five-background cycle routine. */
+int         mw_backgrounds_install(void);
+OSMW_RESULT mw_backgrounds_remove(void);
+void        mw_backgrounds_poll(void);
+void        mw_backgrounds_on_tab_changed(void);
+int         mw_backgrounds_on_message(HWND hwnd, UINT msg, WPARAM wp,
+                                      LPARAM lp, LRESULT *result);
+
 /* ---- config.c ------------------------------------------------------------ */
 
 /* Reads the game root's config.ini, section [Chat]. */
-void        mw_config_load(void);
 int         mw_cfg_int(const char *key, int fallback);
 int         mw_cfg_int_in(const char *section, const char *key, int fallback);
 void        mw_cfg_set_int(const char *key, int value);

@@ -1,4 +1,4 @@
-"""Inject or eject osmw_chat.dll for testing, without going through Maps++.
+"""Inject or eject osmw_core.dll for chat testing, without Maps++.
 
     python patches/chatmod/tools/inject_test.py            # inject into main.exe
     python patches/chatmod/tools/inject_test.py --eject
@@ -22,16 +22,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
 from paths import game_root  # noqa: E402
 
-# Everything here acts on the installed client: the deployed DLL is the one a
-# launcher would load, and the logs land beside main.exe.
+# Chat is a managed feature. This utility therefore loads/ejects the core and
+# leaves module ordering and safe-unload refusal to that owner.
 ROOT = game_root()
-DLL = ROOT / "osmw_chat.dll"
+DLL = ROOT / "osmw_core.dll"
 TARGET_EXE = "main.exe"
 
 
 def log_for(pid: int) -> Path:
     """The DLL writes one log per client so multiple clients do not collide."""
-    return ROOT / ("osmw_chat.%d.log" % pid)
+    return ROOT / ("osmw_core.%d.log" % pid)
 
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
@@ -226,7 +226,7 @@ def do_launch() -> int:
     if not exe.exists():
         raise SystemExit("%s not found" % exe)
     if not DLL.exists():
-        raise SystemExit("%s not built -- run build.py first" % DLL)
+        raise SystemExit("%s not built -- run patches/core/tools/build.py first" % DLL)
 
     k32.CreateProcessA.restype = wt.BOOL
     k32.ResumeThread.restype = wt.DWORD
@@ -405,7 +405,7 @@ def do_status(pid: int) -> int:
 
 def do_inject(pid: int) -> int:
     if not DLL.exists():
-        raise SystemExit("%s not built -- run patches/chatmod/tools/build.py first" % DLL)
+        raise SystemExit("%s not built -- run patches/core/tools/build.py first" % DLL)
     if loaded_module(pid):
         print("  already loaded; eject first")
         return 1
@@ -451,20 +451,25 @@ def do_eject(pid: int) -> int:
         return 0
     proc = open_target(pid)
     try:
-        # Ask the DLL to quiesce first. FreeLibrary unmaps the code
-        # immediately, so any thread still running inside it faults -- which
-        # kills the client, not just the mod.
+        # Core owns the entire dependency chain. A nonzero prepare result is a
+        # hard refusal: never follow it with FreeLibrary.
         try:
             prepare = remote_export(proc, m[1], b"osmw_prepare_unload")
-            call_remote(proc, prepare, 0, "osmw_prepare_unload")
+            code = call_remote(proc, prepare, 0, "osmw_prepare_unload")
+            if code != 0:
+                print("  EJECT REFUSED: core returned %d; dependency chain remains mapped" % code)
+                return 1
             print("  quiesced")
         except OSError as exc:
-            print("  WARNING: no osmw_prepare_unload export (%s)" % exc)
-            print("  ejecting anyway -- this can fault an older build")
+            print("  EJECT REFUSED: osmw_prepare_unload unavailable (%s)" % exc)
+            return 1
 
         k32_base = next((b for n, b, _ in modules(pid) if n.lower() == "kernel32.dll"), 0)
         free_library = remote_export(proc, k32_base, b"FreeLibrary")
-        call_remote(proc, free_library, m[1], "FreeLibrary")
+        free_result = call_remote(proc, free_library, m[1], "FreeLibrary")
+        if free_result == 0:
+            print("  EJECT FAILED: FreeLibrary returned zero; core remains quiesced")
+            return 1
     finally:
         k32.CloseHandle(proc)
 

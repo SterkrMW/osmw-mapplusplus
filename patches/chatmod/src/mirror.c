@@ -54,6 +54,7 @@
 typedef struct {
     unsigned char *at;      /* address of the disp32 field itself */
     DWORD          original;
+    OSMW_TOKEN     claim;
 } ref_t;
 
 static unsigned char *g_block;
@@ -69,13 +70,7 @@ unsigned char *mw_mirror_base(void)
 
 static int write_dword(unsigned char *at, DWORD value)
 {
-    DWORD old, dummy;
-    if (!VirtualProtect(at, 4, PAGE_EXECUTE_READWRITE, &old))
-        return 0;
-    *(DWORD *)at = value;
-    VirtualProtect(at, 4, old, &dummy);
-    FlushInstructionCache(GetCurrentProcess(), at, 4);
-    return 1;
+    return mw_write_bytes(at, &value, sizeof(value));
 }
 
 /* Find every dword in the chat window's code that points into the real ring or
@@ -419,6 +414,7 @@ void mw_mirror_sync(unsigned mask)
 int mw_mirror_install(void)
 {
     unsigned char *real = mw_addr[MW_MSGARRAY];
+    char label[64];
     int i, n;
 
     if (g_installed)
@@ -458,6 +454,25 @@ int mw_mirror_install(void)
     g_our_tail = counter(real, CNT_TAIL);
     g_seen_head = g_our_head;
 
+    for (i = 0; i < n; ++i) {
+        OSMW_RESULT result;
+        _snprintf(label, sizeof(label), "chat mirror address operand %d", i + 1);
+        label[sizeof(label) - 1] = '\0';
+        result = mw_claim_region(g_refs[i].at, sizeof(DWORD),
+                                 OSMW_REGION_CODE, label,
+                                 &g_refs[i].claim);
+        if (result != OSMW_OK) {
+            mw_log("mirror: claim %d failed at %p (%ld)",
+                   i, g_refs[i].at, (long)result);
+            while (i-- > 0)
+                (void)mw_release_region(&g_refs[i].claim);
+            VirtualFree(g_block, 0, MEM_RELEASE);
+            g_block = NULL;
+            g_base = NULL;
+            return 0;
+        }
+    }
+
     for (i = 0; i < n; i++) {
         DWORD moved = (DWORD)(UINT_PTR)(g_base + (g_refs[i].original -
                                                   (DWORD)(UINT_PTR)real));
@@ -465,6 +480,8 @@ int mw_mirror_install(void)
             mw_log("mirror: failed to patch reference %d at %p", i, g_refs[i].at);
             while (i-- > 0)
                 write_dword(g_refs[i].at, g_refs[i].original);
+            for (i = n - 1; i >= 0; --i)
+                (void)mw_release_region(&g_refs[i].claim);
             VirtualFree(g_block, 0, MEM_RELEASE);
             g_block = NULL;
             g_base = NULL;
@@ -478,14 +495,30 @@ int mw_mirror_install(void)
     return 1;
 }
 
-void mw_mirror_remove(void)
+OSMW_RESULT mw_mirror_remove(void)
 {
     int i;
+    int restored = 1;
+    int released = 1;
 
     if (!g_installed)
-        return;
-    for (i = 0; i < g_ref_count; i++)
-        write_dword(g_refs[i].at, g_refs[i].original);
+        return OSMW_OK;
+    for (i = 0; i < g_ref_count; i++) {
+        if (!write_dword(g_refs[i].at, g_refs[i].original))
+            restored = 0;
+    }
+    if (!restored) {
+        mw_log("mirror: one or more operands could not be restored");
+        return OSMW_E_INTERNAL;
+    }
+    for (i = g_ref_count - 1; i >= 0; --i) {
+        if (mw_release_region(&g_refs[i].claim) != OSMW_OK)
+            released = 0;
+    }
+    if (!released) {
+        mw_log("mirror: one or more restored claims could not be released");
+        return mw_claim_cleanup_result();
+    }
     if (g_block) {
         VirtualFree(g_block, 0, MEM_RELEASE);
         g_block = NULL;
@@ -494,4 +527,5 @@ void mw_mirror_remove(void)
     g_ref_count = 0;
     g_installed = 0;
     mw_log("mirror: references restored");
+    return OSMW_OK;
 }

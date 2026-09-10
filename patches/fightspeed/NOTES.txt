@@ -1,0 +1,1576 @@
+osmw_fightspeed - battle animation speed
+========================================
+
+Goal: a player-selectable battle animation speed (1x / 2x / 3x / instant),
+replacing the unofficial "delete the skill .mda files" trick. main.exe is never
+modified on disk; everything is a runtime patch, reverted on unload.
+
+Status: MANAGED ABI 1 LIFECYCLE/CLAIMS HOST-VERIFIED (2026-09-05). The legacy
+build was WORKING IN GAME (2026-09-03): Normal / Fast / Off, the F11 hotkey,
+chat notice, mode persistence and clean restore on exit were verified.
+Off requires tools/client-patch/mda_error_silence.py applied to main.exe to
+suppress the loader's error boxes.
+
+The sections below are kept in the order they were learned. Several describe
+approaches that FAILED - they are retained deliberately, because most of them
+looked obviously correct at the time. First in-game run found two
+bugs in the feedback path, both fixed - see "Two bugs found on the first
+in-game run". The SPEED ITSELF is still unmeasured: no one has yet timed a
+fight animation or checked the map for leakage. Treat every timing claim as
+predicted, not measured.
+
+Legacy production delivery: 32-bit DLL, loaded by the client itself through
+the mod_autoload cave patch in mw-tools. No launcher, no injector.
+
+Managed delivery is through osmw_core.dll and is not deployed until the atomic
+core-only autoload cutover. Core owns config/log/signature services and range
+arbitration. The module keeps caller-bound derivation, other-thread freeze,
+EIP exclusion, aligned IAT writes and the claimed one-byte live VFX update.
+The real-DLL host fixture verifies exact VFX/FrameSync/FrameWait/IAT claims,
+conflict rollback, restore-before-release, passive lifecycle and clean unload.
+
+Reference build: TimeDateStamp 0x45650696, ImageBase 0x00400000, no ASLR.
+SHA-256 285C3BE50304E3B70A817E5089477F3E18774C16357C8BB394CA6B308F8E034E
+
+Spec: mw-tools/tools/client-dll/fight-speed.md
+RE:   mw-tools/docs/client-packet-re.md, "Worked example: the fight animation
+      clock" and "Worked example: the keyboard input model"
+
+
+How battle animations actually work (build 0x45650696)
+------------------------------------------------------
+
+This is the whole basis of the mod, and it is not what you would guess.
+
+Fight animations are NOT a state machine ticked from a game loop. Each anim
+function - melee 0x40F5E0, combo 0x40FF20, escape 0x411830, pet replace
+0x411A00, and the rest of the 0x40F040-0x414200 module - is BLOCKING. It plays
+its whole animation before returning, by running its own render loop:
+
+    0040F777  xor ebp, ebp                 ; phase step counter
+    0040F780  call 0x494EE0                ; FrameBegin
+    0040F787  call 0x45B8A0                ; FrameSync   <-- the pacer
+    0040F78D  idiv dword ptr [0x5E1538]    ; render divisor
+    0040F795  je ...                       ; bl = "draw this iteration"
+       ... position from [esp+ebp*8+0x50], draw, blit, flip ...
+    0040F80C  call 0x494F10 (0)            ; FrameWait(0) - a no-op here
+    0040F814  inc ebp
+    0040F815  cmp ebp, 5                   ; hardcoded trip count
+    0040F818  jl  0x40F780
+
+Motion is ITERATION driven, not wall-clock driven: the step counter indexes a
+table of positions, so five iterations is the whole lunge whatever the clock
+says. Animation duration is therefore
+
+    trip count  x  whatever one FrameSync costs
+
+FrameSync (0x45B8A0) is the global frame pacer and input pump:
+
+    0045B8A3  Sleep(0)                        (0x49D230)
+    0045B8AE  timeGetTime via IAT 0x4CF4C0
+    0045B8BA  cmp edx, 0x1E                   the 30 ms floor, imm8 at +2
+    0045B8C1  add ecx, 0x1E                   the same floor again, imm8 at +2
+    0045B8C5  Sleep(30 - elapsed) via IAT 0x4CF110
+    0045B8DD  [0x702980] = timeGetTime()      the global ms clock
+    0045BAE0  [0x5E1530] += 1                 monotonic frame counter
+    0045BB18  returns [0x5E1530]
+
+So a stock melee swing phase is 5 x 30 ms = 150 ms, and every other fight
+animation is the same arithmetic with a different trip count.
+
+
+Three facts that decided the design
+-----------------------------------
+
+1. THE RETURN VALUE IS A FRAME COUNTER, NOT A TIMESTAMP. [0x5E1530] increments
+   by exactly 1 per call (ebx is set to 1 at 0x45B8E3 and never reassigned),
+   and [0x5E1538], the render divisor it is taken modulo, is 1 in stock .data.
+   Shortening the sleep therefore speeds the animation up WITHOUT skipping any
+   draws - the render gate is iteration-based. This is why the mod scales the
+   sleep rather than cutting trip counts.
+
+2. FRAMESYNC IS GLOBAL. 54 call sites, of which 32 are the fight anim module
+   (0x40F000-0x415000, 17 functions) and the rest are the map loop, loading
+   screens and modal UI. Changing the 30 ms floor unconditionally speeds up the
+   whole client, so the change is gated on [0x673B0D] - one byte, written to 1
+   at the top of each anim function and read as the very first instruction of
+   the fight scene renderer 0x40F040. fs_speed_install REFUSES to patch at all
+   if that gate does not resolve; a global frame limiter with no fight gate is
+   not a thing to ship.
+
+3. SKILL EFFECTS RUN ON A SEPARATE WALL CLOCK. The fight VFX cluster (handles
+   0x6A6E30-0x6A6E50, frame advance 0x40E990) is ticked from 0x40EF63 against
+   [0x702980] with its own due-time at [0x6A6E54] and a 40 ms step, imm8 at
+   0x40EF76. That is wall-clock, so speeding up the loop alone advances the
+   overlay fewer times per animation and the effect plays TRUNCATED rather than
+   faster. Knob 2 scales that step by the same factor. It is not decoration.
+
+
+Hook points
+-----------
+
+  Fightspeed_FrameSyncFloor  0x0045B8BA  17 bytes replaced, no opOffset
+        cmp / jae / sub / add / push / call Sleep - both 30 ms immediates are
+        inside it, which is the point. Replaced with `jmp rel32` to
+        fs_framesync_stub plus 12 nops. Resume is site+17 = 0x45B8CB, which is
+        exactly where the stock `jae` branched to, so both the taken and
+        not-taken paths of the original converge on our resume point.
+
+  Fightspeed_VfxStep         0x0040EF63  imm8 at +19 (0x40EF76), poked in place
+  Fightspeed_AnimFlag        -> [0x00673B0D]  via opOffset 1 on 0x40F040
+  Fightspeed_KeyArrayA       -> [0x007E6BA0]  via opOffset 8  on 0x495020   optional
+  Fightspeed_KeyArrayB       -> [0x007E6C00]  via opOffset 25 on 0x495020   optional
+  Fightspeed_ChatLine        0x004620C0                                     optional
+  Fightspeed_ScreenPrint     0x0045ED90   RESOLVED BUT UNUSED, see below   optional
+
+AnimFlag, KeyArrayA/B and ScreenPrint exist to recover DATA addresses out of
+the instructions that reference them, so the mod hardcodes no .data VA either.
+KeyArrayA and KeyArrayB share one pattern with different opOffsets - the
+memset pair in 0x495020 carries both array bases and the 0x59 length in one
+contiguous run, which is the cheapest single anchor for all three numbers.
+
+Optional means a miss degrades a feature instead of standing the mod down: the
+hotkey needs the plain-scancode array, the notice needs ChatLine, and losing
+either is worth a log line rather than losing the speed control too.
+
+ScreenPrint is kept resolved but is no longer called - see "Two bugs found on
+the first in-game run" below. KeyArrayB is likewise resolved and unused; both
+are left in place because they cost one scan each and they document what was
+ruled out.
+
+
+Register contract at the patch site
+-----------------------------------
+
+On entry to fs_framesync_stub, straight from the instructions above the patch:
+
+    eax = now, ecx = the previous timestamp, edx = now - previous
+
+edx is the only one the stub needs. eax, ecx and edx are all DEAD past the
+resume point - the stock code reloads every one of them (0x45B8CB call edi
+sets eax, 0x45B8CD loads esi, 0x45B8D3 sets ecx) - so the stub may clobber
+them freely.
+
+edi is NOT dead. It holds the timeGetTime function pointer loaded at 0x45B8A8,
+and the very instruction we resume to is `call edi`. pushad/popad around the C
+call is what protects it. Getting this wrong would corrupt the frame clock in a
+way that would look like random stutter, not like a crash.
+
+Sleep is stdcall and pops its own argument, so the stack is balanced on both
+paths through the stub.
+
+
+Keyboard input model
+--------------------
+
+Key state lives in two parallel 89-byte scancode-indexed arrays, 0x7E6BA0 and
+0x7E6C00, covering scancodes 0x00-0x58 - a range that ends exactly at F12, so
+every F-key is in it (F1 0x3B .. F10 0x44, F11 0x57, F12 0x58). Written only by
+the scancode driver 0x494F30, which runs the 0xE0/0xE1 prefix state machine
+through [0x7E7082]. Exactly 7 .text references each, all inside the driver.
+
+READ THE ARRAY, NEVER GetAsyncKeyState. Players run up to five clients at once
+(MultiClientCount=5). GetAsyncKeyState is global and would flip the speed in
+all five on one keypress. The arrays are only fed while that window has input
+focus, so reading them is focus-correct for free with no GetForegroundWindow
+check.
+
+The arrays are LEVEL state, not an event queue, so key_down() is edge-detected
+in software. Which of the two is "held" and which is "pressed this frame" has
+NOT been established; both are ORed, mirroring the client's own any-key scan at
+0x49558C, and the edge detection makes the difference moot.
+
+Trap worth recording: [0x7029BC] looks like the keyboard code and is not. It
+feeds two jump-table dispatchers (0x43AA80/0x43AA70 in 0x43A7A0, and
+0x452A1C/0x452A0C at 0x452850) but every non-default entry in both tables is a
+synthetic MOUSE code - 0xF2/0xF3 come from the button bits in [0x7E6F74], and
+0xF1/0xF4/0xF5/0xF8 are the other pointer events. Do not mistake either table
+for a keybinding table. Real keyboard messages reach the game through the
+WndProc at 0x49843E, which fans out to per-message handlers that have not been
+traced.
+
+WHICH F-KEYS ARE FREE IS NOT PROVEN. Maps++ binds no bare F-key (every entry in
+its [Hotkeys] is a modifier combo, Tab or RButton), and no F-key offset into
+either array is referenced anywhere in .text, so the client's game code binds
+none through that path. That is strong evidence, not proof, because the WndProc
+fan-out was not traced. Press F1-F12 on a stock client and write down what each
+does before trusting the F11 default. Avoid F12 regardless - debuggers and
+overlays commonly take it.
+
+
+What has actually been verified (2026-09-03)
+--------------------------------------------
+
+Statically, against the pristine E:\MythWar_en\main.exe:
+
+  - All six signatures resolve to exactly one match each
+    (patches/common/make_signature.py proved uniqueness before they went into
+    signatures.ini; scan_offsets.py then resolved all six).
+  - Every site this mod touches is byte-identical between the pristine client
+    and the mw-tools patched client, so the RE holds for both.
+  - The 17-byte replacement decodes as one `jmp rel32` plus 12 nops, with no
+    partial instruction left behind, and the jump arithmetic resolves to the
+    intended target.
+  - The resume point site+17 lands exactly on `call edi` at 0x45B8CB.
+  - VfxStep+19 is the 0x28 imm8 of `add eax, 0x28`.
+  - The emitted stub is what was intended:
+        pushad / pushfd / call fs_frame_tick / popfd / popal
+        mov eax,[g_floor] / cmp edx,eax / jae resume
+        sub eax,edx / push eax / call [g_sleep]
+      resume:
+        jmp dword ptr [g_resume]
+  - Warning-free /W4 build.
+
+NOT verified, and all of it needs a real client:
+
+  - That the speed change is visible and correctly proportioned in a fight.
+  - That effects finish with the animation instead of truncating (knob 2
+    tracking knob 1) - this is the most likely thing to be wrong.
+  - That map, loading screens and modal UI are unaffected at Speed=1000. This
+    is the regression the AnimFlag gate exists to prevent; check it at the cap,
+    where any leak is obvious.
+  - Whether the F11 default collides with a stock client binding.
+  - Whether calling ScreenPrint (0x45ED90) from inside FrameSync is safe. It is
+    called once per keypress, never per frame, but FrameSync is a different
+    call context from the sites the client itself prints from. If the toast
+    misbehaves, set ToastMs=0 and the rest of the mod is unaffected.
+  - Whether the 3 ms floor at Speed=1000 is genuinely comfortable, or whether
+    the client wants more headroom.
+
+
+Two bugs found on the first in-game run (2026-09-03)
+----------------------------------------------------
+
+Symptom: pressing F11 once produced SEVERAL messages, and each was a modal red
+error box with a dashed border rather than the stock cyan notice text.
+
+BUG 1 - wrong printer. 0x45ED90 is not a styled text call, it is the modal
+error-box printer. Its second argument looked like a style selector; it is not.
+87 of its 89 call sites pass the same value (1), including every loader error,
+so there is no quiet mode to ask it for. The right function is 0x4620C0,
+
+    AddChatLine(int channel, int value, const char *name, const char *text)
+
+which appends to the 0x400-entry ring at [0x70BFC0] in 0xC0-byte records:
+channel at record+0x70BFD0, value at +0x70BFD0, name at +0x70BFD8 (or a 0 byte
+when NULL), text at +0x70BFED. Channel 7 with a NULL name is the client's own
+non-blocking notice line - the exact call shape the canned block at 0x406D73
+uses, and what the server-side muted notice depends on. Now used.
+
+BUG 2 - wrong key array, and the model behind it was wrong. The first build
+ORed 0x7E6BA0 and 0x7E6C00 on the guess that one was "held" and the other
+"pressed this frame". Disassembling the driver at 0x494F30 in full shows it is
+a PREFIX STATE MACHINE keyed on [0x7E7082]:
+
+    prefix 0xE0 (extended)  -> 0x7E6C00[sc & 0x7f] = 0   (break, 0x494F54)
+                               0x7E6C00[sc]        = 1   (make,  0x494F61)
+    prefix 0xE1 (pause)     -> 0x7E6C00, same shape       (0x494F96 / 0x494FB3)
+    no prefix (plain)       -> 0x7E6BA0[sc & 0x7f] = 0   (break, 0x494FF7)
+                               0x7E6BA0[sc]        = 1   (make,  0x495004)
+
+So the two arrays are NON-EXTENDED vs EXTENDED scancodes, not held vs pressed,
+and both halves are proper make/break. F1-F12 are plain, so they only ever
+appear in 0x7E6BA0. ORing the extended array in could only ever contribute a
+false positive from an unrelated extended key sharing the index. Now reads
+0x7E6BA0 only.
+
+Note while you are in there: an extended MAKE indexes with the full byte
+(0x494F61, eax up to 0xFF), so it can write past the 0x59-byte array as far as
+0x7E6CFF. 0x7E6C69 is inside that range and is the "current key code" byte
+0x495DB0 reads. Not this mod's problem, but it is a live overrun.
+
+WHAT IS NOT PROVEN: which of those two defects caused the repeat. Bug 1 alone
+would explain the appearance, not the count. Bug 2 could produce a false
+positive but not obviously an oscillation, since both arrays are make/break and
+auto-repeat just rewrites 1 over 1. A per-frame clear would explain it, but
+0x495020 (the memset pair) is called only from the 0x4947C4-0x494ED7 cluster,
+which does not look per-frame, and 0x495098 has no callers at all.
+
+So a 350 ms cooldown was added as a second guard (FS_CYCLE_COOLDOWN_MS). That
+is defensible on its own terms - a cycle key should not step faster than that
+whatever the input layer does - but it is a guard, not a diagnosis. The
+counters g_cycle_fires and g_cycle_suppressed are logged on every cycle so the
+next run says plainly whether something underneath is still producing repeat
+edges: a nonzero "suppressed" count with a single physical press means the root
+cause is still there and is being masked.
+
+
+Second in-game run: the design was inverted (2026-09-03)
+--------------------------------------------------------
+
+Symptom: skill animations barely changed, but EVERYTHING else - world map
+walking included - was hugely sped up. Both halves were the same root error.
+
+WRONG GATE. [0x673B0D] is not "a fight animation is playing". It has 18
+writers: 15 set it to 1 (0x40F43E, 0x40F769, 0x40FEE5, ... 0x413E12) and only
+THREE clear it (0x40F235, 0x4121EB, 0x4139B2), against a single reader at
+0x40F040. It is a latch the fight scene renderer consumes, so after the
+player's first fight animation it stays 1 for the rest of the session and the
+gate is permanently open. That is the world-map regression, exactly.
+
+[0x673B38] was checked as a replacement and is also unusable: FightStart
+(0x457192) writes 0 and FightEnd (0x457679) writes 1, and the .data initial
+value is 0 - so "not in a fight yet" and "in a fight" both read 0.
+
+WRONG PACER. FrameSync's floor is not what times a skill. Comparing the loops:
+
+    melee 0x40F80A:  push 0    ; call 0x494F10   -> FrameWait(0), no wait
+    skill 0x410FFE:  push ebx  ; call 0x494F10   -> FrameWait(<duration>)
+
+0x494F10 is FrameWait(ms): it spins until frame-begin + ms, a per-frame WALL
+CLOCK duration entirely independent of FrameSync's sleep floor. Each iteration
+of a loop that calls both costs about max(floor, ms), so with a duration above
+30 ms the floor change is invisible - which is precisely "barely any
+noticeable difference". Melee, calling FrameWait(0), is paced by the floor
+alone and did speed up.
+
+FrameWait is also a far better-scoped lever than FrameSync: 27 of its 28 call
+sites are inside the fight animation module (the one outsider is 0x437886),
+against 54 sites for FrameSync of which fewer than half are fight code.
+
+THE FIX, both halves:
+
+  * Gate on WHO CALLED, not on a global. At the FrameSync patch site, [esp+12]
+    is the caller's return address (ebx, esi and edi were pushed at 0x45B8A0,
+    so three dwords sit above esp). The stub captures it before pushad moves
+    esp. The FrameWait detour uses _ReturnAddress().
+  * Scale FrameWait's ms argument as well as the FrameSync floor, so skill
+    animations actually move.
+
+MODULE BOUNDS. Derived at install, not hardcoded: scan .text for
+`C6 05 <animflag> imm8` and take the lowest and highest. [0x673B0D] is useless
+as a live gate but the set of instructions that WRITE it describes exactly
+where the fight animation code lives. On the reference build that is
+[0x40F235, 0x413E12], which contains 27 of 28 FrameWait sites and 28 of 54
+FrameSync sites, and excludes every map, loading-screen and modal-UI caller -
+the property that actually matters. Derived from a signature-resolved address,
+so still no hardcoded VA, and it moves if the code moves.
+
+Install now REFUSES if the bounds cannot be derived, rather than patching a
+global frame limiter with no gate.
+
+
+Settings ([Fight] in the game folder's config.ini, then defaults.ini)
+---------------------------------------------------------------------
+
+  Mode             0 Normal, 1 Fast, 2 Off. Default 0, so a fresh install
+                   behaves exactly as stock and the player opts in.
+  CycleKey         F1..F12, or empty to disable. NAMED keys only, resolved to a
+                   scancode by the mod; a raw VK number would be wrong, because
+                   the client's key state is scancode-indexed. Default F11.
+  SuppressOverlay  1 = Off mode also stops the effect overlay being drawn.
+                   0 = Off is just a faster Fast. Escape hatch in case any of
+                   the six gated blit sites turns out to draw damage numbers.
+  PersistMode      1 = write Mode back to config.ini after a change. Debounced
+                   by 3 s so cycling through the modes writes once.
+
+  [Addons] FightSpeed  the on/off gate, alongside the other Maps++ addons.
+  [Debug]  ModLogging  shared with the other mods; off also prunes to nothing.
+
+Fast and Off both scale the wall-clock waits by FS_FAST_PERCENT (300):
+floor = 30 * 100 / 300 = 10 ms, vfx step = 40 * 100 / 300 = 13 ms, and
+FrameWait's ms argument is divided by the same factor.
+
+
+Why modes and not a speed dial (2026-09-03)
+-------------------------------------------
+
+The first build offered 1x / 2x / 3x / instant. In game, 2x, 3x and instant
+were INDISTINGUISHABLE FROM EACH OTHER while all three were clearly faster than
+stock. That is what you would expect: once the wall-clock waits are scaled
+away, what is left is the cost of actually drawing five frames, and no further
+division touches it. A dial whose positions nobody can tell apart is a worse
+control than a switch.
+
+So the three positions became modes:
+
+  NORMAL  stock timing
+  FAST    waits scaled away, as quick as the animation can be drawn
+  OFF     FAST plus the effect overlay is not drawn at all
+
+OFF exists because it is the behaviour players already have by deleting effect
+.mda files - it is the thing being replaced, so it should be a first-class
+mode rather than something to discover.
+
+How OFF is implemented, and what was rejected:
+
+  * REJECTED - faking a failed MDA load. LoadMDA (0x46B550) has 70 call sites
+    and ZERO inside the fight animation module.
+  * REJECTED - forcing the VFX handle cluster to -1. 0x6A6E30-0x6A6E50 are
+    written from one place, the bulk reset at 0x45C099.
+  * TRIED AND WRONG - suppressing 0x44ADD0 (six gated sites), then 0x4684F0,
+    the fight blitter (nine gated sites). Both left OFF indistinguishable from
+    FAST. Both were GUESSES at which call paints the effect. Do not spend a
+    third round guessing at a draw call.
+  * BROKE THE CLIENT - detouring 0x4661E0 itself. See below. This is the
+    important one.
+  * CHOSEN - redirect the three CALL SITES of 0x4661E0 that live inside the
+    fight module (0x4100CA, 0x410F41, 0x412BEF) to a detour that returns -2.
+
+    At the skill site:
+        0x410F36  call 0x40CAC0   load "ani\skl%03d.mda" (0x50F854)
+        0x410F41  call 0x4661E0   resolve handle -> slot index   <-- ours
+        0x410F4F  jl   0x4114E1   index < 0 -> jump past the WHOLE loop
+
+    0x4661E0 walks the 0x144-stride MDA record array at [0x743B1C] and returns
+    the matching index or -2. Returning -2 makes the client skip the animation
+    by its own logic - the same path a missing file takes.
+
+
+NEVER HOOK A SHARED FUNCTION THAT RUNS DURING STARTUP
+-----------------------------------------------------
+
+The build that detoured 0x4661E0's prologue PREVENTED THE CLIENT FROM STARTING
+AT ALL. The cause is not subtle in hindsight: 0x4661E0 has 93 call sites and
+30 of them are below the fight module - 0x4018B8, 0x401C17, 0x401C65 and
+friends are on the startup and login path, hammered while every startup asset
+is loaded. This DLL is loaded at the CRT entry point and installs its hooks
+from a worker thread, so that worker was rewriting the first seven bytes of a
+function the main thread was executing at that instant.
+
+The fix is to patch CALL SITES, not the function: five bytes of displacement
+at three addresses that never execute before a fight, leaving the callee and
+its other 90 callers untouched. As a bonus the caller-range gate stops being a
+runtime check for this feature and becomes structural - only the redirected
+sites can reach the detour.
+
+OFF: FOUR ATTEMPTS, AND WHY THE FOURTH IS THE RIGHT SHAPE
+----------------------------------------------------------
+
+  1. suppress 0x44ADD0        six gated sites   -> no visible change
+  2. suppress 0x4684F0        nine gated sites  -> no visible change
+  3. force 0x4661E0 to fail   three gated sites -> no visible change
+  4. fail the FILE OPEN                          <- current
+
+The first three all tried to intervene INSIDE the animation code, and none of
+them could have worked, because the anim functions do not share a skip
+mechanism:
+
+  type 3, 0x410E80:  0x410F41  call 0x4661E0   resolve handle -> index
+                     0x410F4F  jl   0x4114E1   index < 0 -> skip the loop
+
+  type 2, 0x410A40:  0x410B12  mov ebx,[edi+edx*4+0x13c]   per-unit frames
+                     0x410B1C  test ebx, ebx
+                     0x410B35  jle  0x410BEA               <= 0 -> skip
+
+Seven effect-load sites (0x40F48D, 0x410AD3, 0x410F36, 0x411CF5, 0x412068,
+0x412B4B, 0x4137FB) against three handle checks (0x4100CA, 0x410F41,
+0x412BEF): at most three of ten anim functions were ever reachable that way.
+
+THE ERROR IN REASONING WORTH REMEMBERING. From that, the conclusion drawn was
+"Off cannot work from one choke point" - and it was wrong. Deleting
+ani/skl*.mda demonstrably skips EVERY skill; players rely on it and the
+third-party patch for the official release automates it by scrambling the path
+strings. A universal point therefore had to exist. It was simply further
+upstream than any of the three guesses: every one of those guards is
+DOWNSTREAM OF THE SAME LOAD. No file, no frames, no handle, no animation -
+whatever the individual function goes on to check.
+
+Looking at the guards instead of at what feeds them is what cost three test
+rounds. When a mechanism is known to work in the field, find where it acts
+before theorising about why an approach cannot.
+
+ATTEMPT 4: fail the open for skill effect MDAs and let each anim function
+reach its own skip branch by itself. Equivalent to deletion by construction
+rather than by argument, and needing no per-function knowledge at all.
+
+  * Hooked through the IMPORT TABLE: MSVCR71!fopen, MSVCR71!_open and
+    KERNEL32!CreateFileA - all three ways this client opens a file.
+  * An IAT hook is the safest patch in this mod: one aligned pointer write, no
+    instruction bytes touched. It cannot split an instruction and cannot race
+    a thread executing the patched code. This mod has already made both of
+    those mistakes once each.
+  * The filter is "...skl*.mda", case-insensitive, matched on the last path
+    component only, and live only while the mode is OFF. ani/Obj*.mda, the
+    fight background and every non-fight asset are untouched.
+  * The first few refusals are logged by name, so the log proves what it is
+    actually blocking rather than leaving another "looks the same".
+
+
+THE REFUSAL MUST BE GATED ON THE CALLER (eleventh run, 2026-09-03)
+------------------------------------------------------------------
+
+Matching on the filename alone was not enough. The client PRELOADS skill
+artwork during startup, so with Mode persisted as Off the very first launch
+refused "ani/skl001.mda" on the loading screen and printed
+
+    Unable to open ani/skl001.mda file!
+    Read system image error !          (a cascade from the first)
+
+Off is meant to skip a fight animation, not sabotage asset loading. The
+refusal is now confined to opens whose CALLER is inside the fight animation
+module, using _ReturnAddress() in each of the three file-open detours and the
+same [g_mod_lo, g_mod_hi] bounds everything else uses. A startup preload comes
+from elsewhere in the image and is allowed through.
+
+Note this also stops a double refusal: if the CRT's fopen reaches CreateFileA
+internally, that inner call's return address is inside MSVCR71 rather than the
+module, so only the outer game-level open is considered.
+
+SELF-DIAGNOSING: an allowed skill open is logged the first few times with its
+caller address. If Off ever "does nothing" again, a pile of
+
+    off: allowing 'ani/sklNNN.mda' (caller XXXXXXXX is outside the fight module)
+
+says immediately that the loader is a shared function and the caller test is
+looking at the wrong stack frame - rather than leaving another round of
+guessing about which draw call is responsible.
+
+RECOVERY, if a future build ever breaks startup again: [Fight] Mode=0 in the
+game folder's config.ini, or [Addons] FightSpeed=0. Mode is persisted, so a
+bad Off build otherwise comes back on every launch.
+
+OFF TARGETED THE WRONG FILE FAMILY (.mda instead of .ani)
+----------------------------------------------------------
+
+The single most costly mistake in this whole effort, and it was visible in the
+very first screenshot of the original patch's behaviour:
+
+    "Unable to launch zni/skl2381.ani file"
+
+That is not "skl2381" - it is skl238 + lowercase L + ".ani", in a font where l
+and 1 are near identical. The original scrambles "ani/skl%03dl.ani", one of
+the SKILL ANIMATION files. It never touches "ani/skl%03d.mda", the effect
+artwork, which is what this mod had been refusing.
+
+The addresses make it conclusive:
+
+    ani/skl%03dr.ani  (0x50F8E0)  loaded at 0x412092, 0x412B75, 0x413825
+    ani/skl%03dl.ani  (0x50F8F4)  loaded at 0x41208B, 0x412B6E, 0x41381E
+    ani/skl%03d.mda   (0x50F854)  loaded at 0x410B01, 0x410EFD, 0x411553,
+                                            0x411D1E
+
+THREE sites in THREE functions for the .ani pair - and the "Unable to open %s
+file!" prints in those same three functions are 0x4121A5, 0x412BAD, 0x41396C.
+That is precisely the "3 calls inside 3 different functions that actually need
+to be NOP'd out" from the MW2 note. Those three had been found early, NOP'd,
+judged ineffective (because the .mda refusal was doing the skipping), and
+removed. They were right all along; they were simply paired with the wrong
+file family.
+
+What the wrong target cost:
+  * error boxes the original never produces, from a different loader chain
+  * a crash on the next cast after toggling Off -> Normal, which prompted a
+    theory that the client "cannot tolerate effect files reappearing" and a
+    launch-time lock. The original toggles mid-session perfectly well; the
+    crash was a symptom of failing the wrong file, not of toggling.
+
+THE LESSON: the evidence was a screenshot of the original's own error message,
+which named the exact file family. Reading it carefully - down to telling l
+from 1 - would have been worth more than every hour of disassembly that
+followed it.
+
+
+THERE ARE THREE ON-SCREEN PRINTERS, NOT ONE
+--------------------------------------------
+
+This is the fact that kept messages alive through pass after pass. The client
+has at least THREE on-screen text printers, all identifiable by the same
+font-cell arithmetic off [0x660608]:
+
+    0x45ED90   89 call sites   the one everything else uses
+    0x464EA0                   the fight module's
+    0x45F0E0   26 call sites   found last, and the reason one box survived
+
+And a message string can be pushed from several sites reaching DIFFERENT
+printers. "File %s open error" has three push sites:
+
+    0x44B566 -> 0x45ED90 at 0x44B57C     patched first
+    0x46C839 -> 0x45F0E0 at 0x46C84F     missed
+    0x46C879 -> 0x45F0E0 at 0x46C88F     missed
+
+Enumerating call sites of 0x45ED90 alone - which is what the first sweep did -
+therefore cannot find every visible message. Any future work here must sweep
+all three printers, and must treat "same string" as "possibly several sites".
+
+WHY OUR MESSAGES DIFFERED FROM THE ORIGINAL MOD'S, which is a fair question:
+the 15-year-old patch scrambles the path string so the client looks for
+"zni/skl2381.ANI" - note the .ANI extension. That takes a DIFFERENT loader
+path, one that reports through a non-blocking notice rather than the file-open
+error box. Failing the open of the .MDA, as this mod does, lands on the
+file-open error path instead, which is why ours produced two hard error boxes
+where theirs produced one soft popup. Same end result, different failure point,
+different reporting.
+
+ALL MESSAGE SUPPRESSION NOW LIVES IN ONE PLACE: mda_error_silence.py, 16 sites,
+static, on disk. The DLL patches no message call at all. That is both safer -
+several of these sites are startup-hot - and easier to reason about, since
+there is exactly one list to check against a new symptom.
+
+THE MESSAGES: I NOP'D THE WRONG THREE CALLS
+--------------------------------------------
+
+The field note said the MW2 client has "3 calls inside 3 different functions
+that actually need to be NOP'd out". Three in-module calls to 0x464EA0 were
+found (0x4121A5, 0x412BAD, 0x41396C), assumed to be those three, and NOP'd.
+The errors kept appearing.
+
+They were the wrong three. Cross-referencing the "Unable to open %s file!"
+push sites against the fopen callers the log actually reported:
+
+    0045eb57   <== same function as log caller 0045eb4d
+    0045fc1f   <== same function as log caller 0045faf3
+    0046b599   <== same function as log caller 0046b573
+
+THREE CALLS IN THREE DIFFERENT FUNCTIONS - in the shared LOADER, not the fight
+module. That is what the MW2 note meant. Resolving each to its printer:
+
+    0045eb57 -> call 0x49CEB0   the gated LOG writer, nothing on screen
+    0045fc1f -> jmp into the 0x45FBFB tail, whose print is 0x45FC0C
+    0046b599 -> call 0x45ED90 at 0x46B5C4      <- visible
+    0044b566 -> call 0x45ED90 at 0x44B57C      <- visible
+
+So exactly two calls produce the two boxes in the screenshot: 0x44B57C and
+0x46B5C4. Both live in the shared loader, hot during startup and login, which
+is why they cannot be NOP'd from the DLL - doing that to 0x44B57C is what
+crashed the client at the login screen earlier.
+
+FIXED THE WAY THE ORIGINAL MOD DOES IT: as a STATIC patch to main.exe on disk.
+Both offsets added to mw-tools/tools/client-patch/mda_error_silence.py (now 11
+sites), where no thread can be mid-instruction when the bytes change. The
+DLL's own message NOPs are removed entirely - they were on the wrong path and
+were pure risk.
+
+THE PROCESS LESSON, which cost the most: the evidence handed over was "the
+original patch edits the exe statically, and three calls need NOP'ing". Both
+halves were correct and both were set aside - the static-patch half because a
+runtime toggle seemed nicer, the three-calls half because three matching calls
+turned up in the wrong place and were not cross-checked against the observed
+loader addresses. Check a hint against the evidence before deciding it is
+satisfied.
+
+OFF NEEDS THE WHOLE CALL CHAIN, NOT THE IMMEDIATE CALLER
+---------------------------------------------------------
+
+The diagnostic added for exactly this case paid for itself:
+
+    off: allowing 'ANI/skl237.MDA' (caller 0046B573 is outside the fight module)
+    off: allowing 'ANI/skl237.MDA' (caller 0045FAF3 is outside the fight module)
+    ... Off has skipped 0 animation(s) so far
+
+0x46B573 is inside LoadMDA (0x46B550). The fight code never opens the file
+itself - it goes through the shared asset loader - so fopen's immediate return
+address is ALWAYS the loader and never the module. The caller gate could not
+have worked, and this is the same class of error as the earlier "look at the
+guards instead of what feeds them": the right question was one frame further
+out than the one being asked.
+
+FIXED with module_on_stack(): scan this thread's own stack for any word that
+lands inside [g_mod_lo, g_mod_hi]. A proper frame-pointer walk is not safe on
+an optimised 2003 build where not every frame keeps ebp, so the scan is
+deliberately crude and bounded - the TEB's NtTib.StackBase at fs:[4] as the
+upper limit and 2048 words as the cap, so it can neither leave the mapping nor
+get expensive.
+
+A stale stack word that merely looks like a module return address can only
+cause one extra skill effect to be skipped. That is the benign direction, and
+it is why a heuristic is acceptable here and would not be for, say, deciding
+whether to write to memory.
+
+INCIDENTAL, WORTH FOLLOWING UP: the three FrameWait samples in that log were
+all `ms 0`, from 0x412163. If most in-module FrameWait calls pass zero then
+scaling its argument buys nothing and Fast's speed-up is coming entirely from
+the FrameSync floor - which would explain why 2x, 3x and instant were
+indistinguishable back when the mode design was chosen. Worth measuring before
+tuning FS_FAST_PERCENT.
+
+FRAMEWAIT IS NOT PROLOGUE-HOOKABLE (the actual login crash)
+------------------------------------------------------------
+
+The runtime heartbeats settled it in two lines:
+
+    wait: FrameWait detour entered (1), ms 5, caller 0043788B, orig 029D0000
+    ...1.8s later... unloading
+
+Entered once, from the login loop, then dead. The reason is in the function
+itself:
+
+    00494F10  55              push ebp              00494F11  8BEC            mov ebp, esp       |  the 9 bytes a prologue
+    00494F13  FF15 84F44C00   call [0x4CF484]   /   hook steals
+    00494F19  8B0D 986B7E00   mov ecx,[0x7E6B98]
+    00494F1F  034D08          add ecx,[ebp+8]
+    00494F22  3BC1            cmp eax, ecx
+    00494F24  7307            jae 0x494F2D
+    00494F26  E805830000      call 0x49D230       yield
+    00494F2B  EBE6            jmp 0x494F13      <-- BACK INTO THE PROLOGUE
+    00494F2D  5D              pop ebp
+    00494F2E  C3              ret
+
+The spin loop branches to 0x494F13, which is INSIDE the nine stolen bytes -
+the fourth byte of the replacement `E9 rel32`. So the first time a wait does
+not elapse immediately, the loop executes garbage. A trampoline cannot help:
+the function re-enters the patched region directly, not through the entry
+point. FrameWait(5) from the login loop at 0x437886 hits this on the first
+call that has to wait at all.
+
+THE LESSON, and it is the one that would have saved the most time here: before
+stealing a prologue, CHECK THE FUNCTION FOR BRANCHES BACK INTO IT. A signature
+that pins the prologue bytes proves the length is right; it says nothing about
+whether the code jumps into the middle of them. Disassemble to the ret and
+look for any branch target inside [entry, entry+len).
+
+FIXED by redirecting the CALL SITES instead - 27 of them inside the fight
+module - and leaving 0x494F10 completely intact. That also removes the need
+for a caller test in the detour (only module calls reach it) and leaves the
+login loop calling the real function.
+
+fs_hook_install is now unused by speed.c. Every remaining patch is either a
+5-byte call-site redirect, a 1-byte immediate, or the one 17-byte FrameSync
+block - and none of those targets branches into itself.
+
+ONE MORE THING THE FREEZE NEEDED: THREAD_GET_CONTEXT
+-----------------------------------------------------
+
+The first build with the EIP check refused to write a ONE BYTE patch, claiming
+a thread had stayed inside the region for 200 tries. A thread cannot sit on a
+single byte for eight seconds; the check itself was broken.
+
+    OpenThread(THREAD_SUSPEND_RESUME, ...)
+
+grants suspend and resume, and nothing else. GetThreadContext then fails with
+ACCESS_DENIED, anyone_inside cannot tell where the thread is, and its
+conservative answer - assume it is inside - turns every patch into a hundred
+futile retries and a refusal. Fixed by asking for
+THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT.
+
+TWO THINGS WORTH KEEPING FROM THIS:
+
+  * The conservative answer was RIGHT. It refused to write and left the client
+    untouched instead of corrupting it - "install failed -- client untouched"
+    beats a crash by a mile. Fail-safe defaults earn their keep precisely when
+    the surrounding logic is wrong.
+  * But it was SILENT about why, and that cost a whole test round. The failure
+    now reports GetLastError, logged after thawing - never inside the frozen
+    window, where fs_log's critical section could deadlock.
+
+Retry budget reduced from 200 to 100: at one millisecond a try that is still
+far longer than any real transit through a patch region, and it halves the
+stall if the check is ever wrong again.
+
+PATCHING LIVE CODE SAFELY (the real login-crash fix)
+-----------------------------------------------------
+
+Two things had to be true and neither was:
+
+  1. THE TRAMPOLINE MUST EXIST BEFORE THE DETOUR IS REACHABLE.
+     fs_hook_install wrote the patch first and published *trampoline second,
+     so the main thread could enter fs_framewait_detour with g_framewait_orig
+     still NULL. Fixed by publishing first.
+
+  2. A MULTI-BYTE PATCH IS NOT ATOMIC, AND FREEZING ALONE DOES NOT FIX IT.
+     FrameSync's patch is 17 bytes and the client calls FrameSync about thirty
+     times a second - at the login screen, constantly. Two distinct hazards:
+
+       a. another thread executing the region DURING the memcpy
+       b. another thread already parked INSIDE the region when it is frozen,
+          which then resumes into a half-written instruction stream
+
+     Suspending threads only addresses (a). fs_patch_write now also reads each
+     frozen thread's EIP with GetThreadContext and, if any sits inside
+     [at, at+len), thaws everyone, sleeps a millisecond and retries - up to
+     200 attempts before refusing to write at all.
+
+That is the whole reason this crash was so slippery. It is timing dependent,
+so identical patches survived several sessions and then died consistently once
+FrameWait moved to its real address (0x494F10) and started being called from
+the login loop at 0x437886. "It worked yesterday" was never evidence the patch
+was safe.
+
+Logging is deliberately kept OUTSIDE the frozen window: fs_log takes a
+critical section, and taking one while other threads are suspended is how
+deadlocks are written.
+
+THE LOGIN CRASH: A TRAMPOLINE PUBLISHED TOO LATE
+-------------------------------------------------
+
+Isolated by two launches rather than by reasoning:
+
+    SuppressOverlay=0  (no IAT hooks, no message NOPs)  -> still crashed
+    FightSpeed=0       (mod inert)                      -> logged in fine
+
+which left only three code patches, and the log named them all as applied.
+Reading fs_hook_install then showed it plainly:
+
+    fs_patch_write(...)          <-- the detour becomes reachable HERE
+    if (trampoline)
+        *trampoline = tramp;     <-- the original is published AFTER
+
+FrameWait's one caller outside the fight module is 0x437886, inside the
+function at 0x437710, which calls FrameWait(5) in a tight loop - a screen or
+transition loop reached through a function pointer, hammered while the client
+sits at login. So the main thread could enter fs_framewait_detour while
+g_framewait_orig was still NULL and call through a null pointer.
+
+The window is microseconds wide, which is why the same code survived several
+runs and then failed consistently once FrameWait was hooked at its REAL
+address (0x494F10) instead of the blitter. Before the signature repair the
+hook was landing on 0x4684F0, which the login loop does not call.
+
+FIXED: publish the trampoline BEFORE writing the patch, and null-guard the
+detour so a dropped frame is the worst case rather than a dead client.
+
+THE GENERAL RULE: when installing a detour, everything the detour depends on
+must be in place before the detour can be reached. Ordering here is not
+bookkeeping, it is the difference between working and a null call.
+
+Also added per-patch switches - PatchVfx, PatchFrameSync, PatchFrameWait - so
+a bad code patch can be isolated in one launch instead of a rebuild.
+
+NEVER PATCH CODE THAT RUNS DURING STARTUP OR LOGIN
+---------------------------------------------------
+
+This mod has now broken the client THREE times the same way:
+
+  1. detoured 0x4661E0's prologue      -> would not start (30 of 93 callers
+                                          are on the startup path)
+  2. FrameWait resolved to 0x4684F0    -> 9-byte prologue split an instruction
+                                          (a corrupted signatures.ini, but the
+                                          damage was the same shape)
+  3. NOP'd 0x44B57C in the generic     -> crashed at the login screen
+     file loader
+
+The rule, and it is not negotiable: an instruction-byte patch is only allowed
+at a site that CANNOT execute while the client is starting up or logging in.
+Everything else must use a mechanism that is atomic or out-of-band:
+
+  * IAT hooks - one aligned pointer write, no code bytes. Off's file-open
+    interception uses this and has never caused a problem.
+  * call-site redirects inside the fight module - cold code.
+  * a STATIC patch to main.exe on disk, where no thread can be mid-instruction.
+    That is what mw-tools/tools/client-patch/mda_error_silence.py is for.
+
+Current inventory of code-byte patches, and why each is acceptable:
+
+  0x45B8BA  FrameSync sleep block   single site, patched once at install
+  0x40EF76  VfxStep imm8            single byte, single site
+  0x494F10  FrameWait prologue      whole-function, 28 callers - THE REMAINING
+                                    RISK. 27 of the 28 are in the fight module
+                                    so its startup exposure is small, but this
+                                    is the one left to convert to call-site
+                                    redirects if it ever misbehaves.
+  0x4121A5 / 0x412BAD / 0x41396C    in-module, cold: reached only after an open
+                                    has already failed.
+
+"File %s open error" from the generic loader is therefore NOT silenced by the
+DLL and should not be. If it needs to go, it goes in mda_error_silence.py as a
+static patch.
+
+SILENCING WHAT OFF PROVOKES (tenth run, 2026-09-03)
+---------------------------------------------------
+
+Attempt 4 works - the open is refused and the animation is skipped - but the
+client then complains TWICE per cast, which is worse than the deletion trick
+Off replaces:
+
+  "File ANI/skl237.MDA open error"       via 0x45ED90, from the GENERIC LOADER
+                                         at 0x44B57C (outside the module)
+  "Unable to open ANI/skl237.MDA file!"  via 0x464EA0, from THREE sites INSIDE
+                                         the fight module: 0x4121A5, 0x412BAD,
+                                         0x41396C
+
+Note the second printer is 0x464EA0, NOT the 0x45ED90 used everywhere else -
+looking only at 0x45ED90 call sites would have missed all three.
+
+The three-in-three shape matches the field note that the MW2 client "has 3
+calls inside 3 different functions that actually need to be NOP'd out". Good
+evidence the same structure is being looked at, and a useful cross-check that
+the right calls were found.
+
+Each is cdecl with the caller's own `add esp, 0x10` afterwards, so replacing
+the 5-byte call with NOPs keeps the stack balanced and the function runs on to
+its epilogue unchanged. At all three module sites the call is the last thing
+before the epilogue, so the function simply returns quietly.
+
+WHY THE THIRD-PARTY MOD SHOWS ONLY ONE ERROR: it scrambles the path string in
+the exe - "ani" becomes "zni" - so the failure happens at a different point
+and reports "Unable to launch zni/skl2381.ani file". Fewer messages, but the
+path is broken for good and cannot be toggled. Failing the open at run time
+and silencing the four call sites gives the same result with a hotkey.
+
+HOW THE SITES ARE FOUND, without hardcoding an address:
+  * the three module ones: scan [g_mod_lo, g_mod_hi] for `call <FileErrPrint>`,
+    FileErrPrint being a resolved signature.
+  * the loader one: find the literal "File %s open error" by content, then the
+    first call to ScreenPrint within 24 bytes of a push of it. The search is
+    bounded by the PE's SizeOfImage - a fixed span would run off the end of the
+    mapping and fault.
+
+APPLIED WITH THE MODE, not at install: a genuinely missing file still reports
+itself in Normal and Fast. The sites are cold - they only run after an open has
+already failed - so patching them from the thread that handles the hotkey is
+safe.
+
+THE ACTUAL CAUSE OF THE CRASH: A CORRUPTED signatures.ini
+----------------------------------------------------------
+
+Off was never the problem. The log settled it in one line:
+
+    scan: FrameWait    004684F0   rva 0x000684F0
+
+FrameWait must be 0x494F10. It had resolved to 0x4684F0, the fight blitter,
+and step 4 then hooked that with FrameWait's NINE-byte prologue. 0x4684F0's
+instruction boundaries are at 7 and 10:
+
+    004684F0  83 EC 24        sub esp, 0x24        (3)
+    004684F3  8B 54 24 28     mov edx,[esp+0x28]   (7)
+    004684F7  53              push ebx             (8)
+    004684F8  33 DB           xor ebx, ebx         (10)
+
+so nine bytes lands INSIDE `xor ebx, ebx`. The trampoline ended mid-
+instruction and the patch site jumped back into the second half of one.
+Guaranteed crash the first time anything drew.
+
+How the ini got corrupted: the tooling in this session removed the retired
+[Fightspeed_OverlayBlit] and [Fightspeed_FightBlit] sections with a regex that
+deleted the section HEADER but left the `sig=` lines behind. Those orphans fell
+under the preceding section, [Fightspeed_FrameWait], and the parser takes the
+last `sig=` it sees. FrameWait silently inherited the blitter's pattern.
+
+This also explains two earlier "mysteries" that were never mysteries:
+
+  * The FightBlit round did not crash because the orphan it inherited then was
+    OverlayBlit's (0x44ADD0), whose boundaries are 1/3/6/9 - nine bytes happens
+    to be a clean split there. It hooked the wrong function harmlessly.
+  * Skill animations never sped up in ANY of those rounds, because FrameWait
+    was never actually hooked. The speed-up seen was the FrameSync floor alone.
+
+Fixes applied:
+
+  * Both signatures.ini files rewritten with all nine Fightspeed_ sections
+    emitted cleanly, and verified to carry exactly one `sig=` each.
+  * fs_prologue_matches(): a hook target must start with the bytes the
+    prologue length was disassembled from, or the hook is refused and the
+    feature stands down. A prologue length is only ever correct for ONE
+    function, so this catches the entire class rather than this instance.
+
+LESSON: never edit signatures.ini with a regex that does not understand
+sections, and never trust a resolved address that was not sanity-checked
+against the code it points at. The reference_rva check in scan.c could not
+help here, because the same bad tooling regenerated sigs.h with the wrong
+reference too.
+
+RESIDUAL RISK, NOT YET ADDRESSED: the FrameSync block replacement (0x45B8BA)
+and the FrameWait prologue detour (0x494F10) are still whole-function patches
+applied from the worker while the main thread runs. They have survived every
+run so far, and their call frequency at startup is far lower than the handle
+check's, but the race is the same one in kind. If either ever produces a
+startup crash, the fix is either to suspend the other threads across the write
+or to convert them to call-site redirects the way OFF now works.
+
+g_hc_fires counts the skips and is printed on every mode change, so the log
+says plainly whether OFF is doing anything at all rather than leaving another
+"looks the same" to interpret.
+
+
+Deliberately not done
+---------------------
+
+  - NO trip-count edits. They are scattered across 17 functions, each would
+    need its own signature, and cutting them removes the in-between frames. The
+    sleep floor gets the same speed-up from one patch site with smoother
+    motion.
+  - NO change to [0x5E1538]. The render divisor is a QUALITY knob (raise it and
+    the client draws fewer frames), not a speed knob. Leave it at 1.
+  - NO touching 0x494F10. The fight loops call FrameWait(0), so it is already a
+    no-op there.
+  - NO MDA error silencing. That ships as
+    mw-tools/tools/client-patch/mda_error_silence.py instead, so that players
+    who delete effect files rather than install this mod still benefit, and so
+    that two things are not writing the same bytes from two places.
+  - NO trampoline hooking. The other three mods redirect a function and call
+    through to the original; this one replaces a block in the middle of a
+    function and jumps back past it, so there is nothing to relocate and
+    nothing to call through to. patch.c is deliberately simpler than hook.c.
+
+
+Deployment
+----------
+
+The DLL is not loaded until its name is in the autoload cave.
+
+mod_autoload.py knows exactly two states: stock, or patched with the list you
+passed. On a client that already carries the other three, a --dlls set of four
+matches NEITHER, and it refuses with "the exe is autoload-patched but --dlls
+does not describe it". There is no in-place list edit. Revert, then re-apply:
+
+    python tools/client-patch/mod_autoload.py --revert --in-place client/main.exe
+    python tools/client-patch/mod_autoload.py --in-place client/main.exe \
+        --dlls osmw_login.dll,osmw_chat.dll,osmw_minimap.dll,osmw_fightspeed.dll
+
+--revert takes no --dlls (it recovers the carried list from the exe) and
+deliberately leaves main.exe.preModAutoload.bak alone, so the original backup
+survives the round trip. Verified on a copy 2026-09-03: lands at 108/128 cave
+bytes and all 71 signatures across the four mods still resolve exactly once.
+
+Cave budget: 128 bytes claimed at 0x4CED0C, 88 used at three DLL names. Adding
+"osmw_fightspeed.dll" costs 20 more (19 chars + NUL) for 108 of 128. It fits,
+with 20 bytes spare - which is not enough for a fifth mod with a name this
+long, so the next one added will need the cave grown or the free .text at
+0x4CEDF0 claimed.
+
+Also required after any .text patch, per the project ground rule: re-run
+patches/*/tools/scan_offsets.py for chatmod, login and minimap as well as this
+mod, and confirm every signature still resolves to exactly one match. A cave
+whose bytes happen to reproduce a signature disables an unrelated mod silently.
+
+
+Trial log
+---------
+
+2026-09-05  TASK 13 MANAGED MIGRATION. Replaced worker/DllMain startup and the
+            unload export with passive query/init/shutdown. Six generated
+            signatures resolve through core. The VFX immediate, 17-byte
+            FrameSync block, every discovered fight-local FrameWait caller and
+            each written IAT slot are claimed in the existing safe transaction.
+            Caller bounds, freeze/EIP checks and the one-byte rule are unchanged.
+            Real-DLL lifecycle/claim fixture passes; the managed artifact is
+            undeployed and awaits the live six-module matrix.
+
+2026-09-03  Decoded the fight animation clock from the mw-tools side: blocking
+            render loops, FrameSync as the pacer, the frame-counter render gate,
+            the AnimFlag gate, the separate VFX wall clock. Wrote the spec.
+2026-09-03  Decoded the keyboard input model for the hotkey. Established the
+            two scancode arrays and that [0x7029BC] is a mouse code, not a key
+            code - an hour lost to the two jump tables before that landed.
+2026-09-03  Generated six signatures, all unique. Confirmed every touched site
+            is identical between the pristine and mw-tools-patched clients.
+2026-09-03  Wrote the mod. First build had one /W4 warning (atoi without
+            stdlib.h); fixed. Verified the patch arithmetic, the resume point
+            and the emitted stub statically. Not yet run in a client.
+2026-09-03  Deployment attempt hit mod_autoload.py refusing a 4-DLL --dlls on a
+            3-DLL patched exe - it classifies only stock vs this-exact-list.
+            Revert-then-reapply works; cave lands at 108/128 bytes and all 71
+            signatures across the four mods still resolve exactly once against
+            the result. Documented above and in mw-tools' client-dll README,
+            both of which had given the bare --dlls form as if it were enough.
+2026-09-03  FIRST IN-GAME RUN. It loads, the hotkey fires and the speed cycles
+            (observed at 3.0x). Two defects in the feedback path, both fixed:
+            wrong printer (modal error box instead of the chat notice line) and
+            wrong key array (the two arrays are plain vs extended scancodes,
+            not held vs pressed). Added a 350 ms cooldown plus fire/suppressed
+            counters, because the repeat count is explained by neither defect
+            with certainty. Speed itself still unmeasured.
+2026-09-03  SECOND IN-GAME RUN. Skills barely changed; everything else,
+            including world-map walking, ran far too fast. Two root causes,
+            both mine: [0x673B0D] is a set-once latch so the gate was
+            permanently open, and skill animations are paced by FrameWait(ms)
+            (0x494F10), not by FrameSync's floor. Rebuilt around a
+            caller-return-address gate with bounds derived from the AnimFlag
+            writers, plus a FrameWait detour that scales its ms argument.
+            Untested.
+2026-09-03  THIRD IN-GAME RUN. The gate and FrameWait fixes worked: clearly
+            faster than stock and the map is no longer affected. But 2x, 3x and
+            instant were indistinguishable from each other, so the speed dial
+            was replaced by three modes - Normal / Fast / Off - with Off
+            suppressing the six in-module overlay blits to mimic the deleted-
+            .mda behaviour players already use. Untested.
+2026-09-03  FOURTH IN-GAME RUN. Off was indistinguishable from Fast: 0x44ADD0
+            is not the effect draw. Damage values did still display, so the
+            suppression was harmless as well as useless. Repointed Off at
+            0x4684F0, the fight blitter, whose gated sites include the skill
+            loop's own draw at 0x410FC5 while the melee loop has none. Also
+            traced why the third-party path-scramble loses damage: an invalid
+            handle at 0x410F41 takes `jl 0x4114E1` past the whole loop, and
+            the floaters are inside it. Untested.
+2026-09-03  FIFTH IN-GAME RUN. 0x4684F0 was wrong too - Off still identical to
+            Fast. Stopped guessing at draw calls and switched to forcing the
+            client's own skip branch via the handle check at 0x4661E0, which
+            is the same path a missing file takes. Added a skip counter to the
+            log so the next "looks the same" can be told apart from "never
+            fired". Expect Off to lose damage numbers; that is inherent.
+2026-09-03  SIXTH RUN: THE CLIENT WOULD NOT START. Detouring 0x4661E0 raced the
+            main thread's startup asset loading - 30 of its 93 call sites are
+            on the startup/login path. Reworked Off to redirect only the three
+            in-module call sites, which never run before a fight. Immediate
+            workaround for anyone hitting this: [Fight] SuppressOverlay=0, or
+            [Addons] FightSpeed=0.
+2026-09-03  SEVENTH RUN: still crashing with the call-site redirect. Ruled out
+            the negative-return path (all three sites guard it) and the
+            calling convention. Cause unknown. Made the Off redirect opt-in
+            (SuppressOverlay defaults to 0) so the build starts, and added
+            numbered install step markers so the log names the failing step
+            instead of another round of guessing.
+2026-09-03  CAUSE FOUND from the install log: FrameWait was resolving to
+            0x4684F0 because a regex that removed retired signature sections
+            left their sig= lines orphaned under [Fightspeed_FrameWait]. The
+            9-byte prologue then split `xor ebx, ebx` in the fight blitter.
+            Repaired both ini files, added fs_prologue_matches() so a
+            mis-resolved hook target is refused instead of splitting an
+            instruction, and restored SuppressOverlay=1 now that Off is
+            exonerated. FrameWait is hooked for the first time, so skill
+            timing is genuinely untested.
+2026-09-03  EIGHTH RUN. Client starts again after the signature repair and
+            FrameWait is genuinely hooked for the first time. Off is still
+            indistinguishable from Fast, and the cause is structural: the anim
+            functions do not share a skip mechanism. Recommended dropping Off
+            for a two-mode Normal/Fast.
+2026-09-03  NINTH RUN. Corrected the "no single choke point" conclusion: the
+            file open IS the shared point, because every per-function guard is
+            downstream of the load. Off reimplemented as an IAT hook on fopen /
+            _open / CreateFileA that fails "*skl*.mda" while the mode is Off.
+            Replaces the handle-check call-site redirect entirely.
+2026-09-03  TENTH RUN. Attempt 4 confirmed working - the refusal reaches the
+            client, which proves the skip. It also printed two errors per cast,
+            worse than the deletion trick. Found four print sites: three
+            in-module calls to 0x464EA0 (matching the MW2 "3 calls in 3
+            functions" note) and one loader call to 0x45ED90 at 0x44B57C. NOP
+            them while Off is active, restore otherwise. Also fixed an
+            unbounded string search that could have read past the image.
+2026-09-03  ELEVENTH RUN. Off refused startup preloads: "ani/skl001.mda" on
+            the loading screen plus a cascading "Read system image error!".
+            Filename matching alone is not a sufficient condition - the
+            refusal is now gated on the caller being inside the fight module,
+            and an allowed skill open logs its caller so a shared-loader
+            problem would announce itself instead of looking like "Off does
+            nothing".
+2026-09-03  TWELFTH RUN: crash at the login screen. Cause was quiet_apply
+            NOPing 0x44B57C, which lives in the generic file loader - hot
+            during login. Third time patching startup-hot code has broken the
+            client. Removed that site and its now-dead collector, wrote the
+            rule down, and audited every remaining code-byte patch for startup
+            exposure. Only the three cold in-module message calls are silenced
+            now.
+2026-09-03  THIRTEENTH RUN: still crashing at login after removing the loader
+            NOP, so that was NOT the cause and the previous entry's diagnosis
+            was wrong. The crash arrived with the caller-gating build. Fixed
+            two real defects found by reading rather than guessing - the IAT
+            walk did not fall back to FirstThunk when OriginalFirstThunk is 0
+            (harmless on this image, every DLL has it), and the "skl" scan read
+            up to two bytes past the terminator on every .mda opened - but
+            neither is confirmed as the cause.
+
+            STOPPING THE GUESSWORK. The bisect is two launches:
+              [Fight] SuppressOverlay=0  -> no IAT hooks, no message NOPs. If
+                                            login works, Off's file layer is
+                                            the cause.
+              [Addons] FightSpeed=0      -> mod inert. If login still crashes,
+                                            it is not this mod.
+            plus the install log, which named the cause in one line last time.
+2026-09-03  FOURTEENTH RUN: cause found. Two bisect launches narrowed it to the
+            three code patches, and fs_hook_install turned out to publish the
+            trampoline AFTER making the detour reachable. The login loop calls
+            FrameWait(5) constantly (0x437886), so the main thread could enter
+            the detour with g_framewait_orig still NULL. Fixed the ordering,
+            added a null guard, and added per-patch config switches.
+2026-09-03  FIFTEENTH RUN: still crashing after the trampoline ordering fix, so
+            that was a real bug but not the whole story. In Normal mode all
+            three patches are semantic no-ops (40*100/100 = 0x28, floor stays
+            30) and it STILL crashed, which points at the act of patching
+            rather than the values. fs_patch_write now freezes the other
+            threads AND checks that none is parked inside the patch region,
+            retrying until the region is clear. Added runtime heartbeats to
+            both detours so the next log shows whether they are even entered.
+2026-09-03  SIXTEENTH RUN: no crash - install refused instead, on a one-byte
+            patch. The EIP check was broken: OpenThread did not request
+            THREAD_GET_CONTEXT, so GetThreadContext failed and the "assume the
+            worst" branch fired every time. Fixed the access right, made the
+            failure report GetLastError, cut retries to 100. The fail-safe
+            behaved correctly throughout - the client was never touched.
+2026-09-03  SEVENTEENTH RUN: CAUSE FOUND. The heartbeats showed the FrameWait
+            detour entered once from the login loop and the client died 1.8s
+            later. 0x494F10's spin loop does `jmp 0x494F13`, a branch back into
+            its own stolen prologue, so no trampoline could ever work.
+            Switched to redirecting its 27 in-module call sites and left the
+            function untouched. Prologue hooking is now unused entirely.
+2026-09-03  EIGHTEENTH RUN. Login and the timing patches are solid; 27
+            FrameWait call sites redirect cleanly and the client is stable.
+            Off still did nothing, and the log said exactly why: skill MDAs are
+            opened by the shared loader, so the immediate caller is never the
+            fight module. Replaced the caller test with a bounded scan of the
+            thread stack for any module return address.
+2026-09-03  NINETEENTH RUN. Off finally skips the animation. The two error
+            boxes remained because the wrong three calls had been NOP'd: the
+            real ones are in the shared loader (0x44B57C and 0x46B5C4), which
+            is exactly why the original mod patches the exe on disk. Added both
+            to mda_error_silence.py and removed the DLL's message NOPs.
+2026-09-03  TWENTIETH RUN. Down to one error box. Cause: "File %s open error"
+            has three push sites and two of them go through a THIRD printer,
+            0x45F0E0, which no previous sweep had looked at. Added those two
+            plus the fight module's own three to the static patch (16 sites)
+            and left the DLL doing no message patching whatsoever.
+2026-09-03  TWENTY-FIRST RUN. Off worked but crashed on the next cast after
+            toggling back to Normal. Root cause was not toggling: Off was
+            refusing ani/skl%03d.mda (the effect) when the original refuses
+            ani/skl%03dl.ani (the animation). Retargeted the filter to .ani,
+            reverted the launch-time lock, and confirmed the three in-module
+            error prints are the MW2 note's three calls.
+2026-09-03  CLEANUP after everything worked. Removed: fs_hook_install and
+            fs_prologue_matches (no prologue hooks remain), the whole
+            quiet_apply / collect_calls message-NOP path (message suppression
+            is the static patch's job now), and the runtime heartbeats. Dropped
+            four signatures the mod no longer uses - ScreenPrint, HandleCheck,
+            FileErrPrint, KeyArrayB - leaving six, so a client update has four
+            fewer things to break. Renamed SuppressOverlay to
+            SkipAnimationFiles (the old name is still read as a fallback);
+            "overlay" described nothing the mod does. Kept the per-patch
+            PatchVfx / PatchFrameSync / PatchFrameWait switches: they isolate a
+            bad patch in one launch and cost one ini read each.
+
+2026-09-04  SETTINGS POLL. Added settings_poll(), called from fs_frame_tick,
+            so [Fight] Mode changed outside this mod - the in-engine settings
+            panel, or Notepad - applies without a restart. Same pattern and the
+            same reasoning as chatmod's SETTINGS_POLL_MS: game thread,
+            throttled to 2 s, never a worker.
+            THE NON-OBVIOUS PART is that it triggers on the FILE changing, not
+            on the file disagreeing with g_mode. The level comparison is the
+            version you write first and it is broken under PersistMode=0:
+            there the hotkey moves g_mode but nothing ever writes it out, so
+            the file keeps its old value and the very next poll "corrects" the
+            live mode straight back - the keypress undoes itself about two
+            seconds later and reads as a broken hotkey. g_seen_mode holds the
+            last value read out of the file; persist_poll sets it as it writes
+            so the mod never reads its own write back as news. That also makes
+            the debounce window a non-issue without a g_dirty guard.
+            Only Mode is polled. PatchFrameSync/PatchVfx/PatchFrameWait/
+            SkipAnimationFiles/CycleKey all decide what gets installed, so
+            re-reading them would report a change the mod cannot make.
+            Built and statically verified. NOT run in a client.
+
+2026-09-06  THE FIGHT CAMERA ("combat no-shake"). Added camera.c, a second
+            optional feature on the same module bounds. It exists because the
+            top follow-up request after battle speed was to stop the combat
+            "screen shake".
+
+            THERE IS NO SCREEN SHAKE. The spec this came from
+            (mw-tools/tools/client-dll/quality-of-life-feature-plan.md, section
+            4) opened with "there is no proven shake site" and asked for a
+            spike. The spike was done statically against main_raw.exe with
+            capstone/pefile and disproved the premise:
+
+              [0x743140] fight scene/background index (0..199; dimension table
+                         at 0x6E1018, stride 0x14)
+              [0x743144] camera X, the scroll origin into that scene
+              [0x743148] camera Y
+              [0x73BFD8/DC/E0] the saved HOME triple, the neutral wide shot
+
+            Exactly two functions write those during a battle, and every call
+            site of BOTH is inside the fight anim module - nothing else in the
+            binary calls either:
+
+              0x40F1C0  CameraPan(scene, x, y, frames), __cdecl, bare ret.
+                        Interpolates all three over `frames` FrameSync
+                        iterations, clamped to 1600x900, rendering and
+                        presenting each step. 13 call sites:
+                          pan HOME, 12 frames, args from [0x73BFD8/DC/E0]:
+                            0x40FEB9 0x4109DA 0x410E33 0x41149B 0x4117E3
+                            0x4119B7 0x411FAD 0x412A41 0x4136F1 0x413DE6
+                          pan AWAY, 3 frames, args from the keyframe table
+                          ([0x7430A8], stride 0x44 records, index [0x7430B0]):
+                            0x4121DC 0x412BE3 0x4139A3
+              0x40D560  CameraCentre(scene, worldX, worldY, &outX, &outY).
+                        out = world - dim/2. 3 call sites: 0x4122D3 0x412F43
+                        0x413A95, the three cinematic anims, which hard-cut the
+                        camera before their pan. NOT HOOKED - see below.
+
+            So the lurch is the 12-frame pan home at the end of every action:
+            12 x the 30 ms floor, ~360 ms, and on the ten ordinary anims the
+            camera has not moved, so it is a pan over a ZERO DELTA. Pure dead
+            time that also drags the view about.
+
+            RULED OUT, so nobody re-treads them: 0x40D3F0 (member effect
+            updater, 21 fight-only sites), 0x41B4A0 (window drag),
+            0x7430C4/C8/CC/D0 (MDA "RAYS CONTROL FILE" script params - the
+            parser at 0x465240 knows only "goto", "front" and "magic"), and the
+            MAP camera [0x70B2D0]/[0x70B2D4], which combat never touches.
+
+            There IS a per-unit jitter, and it is not what anyone is asking
+            about: escape-fail 0x411874-0x4118B0 alternates +/- on member X
+            [slot+0x60] for 16 frames with amplitude floor(i*1.5), and pet
+            replace 0x411A00 runs the same loop when the pet seat is occupied.
+            (`sete bl` at 0x4118AF is the only one in .text, which is how the
+            loop was found.) Left alone deliberately. Repro: !test escape <id> 0.
+
+            MODES, orthogonal to FS_MODE_*. A fourth speed value would have made
+            Normal+Fixed and Fast+Fixed unreachable, which is the whole point of
+            keeping them separate.
+              STOCK  call through untouched.
+              SNAP   force frames = 1. One iteration lands exactly on the target
+                     because the step is delta/frames, and the client still does
+                     its own interpolation, clamping, render and present. We
+                     never write a camera global and never duplicate its clamp
+                     arithmetic. Lowest-risk mode by a distance.
+              FIXED  skip the pan. Safe precisely BECAUSE ten of the thirteen
+                     are restores TO home: a camera that never leaves home never
+                     needs restoring, so switching into this mode mid-fight
+                     cannot strand the view somewhere.
+
+            TWO REASONS IT IS CALL SITES AND NOT A FUNCTION HOOK, either of
+            which would settle it alone:
+              1. 0x40F1C0 CARRIES `mov byte [AnimFlag], 0` AT 0x40F235. That is
+                 the LOWEST AnimFlag write in .text, so it is the low bound
+                 derive_module_bounds() measures. Patching bytes in that body
+                 moves the bound and silently takes the SPEED feature's caller
+                 gate with it. Nothing here may ever write inside 0x40F1C0.
+                 FIXED reproduces that AnimFlag clear itself so observable state
+                 is identical.
+              2. Repointing `call rel32` leaves the callee intact, so any caller
+                 we failed to classify still reaches the real function.
+
+            Discovery counts the in-module E8s landing on CameraPan and requires
+            EXACTLY 13 before it claims anything. Count first, commit second: a
+            stand-down after redirecting four of thirteen would leave the camera
+            behaving differently depending on which animation played. A wrong
+            count means the caller set is not the one this was classified
+            against, which is the release bar, so it stands the CAMERA down and
+            leaves battle speed installed.
+
+            PHASE B, NOT BUILT. The three cinematic anims still hard-cut through
+            0x40D560. Do not hook it blind: the caller writes [0x743140] inline
+            just before the call and then clamps against THAT keyframe scene's
+            dimensions afterwards, so returning home coordinates under a
+            keyframe scene index can be pulled by the clamp. Watch the three
+            anims in game first and decide from that.
+
+            Config: [Fight] CameraMotion, 0/1/2 = stock/snap/fixed. The words
+            "stock"/"snap"/"fixed" are also accepted, but the settings panel
+            reads the key as an integer, so it writes numbers. PatchCamera=1 is
+            the per-patch isolation switch, matching PatchVfx and friends.
+            ScreenShake=0 is honoured as a legacy alias for FIXED only because
+            that name was published in the QoL spec; nothing ships it.
+            Polled from its own camera_poll() rather than inline in
+            settings_poll, because Mode's checks return early and a camera
+            change must not be swallowed by a Mode value that has not moved.
+
+            Host fixture extended: the synthetic anim module now carries 13 pan
+            call sites, and the tests assert all 13 are claimed as five-byte
+            E8s, that a wrong caller count stands only the camera down, that an
+            unresolved CameraPan leaves the five speed claims intact, and that
+            all 18 ranges are restored before release. Built, tested, deployed.
+            NOT YET RUN IN A CLIENT - the mode that needs a live trial is FIXED,
+            since the fight viewport is 800x450 in a scene up to 1600x900 and
+            the home shot cannot be assumed to contain every combatant.
+
+2026-09-06b THE KEYFRAME CAMERA. First live trial of the above, and it found
+            the one thing the static read got wrong.
+
+            Reported: Fixed gave "a strange slow movement to the camera as the
+            animation itself still triggers a camera move but the return is
+            slowed and smoothed down"; Snap "still has the camera move during
+            the animation but immediately snaps back once the animation
+            finished".
+
+            Both are explained by one mistake. 0x40D560 CameraCentre is NOT
+            three one-shot hard cuts. It is called EVERY FRAME from the
+            keyframe loop inside each cinematic anim. The anims are 0x412000,
+            0x412AE0 and 0x413790, dispatched from 0x414459-0x414467, and each
+            is shaped:
+
+              wind-up loop                      FrameSync-paced
+              CameraPan(keyframe0, frames = 3)  0x4121DC / 0x412BE3 / 0x4139A3
+              [0x7430B0] = 0                    reset the keyframe index
+            loop:                               0x412200..0x41235E, FrameSync
+              rec = [0x7430A8] + [0x7430B0]*0x44
+              [0x743140] = rec.scene            INLINE, just before the call
+              CameraCentre(rec.scene, rec.x, rec.y, &[0x743144], &[0x743148])
+              clamp both against dims[rec.scene], 0..1600 / 0..900
+              ... draw, blit, flip ...
+              advance [0x7430B0]
+
+            So the scripted camera track IS the big skill animations. Handling
+            only the pans left it running: Snap = instant jump to keyframe 0,
+            track plays, instant snap home. Fixed = no jump, track plays from
+            home, and with the 12-frame restore gone the only thing returning
+            the view was the track tail, at animation frame rate. Exactly the
+            two reports.
+
+            FIX: Fixed now redirects the 3 CameraCentre sites too and answers
+            with the home shot, restoring [0x743140] as well - the caller wrote
+            the keyframe scene inline before the call, and holding only the
+            scroll origin would leave the backdrop cycling through keyframe
+            scenes while the view stood still.
+
+            THE CLAMP IS THE KNOWN IMPRECISION. The caller clamps our answer
+            against the KEYFRAME scene's dimensions, in a register we cannot
+            reach from inside the callee. It cannot drift - a clamp only pulls
+            toward a valid rect, and every frame comes back through the wrapper
+            which rewrites all three values - but a keyframe scene whose bounds
+            exclude the home coordinates would show a bounded static offset.
+            Watch for it; the alternative was hooking the caller, which means
+            patching inside a per-frame loop for no proven gain.
+
+            WHERE HOME COMES FROM, with no second signature and no constant:
+            the ten pan-home sites all pass the client's own saved home triple
+            and one runs at the end of every action, so the same (scene, x, y)
+            recurs constantly; the three pan-away sites pass a keyframe, which
+            does not. Take a target as home once it has been asked for TWICE IN
+            A ROW. Learning runs in every mode, Stock included, so switching
+            into Fixed mid-fight needs no warm-up, and it re-learns after a
+            mode change or a new fight. Until home is known Fixed leaves the
+            keyframe camera alone, i.e. it degrades to exactly what shipped
+            first - a fallback, never a regression.
+
+            THE CAMERA GLOBALS ARE DERIVED, NOT HARDCODED. CameraPan opens by
+            loading all three and the signature already pins those bytes:
+              pan+0x0A  8B 3D <0x743140>  scene
+              pan+0x2A  8B 15 <0x743148>  camY
+              pan+0x3E  8B 2D <0x743144>  camX
+            Each opcode is checked before its operand is trusted; a mismatch
+            logs and leaves the keyframe camera at stock rather than writing
+            through a guessed pointer.
+
+            CameraCentre is optional on top of an optional feature. If it or
+            the scene global is unavailable, Fixed still suppresses the pans.
+
+            Host fixture: fake_camerapan is now __declspec(naked) and
+            reproduces the real prologue byte for byte, so the derivation and
+            its opcode check are what the tests exercise rather than being
+            skipped. Three keyframe call sites added to the synthetic module;
+            21 claims total, and a new case proves a missing CameraCentre still
+            leaves all 13 pan sites redirected. 130 checks pass, no warnings.
+            STILL NOT RE-RUN IN A CLIENT since the fix.
+
+2026-09-06c WORLD CENTRE IS NOT A CAMERA ORIGIN. Second live trial: Fixed still
+            moved on big skills, "the camera flicks the opposite direction
+            instead of the usual to the left, and then slowly drifts back to
+            center on the player even though the player is usually positioned
+            to the right".
+
+            That reads like a hook that never fired. It was a hook firing with
+            the WRONG UNITS.
+
+            CameraPan takes a WORLD CENTRE. CameraCentre returns a camera
+            ORIGIN. Pan converts both ways itself:
+
+              pan+0x1F  ecx = dims[cur].w >> 1 + [camX]   world centre X
+              pan+0x30  eax = dims[cur].h >> 1 + [camY]   world centre Y
+              pan+0x44  edx = arg1 - ecx                  delta in WORLD space
+              0x40F31C  [camX] = interpolated - dims[scene].w >> 1   -> origin
+
+            g_home is learned from Pan, so it is a world centre. The first
+            build wrote it straight into Centre out-parameters, i.e. about half
+            a scene width out. That value then tripped the caller clamp
+            (camX + w >= 1600 -> camX = 1600 - w), pinning the view to the far
+            edge - the "opposite direction" flick - and because w is the
+            KEYFRAME scene width, the clamped result changed as the track
+            stepped through scenes, which is the "slow drift back". Both halves
+            of the report from one unit error.
+
+            FIX: call the real CameraCentre with the home triple instead of
+            writing the out-parameters. The client does its own -dims/2, so
+            there is no duplicated arithmetic here and no signature needed for
+            the dimensions table at 0x6E1018.
+
+            The confirmation was in the fight setup all along - 0x40B5F0 stores
+            BOTH forms, three dwords apart:
+              [0x73BFD0]/[0x73BFD4] = 0x15E, 0x16D   home camera ORIGIN
+              [0x73BFD8]            = 0x2E           home scene
+              [0x73BFDC]/[0x73BFE0] = origin + dim/2 home WORLD CENTRE
+            (second variant, the other backdrop: scene 0x43, 0x19A/0x19A.)
+            Written once per fight and constant for its duration, which also
+            confirms the seen-twice-in-a-row learning rule is sound.
+
+            With a correct origin the caller clamp is a no-op unless a keyframe
+            scene is wide enough to exclude (350, 365), and it cannot
+            accumulate since every frame comes back through the wrapper.
+
+            Added two log lines, because "did the hold engage" was guessed at
+            for a whole trial: one when home is learned, one the first time the
+            hold engages, reporting scene, world centre and resulting origin.
+            [Debug] ModLogging=1 set in the deploy install. If the next trial
+            still moves, the log now distinguishes "never learned home" from
+            "held at the wrong place".
+
+2026-09-06d CAMERASTEP IS THE FIGHT CAMERA. Third live trial: "the first fight
+            of a session the Fixed and Snap modes do not work quite right
+            however in subsequent fights they actually appear to work fine",
+            and "melee attacks do trigger some movement still (both when
+            performing and being hit by)".
+
+            Two separate causes, and the second one is the important find.
+
+            (1) FIRST FIGHT. That is the learn-by-repetition rule, exactly as
+            designed and exactly as wrong: it needed two consecutive pan-home
+            calls before it knew home, so the opening actions of a session ran
+            unheld, and after that g_home persisted for the rest of the
+            process. Replaced with a direct read. 0x40B5F2 (FightHome) writes
+            the triple once per fight; resolve the ADDRESSES once, read the
+            VALUES live. Operands at +0x0F (A3 world X), +0x23 (C7 05 scene)
+            and +0x41 (A3 world Y), each opcode checked, plus a layout
+            cross-check that world X and Y sit one and two ints above the
+            scene. The learning rule is retained only as a fallback.
+
+            (2) MELEE. There is a THIRD camera driver and it is the main one:
+
+              0x40CE80 CameraStep, ONE caller in the whole binary at 0x40F049,
+              inside the fight scene renderer and gated on AnimFlag, so it runs
+              on EVERY RENDERED FRAME of EVERY fight animation.
+
+                edi = [0x743140]                  current scene
+                esi = camX + dims[cur].w >> 1     current world centre X
+                eax = camY + dims[cur].h >> 1     current world centre Y
+                [0x673B18] vs edi -> edi--/++  -> [0x743140]
+                [0x673B10] vs esi -> camX--/++ -> [0x743144]
+                [0x673B14] vs eax -> camY--/++ -> [0x743148]
+                clamp >= 0, camX + w < 1600, camY + h < 900
+
+            ONE PIXEL PER AXIS PER FRAME toward a goal at [0x673B18/10/14].
+            The anim functions largely do not move the camera at all - they set
+            that goal and let this ease to it. Melee tail 0x40FECF is precisely
+            that: copy the home triple into the goal, return. So melee never
+            went through any of the three things already hooked, which is why
+            it kept moving.
+
+            This also retires the earlier claim in this file that "exactly two
+            functions write the camera during a fight". That claim came from a
+            byte search for the literal global addresses whose instruction
+            boundary recovery was wrong - it decoded `adc eax, 0x743144` and
+            similar, which are the tails of preceding `mov reg, [abs32]`
+            instructions. patches/common/find_xrefs.py makes the same mistake
+            on this target. What actually settles it is classifying by ENCODING
+            FORM: A1/A3 put the abs32 at +1, opcode+modrm with (modrm & 0xC7)
+            == 0x05 puts it at +2. Doing that turns up writers at 0x40C5xx and
+            0x40CExx that both earlier passes missed. If you ever need every
+            writer of a global in this binary, do it that way.
+
+            FIX: hook CameraStep's single call site.
+              Fixed  do not step. Nothing else in Fixed moves the camera
+                     either, so the view is wherever the fight setup put it.
+              Snap   step until it stops changing (bounded 2048, breaks on no
+                     change). Same destination the client was easing to,
+                     reached at once, which is what Snap means everywhere else
+                     here. The real function is pure arithmetic over three
+                     globals - no drawing, no allocation - so iterating it is
+                     safe and cheap.
+            Snap needs the camX/camY globals to detect convergence, so those
+            are now derived from CameraPan too (+0x2A and +0x3E), alongside the
+            scene global that was already being read at +0x0A.
+
+            NOTE the call site is at 0x40F049, BELOW the derived module low
+            bound 0x40F235 - that bound is the lowest AnimFlag write and the
+            renderer is upstream of it. So this one is found by scanning all of
+            .text and requiring exactly one match, which is the stronger check
+            anyway. It is fight-only by construction: its only caller is behind
+            the AnimFlag gate.
+
+            FIXTURE. Three defects found, all in the test and not the mod, and
+            all of them invisible until the fixture echoed the mod's own log
+            lines - which is now permanent, because the claim counters cannot
+            distinguish the several conditions the camera stands down on:
+              - fake_camerapan was too short, so +0x2A and +0x3E landed in CC
+                padding. It now reproduces the prologue through +0x44.
+              - fake_camerastep was an empty function; identical-COMDAT folding
+                merged it with others and the single-call-site check saw three.
+                It increments a counter now.
+              - fake_fighthome had a miscounted nop run, putting the scene
+                store at +0x27 instead of +0x23.
+            22 claims, 178 checks pass, no warnings. NOT YET RUN IN A CLIENT.
+
+2026-09-06e ACCEPTED IN GAME. Fixed and Snap both correct, melee included, and
+            the first fight of a session behaves like every later one.
+
+            Three trials, and each one found a camera driver the previous pass
+            had missed. The pattern is worth keeping: every "fix" was complete
+            against the model held at the time, and the symptom that survived
+            was in each case the next driver down. When suppressing one input
+            to a value leaves it still moving, enumerate the writers again
+            before adjusting the hook you already have - twice here the honest
+            reading of the symptom was "something else writes this", and twice
+            the first instinct was to distrust the hook instead.
+
+            Still theoretical, not observed in play: Fixed answers CameraCentre
+            with the home shot and the caller then clamps against the KEYFRAME
+            scene dimensions, which the wrapper cannot reach. It cannot drift,
+            but a scene whose bounds exclude the home origin (350, 365) would
+            show a bounded static offset. If that is ever reported, the fix is
+            to neutralise the clamp, which means patching inside a per-frame
+            loop - do not do it speculatively.

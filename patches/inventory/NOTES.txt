@@ -1,0 +1,205 @@
+osmw_inventory.dll
+==================
+
+Purpose
+-------
+Adds Sort and Lock buttons to the stock Equipment window. They are drawn as
+21x21 sprites from the module's own system\osmw_inventory.mda, inside the
+window, in the empty band under the Vendor label. Lock is artwork and hit
+testing only for now: it consumes its click, logs, and sends nothing. The
+client requests a short-lived
+metadata snapshot, computes the desired order, and sends only a permutation
+proposal. It never edits inventory memory. The server validates the proposal
+against the same Item object references and counts, applies it to the
+authoritative container, persists it, and returns normal InventoryData.
+
+Order
+-----
+1. Wings.
+2. HP+MP potions.
+3. HP potions.
+4. MP potions.
+5. Everything else.
+
+Within a category items are ordered by base item ID, then by original slot for
+a deterministic stable result. Empty slots are compacted to the end.
+
+Item locks
+----------
+Item.locked is server-authored and rides the ordinary item record: ItemStruct
+byte +20, which lands at in-memory record +0x10. The STOCK client already reads
+it - 0x44C760 blits system\lock.mda / MainCommand1 into the item tooltip when
+the byte is exactly 1, and five sites (0x42E55C drop, 0x42867A, 0x43065F,
+0x4316DD, 0x44F089) refuse the action with "The item has been locked! ". So the
+module needs no drawing code for locks at all.
+
+Setting it is C2S 0x7F000020 InventoryLockToggle: 20 bytes, uint32 version at
+12, uint32 slot at 16 (queue_game_packet puts field12 at 12 and the extra at
+16). The server answers with ordinary ItemChange.
+
+The Lock button is a plain button, like Sort. It toggles whichever slot the
+client already treats as active: InvSlotIndex (0x6AA6E4), published by the stock
+inventory click handler at 0x42E695, turned into a wire slot with
+page * 24 + cell (page at 0x743158). Out of range or unpublished falls back to
+slot 0, which is what a freshly opened inventory shows as active.
+
+The module puts NOTHING over the grid. Two attempts did, and both broke the
+inventory:
+
+  1. A capture node re-raised every tick. The manager routes clicks to the TOP
+     node and nothing lowers ours again, because only a click the stock window
+     receives raises it. Every click - close button included - was declined and
+     lost.
+  2. Scoping that node to the cursor being over the grid fixed the clicks and
+     still broke the window: hover events go to the top node as well, so the
+     stock tooltip stopped appearing. The tooltip is the only place the padlock
+     is drawn, so the feature suppressed its own feedback.
+
+Rule: own the two 21x21 buttons and nothing else. Reading a global the client
+already maintains is free and cannot break anything.
+
+Deliberately NOT a hook on 0x42E68C: chatmod owns that prologue for ALT+click
+item links.
+
+Sort pins locked slots: build_canonical_placement in sort.c keeps a locked entry
+at its own slot and packs the free ones into the lowest slots left over. It is a
+line-for-line mirror of buildCanonicalPlacement in the server's
+InventorySortAuthority.ts, and the server rejects any apply whose placement
+disagrees - change one and you must change the other.
+
+Protocol v2
+-----------
+C2S 0x7F000010 SortPrepare: field12=2, no payload.
+S2C 0x7F000011 SortSnapshot: field12=2, payload is nonce DWORD followed by
+12-byte records (source/category packed DWORD with the lock flag in bit 16,
+full base-item-id DWORD, stack count DWORD).
+C2S 0x7F000012 SortApply: field12=2, payload is nonce DWORD followed by one
+source-slot byte per occupied item in ascending destination order. Destinations
+are not necessarily contiguous - a pinned locked slot sits between them.
+
+The proposal is one-time, expires server-side after 10 seconds, and is rejected
+if the inventory changes. Acceptance and rejection both return authoritative
+InventoryData, so the client has no optimistic state to roll back.
+
+Panel geometry
+--------------
+The Equipment window is MapMenu.MDA sub-file 4, a fixed 376x458. Measured off
+the extracted artwork:
+
+    Use     label   x 310..331   y 295..304
+    Drop    label   x 310..339   y 334..343
+    Vendor  label   x 302..347   y 376..385
+    clear band      x 284..349   y 388..427
+
+x 283 is the inventory grid frame and the corner flourish starts at x 350 and
+y 428, so that band is the only free space on the panel. The pair sits on the
+exact x span of Vendor, one ~40px row below it, which is the window's own label
+pitch - that alignment is what makes it read as client art rather than an
+overlay:
+
+    Sort   x 301..321   y 399..419
+    Lock   x 327..347   y 399..419   (5px gap)
+
+Offsets are taken from the window's BOTTOM-RIGHT (dx 75, dy 59) so an
+unexpected window size slides the buttons along the frame they belong to rather
+than off it. panel.c logs once if the window is not 376x458.
+
+One node covers both buttons, 47x21. The window manager routes events to it,
+but the module does its own hit test off MouseX/MouseY, because one node cannot
+tell the manager which half of itself was hit. A click in the 5px gap is still
+consumed - the rect is ours, and an unconsumed 0xF5 walks the character to
+wherever the button was.
+
+Z-order
+-------
+The manager raises the window the player clicked, so clicking any stock control
+in the inventory - a slot, Use, Drop, Vendor - moves that window above our node
+and buries the buttons. Observed live. Two halves:
+
+  Drawing  iv_panel_overlay, called from the post-UiTick callback after the
+           manager has walked and drawn every window. On top by construction.
+           The node's own draw proc is empty in sprite mode.
+  Input    the node is recreated - which returns it to the end of the list -
+           but ONLY on the frame the cursor enters the strip.
+
+Raising it unconditionally was tried and is WRONG. The manager routes clicks to
+the top node, so a permanently-top module received every click in the inventory
+and panel_input swallowed them all: the player could not use a single slot,
+Use, Drop or Vendor. Raise on the hover-entering edge and the stock window keeps
+the top slot whenever the cursor is not on a button.
+
+The paired rule: panel_input must never touch the event byte unless
+button_at_cursor says the cursor is genuinely over one of the two buttons.
+Being dispatched is not evidence that the click was ours. The 5px gap between
+the buttons counts as not ours and passes through.
+
+The recreate preserves g_click_armed on purpose. Re-arming it would turn a held
+mouse button into one request per frame.
+
+Cooldown
+--------
+Sort is limited to one request per 30s, from the request rather than from
+completion so a slow or lost round trip cannot extend it. It survives
+iv_sort_reset deliberately - the point is to outlive the operation completing,
+timing out or being cancelled - and is cleared only by iv_sort_install.
+
+This is courtesy only. The server's ActionRateLimiter InventorySort row enforces
+the same 30s and is the authority; a tampered client that ignores its own
+cooldown gets a silently dropped prepare. Only the prepare is limited, so the
+apply half of an in-flight sort is never blocked.
+
+Sprite bank
+-----------
+Built from tools/client-dll/inventory-mda/ in mw-tools and shipped as
+system\osmw_inventory.mda. Six animations - BtnSort, BtnSortHover,
+BtnSortPress, BtnLock, BtnLockHover, BtnLockPress - which are the interface,
+because BlitMdaFrame selects by animation name. Sprites are 21x21 with center
+(0, 0): the blitter lands the stored center on the blit point, so a zero center
+makes the blit point the top-left corner. This is deliberately not the markers
+convention of (w/2, h) for a world-anchored glyph.
+
+Do not put this art in MapMenu.MDA. That file has per-theme copies under
+defaultGui/greenGui/purpleGui that would drift, and its sub-images bind to code
+through 20-byte .data slots that are not in file order.
+
+LoadMda is 0x46B550(path, &handle), called once and lazily - the loader is only
+safe once the client's asset system is up. BlitMda is 0x4684F0 and returns 0
+without drawing when the handle is not in the client's MDA table or the name is
+unknown. Both failures are silent, so the return value is checked and the first
+refusal is logged once.
+
+Fallback
+--------
+LoadMda, BlitMda, MouseX and MouseY are the module's only optional signatures.
+A miss on any of them costs the artwork, not the module: iv_resolve_all skips
+optional failures, and the panel reverts to the original 80x24 sidecar (the
+client's tooltip nine-slice plus "Sort"/"Sorting..." text) placed outside the
+window. Sort keeps working either way. A miss on any of the other eleven still
+stands the module down.
+
+Ownership
+---------
+Core owns UiTick and HandlePacket detours plus the send queue. This module owns
+one private packet claim, one InventoryData observer, one post-UiTick token,
+its companion UI node, and one MDA handle from the client's own loader. Fifteen
+signatures, four of them optional. Shutdown revokes the tokens before destroying the
+node and clearing state. DllMain is passive.
+
+Configuration
+-------------
+[Addons]
+Inventory=1
+
+[Inventory]
+SortCooldownSeconds=30
+
+Set Inventory=0 to disable the module without resolving signatures or touching
+the client UI. A relaunch is required after changing the setting.
+
+SortCooldownSeconds is clamped to 0..3600 and read once at init. 0 disables the
+client-side cooldown but not the server's.
+
+Build and verify
+----------------
+python patches/inventory/tools/scan_offsets.py
+python patches/inventory/tools/build.py --test

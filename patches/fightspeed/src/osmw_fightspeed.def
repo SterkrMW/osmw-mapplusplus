@@ -1,0 +1,3 @@
+LIBRARY osmw_fightspeed
+EXPORTS
+    osmw_mod_query

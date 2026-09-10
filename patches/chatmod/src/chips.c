@@ -48,6 +48,7 @@ static const blit_site_t BLIT_SITES[] = {
 #define BLIT_SITE_COUNT ((int)(sizeof(BLIT_SITES) / sizeof(BLIT_SITES[0])))
 
 static mw_hook_t     g_atlas_hook;
+static OSMW_TOKEN    g_blit_claims[BLIT_SITE_COUNT];
 static chipatlas_fn  g_atlas_orig;
 static int           g_installed;
 static int           g_applied_height;
@@ -56,17 +57,6 @@ static int           g_applied_height;
  * stretches from the original rather than from the last scaled version. */
 static HDC     g_snapshot_dc;
 static HBITMAP g_snapshot_bmp;
-
-static int write_bytes(unsigned char *at, const unsigned char *bytes, int len)
-{
-    DWORD old, dummy;
-    if (!VirtualProtect(at, len, PAGE_EXECUTE_READWRITE, &old))
-        return 0;
-    memcpy(at, bytes, len);
-    VirtualProtect(at, len, old, &dummy);
-    FlushInstructionCache(GetCurrentProcess(), at, len);
-    return 1;
-}
 
 /* Desired chip height: tall enough to sit comfortably beside the message text,
  * clamped to what the atlas and a push imm8 can carry. */
@@ -116,8 +106,39 @@ static int patch_blit_height(int height)
     patch[0] = 0x6A;
     patch[1] = (unsigned char)height;
     for (i = 0; i < BLIT_SITE_COUNT; i++)
-        write_bytes(site_address(&BLIT_SITES[i]), patch, 2);
+        if (!mw_write_bytes(site_address(&BLIT_SITES[i]), patch, 2))
+            return 0;
     return 1;
+}
+
+static int claim_blit_sites(void)
+{
+    static const char *labels[BLIT_SITE_COUNT] = {
+        "chat render chip-height immediate 1",
+        "chat render chip-height immediate 2",
+        "chat draw-lines chip-height immediate"
+    };
+    int i;
+
+    for (i = 0; i < BLIT_SITE_COUNT; ++i) {
+        unsigned char *at = site_address(&BLIT_SITES[i]);
+        OSMW_RESULT result;
+        if (at == NULL || memcmp(at, BLIT_SITES[i].expect, 2) != 0) {
+            mw_log("chips: site %d bytes differ; refusing claims", i);
+            break;
+        }
+        result = mw_claim_region(at, 2, OSMW_REGION_CODE, labels[i],
+                                 &g_blit_claims[i]);
+        if (result != OSMW_OK) {
+            mw_log("chips: site %d claim failed (%ld)", i, (long)result);
+            break;
+        }
+    }
+    if (i == BLIT_SITE_COUNT)
+        return 1;
+    while (i-- > 0)
+        (void)mw_release_region(&g_blit_claims[i]);
+    return 0;
 }
 
 static void take_snapshot(HDC atlas_dc)
@@ -206,10 +227,19 @@ int mw_chips_install(void)
         return 0;
     }
 
+    if (!claim_blit_sites())
+        return 0;
+
     /* prologue is `sub esp,0x6c / push ebx / push ebp` -- exactly 5 bytes */
     if (!mw_hook_install(&g_atlas_hook, mw_addr[MW_CHIPATLAS],
-                         (void *)(UINT_PTR)atlas_detour, 5)) {
+                         (void *)(UINT_PTR)atlas_detour, 5,
+                         "chat chip-atlas prologue")) {
         mw_log("chips: could not hook the atlas builder");
+        {
+            int i;
+            for (i = BLIT_SITE_COUNT - 1; i >= 0; --i)
+                (void)mw_release_region(&g_blit_claims[i]);
+        }
         return 0;
     }
     g_atlas_orig = (chipatlas_fn)g_atlas_hook.trampoline;
@@ -220,17 +250,29 @@ int mw_chips_install(void)
     return 1;
 }
 
-void mw_chips_remove(void)
+OSMW_RESULT mw_chips_remove(void)
 {
+    OSMW_RESULT result;
+    int i;
+
     if (!g_installed)
-        return;
+        return OSMW_OK;
 
     /* Put the blit heights back before the hook goes, or the client keeps
      * blitting a cell size whose atlas we are about to stop maintaining. */
-    if (g_applied_height != CHIP_H_BASE)
-        patch_blit_height(CHIP_H_BASE);
+    if (g_applied_height != CHIP_H_BASE &&
+            !patch_blit_height(CHIP_H_BASE))
+        return OSMW_E_INTERNAL;
 
-    mw_hook_remove(&g_atlas_hook);
+    result = mw_hook_remove(&g_atlas_hook);
+    if (result != OSMW_OK)
+        return result;
+
+    for (i = BLIT_SITE_COUNT - 1; i >= 0; --i) {
+        result = mw_release_region(&g_blit_claims[i]);
+        if (result != OSMW_OK)
+            return result;
+    }
 
     if (g_snapshot_bmp) {
         DeleteObject(g_snapshot_bmp);
@@ -242,4 +284,5 @@ void mw_chips_remove(void)
     }
     g_installed = 0;
     mw_log("chips: removed");
+    return OSMW_OK;
 }

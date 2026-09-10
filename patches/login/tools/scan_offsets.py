@@ -16,7 +16,12 @@ chat.HEADER_TEMPLATE = chat.HEADER_TEMPLATE.replace(
     "patches/login/tools/scan_offsets.py",
 ).replace("ChatMod_*", "Login_*").replace("mw_sig_t", "lg_sig_t").replace(
     "MW_SIGS", "LG_SIGS").replace("MW_SIG_COUNT", "LG_SIG_COUNT").replace(
-    "MW_ADDR_COUNT", "LG_ADDR_COUNT").replace("    MW_%s,", "    LG_%s,")
+    "MW_ADDR_COUNT", "LG_ADDR_COUNT").replace("    MW_%s,", "    LG_%s,").replace(
+    # Login rows carry no `optional` field -- generate_header below emits six
+    # initialisers, not seven -- so lg_sig_t must not declare a seventh member.
+    # Without this the header drifts from the committed one on every --write,
+    # declaring a field nothing initialises and nothing reads.
+    "\n    int            optional;       /* 1 = miss does not stand down the mod */", "")
 
 
 def generate_header(pe, sigs, resolved) -> str:

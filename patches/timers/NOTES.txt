@@ -1,0 +1,196 @@
+osmw_timers.dll
+
+Purpose
+-------
+F9 opens a five-second stock-styled glance panel at the top centre showing
+authoritative remaining durations for Devil's Tears and timed Shapeshift
+Potions. F9 closes it immediately; there is no on-panel close control.
+
+Each running effect is one cell: its own item.mda sprite, then the time. Cells
+sit side by side in a fixed order -- Devil's Tears, Shapeshift, EXP -- so a cell
+never slides sideways when a different effect expires. An effect that is not
+running has no cell, so the panel width is a function of the snapshot -- see
+Panel geometry.
+
+Protocol
+--------
+Current version is 2.
+
+0x7F000001 C2S: field12=<version>, no extra payload. Capability hello and
+idempotent refresh request; it carries no effect state.
+
+0x7F000002 S2C: field12=<version>, extraSize=16 at v2 (8 at v1). Little-endian
+uint32 values: Devil's Tears seconds, Shapeshift seconds, then at v2 EXP seconds
+and the EXP multiplier. Zero seconds means inactive.
+
+The client announces the highest version it speaks and the server answers IN
+THAT VERSION, not the newest it knows, so a stale DLL keeps a working two-cell
+panel rather than silently losing the feature. v1 is still served.
+
+The EXP pair is all-or-nothing: the server zeroes the multiplier once the
+duration runs out, and a snapshot with exactly one of the two set is rejected.
+Double and triple EXP share one player slot, so they share one cell and the
+multiplier picks the sprite: 2 -> 505, anything else -> 434.
+
+Managed core integration (ABI 1)
+--------------------------------
+DllMain is passive and the DLL's sole export is osmw_mod_query. Init gates on
+[Addons] Timers through core config, requires the config/signature/UiTick/
+packet/send-queue capabilities, resolves its private UI symbols through core's
+pristine-image resolver, and then acquires three managed tokens:
+
+  1. an exclusive 0x7F000002 snapshot handler;
+  2. a post-stock 0x00030100 MapData observer;
+  3. a priority-0 post-UiTick callback.
+
+The exclusive handler consumes every packet of its private type. Valid v1/v2
+snapshots replace timer state; malformed private packets are logged and ignored
+without leaking them into the stock dispatcher. The MapData observer only marks
+a refresh pending. The following post-tick callback queues the capability hello
+through core, so sending never recurses through the receive path.
+
+The tick callback also advances monotonic deadlines, polls F9, and creates or
+destroys the panel after the original client node walk. Core alone owns the raw
+UiTick, HandlePacket and SendPacket addresses, calling conventions, detours and
+send buffer. Timers contains no trampoline or raw game-stack ABI for them.
+
+Item sprites (no hook; call and read only)
+------------------------------------------
+0x44ADD0 DrawItemIcon: void __cdecl(int x, int y, void *frame, void *surface).
+The client's own item blitter, used by all 35 stock item draw sites. Argument
+order confirmed from the prologue ([ebp+8]=x, +0xc=y, +0x10=frame, +0x14=
+surface) and the caller cleaning 16 bytes at site 0x44C864. surface is
+*(void **)0x7E6A04, the same back buffer DrawInfoBox and DrawText take.
+
+Three properties that make it usable directly:
+  - It subtracts the frame's signed 16-bit hotspot at +0x1c/+0x1e from x,y, and
+    every item.mda frame has hotspot (0,0). So x,y is the top-left corner. Not
+    true for frames out of other MDA banks.
+  - Every item.mda frame is 32x32 (RAYS IMG256, width +0x14, height +0x16).
+  - Same RLE decoder as the info.mda frame, so skip runs leave the destination
+    untouched and sprites composite over the frame's transparent interior. The
+    palette is inside the frame; there is no flags argument and nothing to set
+    up, unlike the 9-argument generic MDA blit 0x4684F0.
+It does NOT clip: it multiplies y by a hardcoded 800 stride and writes.
+
+Timer_ItemSpriteArray: base of the item.mda pointer array, read as a wildcarded
+immediate (opOffset=1) out of the load loop at 0x45E1C0.
+
+NEVER HARDCODE THIS. It is 0x7041DC on a stock exe and relocated into the
+.isprite section by tools/client-patch/item_sprite_capacity.py -- both clients
+on this machine resolve it to 0x817000. This is the mod's first signature that
+is EXPECTED to differ between clients, so the scan log's "differs from reference
+build" note on it is normal rather than drift. The `68 2C 5A 56 00` tail is
+push "system\item.mda", which is what separates it from the other 36 references
+to the array.
+
+Two rules when drawing: cap the index at 511 (the bound every client satisfies;
+reading past whichever capacity this client has yields a pointer from an
+adjacent global), and null-check base[index] first -- unloaded slots stay null
+and the blitter dereferences [esi+0x20] with no check of its own.
+
+Both signatures are optional=1. If either misses, cells draw a two-character
+DT/SS label centred in the sprite column instead and geometry is unchanged.
+There is deliberately no second layout.
+
+Sprite indices come from the server's item data and are overridable in
+config.ini as [Timers] DevilTearsIcon (24), ShapeshiftIcon (344), DoubleExpIcon
+(505) and TripleExpIcon (434). One index covers every Shapeshift Potion because
+all forms are generated by one factory that hardcodes file: 344.
+
+Colour
+------
+~C takes digits 0-9, not just the 0/1/4/5 the older specs list: the handler at
+0x49C0AE stores the digit at renderer+0x40 and the glyph loop reads a 16-bit
+colour from renderer + index*2. Ten slots. The palette is built at runtime in
+.data BSS, so it cannot be read out of main.exe statically.
+
+~C0 is the default body colour, ~C1 is red (confirmed in game). A running timer
+is drawn ~C0 and only the final minute escalates to ~C1. The first build had
+these the other way round, which left a three-hour shapeshift sitting in alarm
+red and made the last minute a de-escalation.
+
+Panel geometry
+--------------
+Top-centred at y=8, 56 tall in every state; only width and left edge move.
+0x4615B0 tiles nine info.mda pieces as 16px corners with 8px edges, so
+(w-16)/8 and (h-16)/8 must come out whole.
+
+  Synchronising... / No timers active   136 x 56 at x=332   (15, 5)
+  one effect                            120 x 56 at x=340   (13, 5)
+  two effects                           216 x 56 at x=292   (25, 5)
+  three effects                         312 x 56 at x=244   (37, 5)
+
+Horizontal padding is 20, not 8: the corner pieces are 16 wide and a sprite
+inset by 8 would sit under one. Sprite top at y+12, text at y+22. A cell is
+32 sprite + 4 gap + a 42px value column (7 chars at 6px, the widest timer
+"2:59:41"), 78 total, 16 between cells. Reserving the full value column is what
+stops the panel resizing when a timer crosses the hour boundary.
+
+The width can change while the panel is open, so panel_sync_width() resizes the
+live node from the tick. That is a rect setter, not a relink, so it does not
+disturb the node walker's cursor at 0x7bad98 -- unlike create/destroy, which
+still only happen after the original UiTick pass.
+
+Safety
+------
+Every private address is resolved through core's pristine executable image.
+Zero or multiple matches for a required signature rolls init back before the
+module becomes active. The two sprite symbols remain optional and fall back to
+text labels.
+
+Snapshot parsing accepts only protocol 1 with exactly 8 bytes or protocol 2
+with exactly 16 bytes, requires a non-null payload, bounds every duration and
+requires the EXP duration/multiplier pair to be consistent. The server remains
+authoritative; local deadlines are display state only. Queue-full failures keep
+the request pending and retry no faster than once per 500 ms.
+
+The key uses GetAsyncKeyState only while the foreground HWND belongs to this
+process, preserving one-client-only behavior when multi-boxing. UI nodes are
+created and destroyed only from core's post-UiTick callback. Closing consumes
+any pending click. Shutdown first makes callbacks inert, then returns the tick,
+MapData and snapshot tokens in reverse acquisition order before DLL unmap.
+
+Reference specification
+-----------------------
+mw-tools/tools/client-dll/consumable-timers.md
+
+Managed verification (2026-09-05)
+---------------------------------
+- `python patches/timers/tools/build.py --test --no-deploy` builds the release
+  x86 DLL with MSVC /MT /W4 and runs a host against the real DLL.
+- The 126464-byte DLL imports only kernel32.dll and user32.dll and its sole
+  export is the undecorated osmw_mod_query.
+- All 13 Timer_ private signatures resolve exactly once against the configured
+  client. UiTick, HandlePacket and SendPacket are absent from the timer catalog.
+- The host verifies passive load/query negotiation; disabled, required-miss and
+  optional-miss gates; exact registration types; hello bytes; queue backpressure
+  and 500 ms retry; post-stock MapData deferral; valid, short, null, unknown,
+  out-of-range and inconsistent snapshots; expiry refresh; relog reset; reverse
+  token release; inert revoked callbacks; and clean FreeLibrary.
+- Production autoload was not changed and this managed DLL was not deployed.
+  F9 drawing/focus and the full managed live-client matrix remain pending.
+
+Legacy implementation history (2026-09-04)
+-------------------------------------------
+The pre-core release was an x86 132608-byte DLL with two private prologue
+detours. Its 14 original signatures, and the wider native-mod scan at that
+time, resolved exactly once. The following trial notes explain fixes retained
+in the feature logic; the private hooks they describe have since been removed.
+
+First live trial: entering the game immediately lost the connection. Root cause
+was an ABI mismatch in the initial implementation: HandlePacket is stdcall but
+the detour and trampoline typedef were cdecl. That double-adjusted the stack
+when forwarding stock packets and failed to pop the caller's four arguments on
+return. Both declarations now match the verified `ret 0x10` dispatcher.
+
+Second live trial: the panel, timers and Close button worked, but F9 opened it
+only once. The client scancode entry remained latched after the DLL-owned node
+opened, so the software edge never observed an up state. The timer hotkey now
+reads physical state behind a foreground-process gate: reliable release edges
+without making one F9 press affect every running client.
+
+UX follow-up: the glance panel moved from screen centre to `(272,8)`, dropped
+its heading and Close row, and shrank from 256x112 to 256x56. It now closes
+after five seconds or immediately on F9; opening it again starts a fresh five
+seconds.
