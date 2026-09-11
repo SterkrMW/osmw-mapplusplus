@@ -1,5 +1,0 @@
-LIBRARY osmw_settings
-EXPORTS
-    ; Side-effect-free managed-module negotiation entry point.  The core
-    ; preflights this exact undecorated export before LoadLibrary.
-    osmw_mod_query

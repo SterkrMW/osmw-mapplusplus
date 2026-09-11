@@ -1,3 +1,0 @@
-LIBRARY fixture_duplicate
-EXPORTS
-    osmw_mod_query

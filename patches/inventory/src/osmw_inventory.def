@@ -1,3 +1,0 @@
-LIBRARY osmw_inventory
-EXPORTS
-    osmw_mod_query
