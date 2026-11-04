@@ -179,6 +179,22 @@ WebMsgHandler(fn) {
 
 _WebMsgDispatch(fn, wv, args) {
     global gWebMsgDepth
+    ; Critical, so nothing queued can start a thread until this callback's
+    ; thread has ended and the COM call has returned. Without it, "post it and
+    ; return" was only probably safe. A handler running past AHK's 15 ms
+    ; uninterruptible window could have the WM_COMMAND it just posted (the tray
+    ; menu's _MakeHmenuCallback), or a DeferFromWebMessage timer, dispatched
+    ; at the next line, nested inside the page's message. Nested inside the
+    ; handler, the dialog backstop catches it and shows a MsgBox. Nested in
+    ; the few lines after the handler, where gWebMsgDepth is already 0, the
+    ; first dialog of a session built its WebView2 inside the COM call. The
+    ; creation callbacks can never arrive there, so the app hung for good:
+    ; Map POIs → Export to Game Markers did exactly that from the tray.
+    ; Critical lasts until the thread ends, which covers both windows. Events
+    ; that arrive meanwhile are buffered, not lost, and messages are still
+    ; pumped, so the handlers' own short waits (a file-replace retry) behave
+    ; as before.
+    Critical
     gWebMsgDepth += 1
     try
         fn(wv, args)
@@ -194,9 +210,11 @@ InWebMessageCallback() {
 ; Leaves the current WebView message handler before doing anything that can
 ; raise a dialog. A negative period fires the callback once from AHK's own
 ; message loop, after the COM call has returned — which is where blocking is
-; safe. Callers must re-check that their window still exists when they land:
-; the panel can be gone by then. Outside a message handler this is a harmless
-; one-tick delay, so a shared entry point may use it unconditionally.
+; safe. "After" is guaranteed only by the Critical in _WebMsgDispatch; without
+; it the timer could fire inside the handler's own last lines. Callers must
+; re-check that their window still exists when they land: the panel can be
+; gone by then. Outside a message handler this is a harmless one-tick delay,
+; so a shared entry point may use it unconditionally.
 DeferFromWebMessage(fn, params*) {
     SetTimer(fn.Bind(params*), -1)
 }
