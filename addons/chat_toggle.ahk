@@ -6,13 +6,17 @@ RegisterAddonOffset("ChatMiniSize", 0x30BFC8)
 
 RegisterAddon(Map(
     "name",       "ChatToggle",
+    "featureLabel",  "Chat toggle",
+    "settingsGroup", "multibox",
+    "multibox",      true,
+    "description",   "Hide or shrink the chat window on your clients with one key.",
     "OnTrayMenu", _ChatToggle_OnTrayMenu
 ))
 
 RegisterHotkeyAction(Map(
     "id", "chatToggleAll",
-    "label", "Toggle chat on all other clients",
-    "category", "Chat",
+    "label", "Toggle chat on other clients",
+    "category", "Clients",
     "default", "+^c",
     "addon", "ChatToggle",
     "handler", _ChatToggle_ToggleAllExceptActive,
@@ -20,8 +24,8 @@ RegisterHotkeyAction(Map(
 ))
 RegisterHotkeyAction(Map(
     "id", "chatToggleActive",
-    "label", "Toggle chat on active client",
-    "category", "Chat",
+    "label", "Toggle chat on this client",
+    "category", "Clients",
     "default", "^c",
     "addon", "ChatToggle",
     "handler", _ChatToggle_ToggleActiveChat,
@@ -29,8 +33,8 @@ RegisterHotkeyAction(Map(
 ))
 RegisterHotkeyAction(Map(
     "id", "chatToggleSize",
-    "label", "Toggle mini chat size on all clients",
-    "category", "Chat",
+    "label", "Toggle chat size on every client",
+    "category", "Clients",
     "default", "!^c",
     "addon", "ChatToggle",
     "handler", _ChatToggle_ToggleSize,
@@ -38,11 +42,13 @@ RegisterHotkeyAction(Map(
 ))
 
 _ChatToggle_OnTrayMenu(trayGroups) {
-    chatMenu := Menu()
-    chatMenu.Add("Toggle All`t" GetHotkeyDisplay("chatToggleAll"), (*) => _ChatToggle_ToggleAllExceptActive())
-    chatMenu.Add("Toggle Active`t" GetHotkeyDisplay("chatToggleActive"), (*) => _ChatToggle_ToggleActiveChat())
-    chatMenu.Add("Toggle Size`t" GetHotkeyDisplay("chatToggleSize"), (*) => _ChatToggle_ToggleSize())
-    trayGroups["quickActions"].Add("Chat", chatMenu)
+    clientsGroup := trayGroups["clients"]
+    clientsGroup.Add("Toggle chat on other clients", (*) => _ChatToggle_ToggleAllExceptActive(),
+        Map("section", "chat", "order", 10, "hotkey", "chatToggleAll"))
+    clientsGroup.Add("Toggle chat on this client", (*) => _ChatToggle_ToggleActiveChat(),
+        Map("section", "chat", "order", 20, "hotkey", "chatToggleActive"))
+    clientsGroup.Add("Toggle chat size", (*) => _ChatToggle_ToggleSize(),
+        Map("section", "chat", "order", 30, "hotkey", "chatToggleSize"))
 }
 
 ; One click per *process*. GetTopLevelGameWindows filters child and owned

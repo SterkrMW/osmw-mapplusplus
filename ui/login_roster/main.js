@@ -272,6 +272,17 @@ function collect() {
     });
 }
 
+// Launches act on the saved roster, not this draft: AHK resolves the row by id
+// from the file, and refuses with a "save first" note if it is not there yet.
+function launch(mode) {
+    if (selected < 0 || selected >= rows.length) {
+        $('status').textContent = 'Select a row to launch.';
+        return;
+    }
+    sendToAhk('launch', { mode, id: rows[selected].id, which: $('launchWhich').value });
+    $('status').textContent = 'Launching…';
+}
+
 function save() {
     const payload = collect();
     if (payload.some((row) => !row.account)) {
@@ -316,6 +327,8 @@ $('btnRemove').addEventListener('click', removeRow);
 $('btnUp').addEventListener('click', () => moveRow(-1));
 $('btnDown').addEventListener('click', () => moveRow(1));
 $('btnSave').addEventListener('click', save);
+$('btnLaunchOnly').addEventListener('click', () => launch('only'));
+$('btnLaunchFrom').addEventListener('click', () => launch('start'));
 $('btnClose').addEventListener('click', () => sendToAhk('close'));
 $('btnTitleClose').addEventListener('click', () => sendToAhk('close'));
 

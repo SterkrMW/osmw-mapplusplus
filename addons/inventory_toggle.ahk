@@ -2,13 +2,16 @@
 
 RegisterAddon(Map(
     "name",       "InventoryToggle",
+    "featureLabel",  "Inventory key",
+    "settingsGroup", "tools",
+    "description",   "Opens the inventory with a key instead of the button.",
     "OnTrayMenu", _InventoryToggle_OnTrayMenu
 ))
 
 RegisterHotkeyAction(Map(
     "id", "inventoryOpenClick",
-    "label", "Open inventory (click)",
-    "category", "Inventory",
+    "label", "Open inventory",
+    "category", "Actions",
     "default", "!e",
     "addon", "InventoryToggle",
     "handler", _InventoryToggle_OpenInventory,
@@ -26,7 +29,7 @@ global _InventoryToggle_ALTE_PATCHED := "0F8547FFFFFF"
 RegisterHotkeyAction(Map(
     "id", "inventoryOpenSend",
     "label", "Open inventory (send Alt+I)",
-    "category", "Inventory",
+    "category", "Actions",
     "default", "!+e",
     "addon", "InventoryToggle",
     "handler", _InventoryToggle_OpenInventoryAlt,
@@ -34,10 +37,10 @@ RegisterHotkeyAction(Map(
 ))
 
 _InventoryToggle_OnTrayMenu(trayGroups) {
-    invMenu := Menu()
-    invMenu.Add("Open (Click)`t" GetHotkeyDisplay("inventoryOpenClick"), (*) => _InventoryToggle_OpenInventory())
-    invMenu.Add("Open (Send Alt+I)`t" GetHotkeyDisplay("inventoryOpenSend"), (*) => _InventoryToggle_OpenInventoryAlt())
-    trayGroups["quickActions"].Add("Inventory", invMenu)
+    ; The Alt+I variant stays a hotkey: from a menu, one way to open the bag is
+    ; enough, and clicking the button is the one that works everywhere.
+    trayGroups["actions"].Add("Open inventory", (*) => _InventoryToggle_OpenInventory(),
+        Map("section", "game", "order", 30, "hotkey", "inventoryOpenClick"))
 }
 
 ; When the click hotkey fires. It stands down — letting the keystroke through to

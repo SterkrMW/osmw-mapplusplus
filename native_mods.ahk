@@ -309,7 +309,7 @@ NativeModsStatusSummary(st) {
     switch st.reason {
         case "no-game-path":
             return { severity: "warn", text: "No game path is set, so Maps++ cannot find "
-                . "the client mods. Set one under Settings → Launcher." }
+                . "the client mods. Set one under Settings → Game & startup." }
         case "not-installed":
             return { severity: "info", text: "The osMW client mods are not installed in "
                 . ResolveGameDirectory() ". The game runs as stock; there is nothing to report." }
@@ -383,7 +383,7 @@ NativeModsStatusSummary(st) {
         text .= "`n`nSwitched off: " _NativeModsJoin(disabled) "."
     if loginIdle
         text .= "`n`nAuto-login was idle in that client — it runs only in clients launched "
-            . "with auto-login (Settings → Launcher), so this is normal for one started by hand."
+            . "with auto-login (Settings → Launching), so this is normal for one started by hand."
     if (integrity = "mismatch" || integrity = "manifest-invalid") {
         text .= "`n`nRelease check: " integrity " — some mod files differ from the release "
             . "they came with."

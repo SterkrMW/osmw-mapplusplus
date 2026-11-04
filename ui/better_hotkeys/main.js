@@ -421,12 +421,16 @@ function showToast(text, tone = 'info') {
     setTimeout(() => toast.remove(), 4200);
 }
 
+// Mirrors FormatHotkeyDisplay in hotkeys.ahk: modifiers in one fixed order
+// whatever order the chord was typed in, and a single-letter key uppercased.
 function displayChord(chord) {
     const names = { '^': 'Ctrl+', '!': 'Alt+', '+': 'Shift+', '#': 'Win+' };
-    let output = '';
+    const seen = new Set();
     let index = 0;
-    while (names[chord[index]]) output += names[chord[index++]];
-    return output + chord.slice(index);
+    while (names[chord[index]]) seen.add(chord[index++]);
+    const output = ['^', '!', '+', '#'].filter(m => seen.has(m)).map(m => names[m]).join('');
+    const key = chord.slice(index);
+    return output + (key.length === 1 ? key.toUpperCase() : key);
 }
 
 function familyName(skillNameText) {

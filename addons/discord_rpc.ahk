@@ -26,6 +26,9 @@ global _DiscordRpc_READ_TIMEOUT_MS := 300
 
 RegisterAddon(Map(
     "name",          "DiscordRpc",
+    "settingsGroup", "tools",
+    "settingsIcon",  "forum",
+    "description",   "Shows the map you are on in your Discord status.",
     "settingsLabel", "Discord",
     "OnInit",        _DiscordRpc_OnInit,
     "OnSettingsWeb",     _DiscordRpc_OnSettingsWeb,

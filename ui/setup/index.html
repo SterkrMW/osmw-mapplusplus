@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Set up Maps++</title>
+    <script src="../common/theme.js"></script>
+    <link rel="stylesheet" href="../common/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="title-bar">
+        <div class="title-bar-drag">
+            <span class="material-symbols-outlined title-bar-icon">map</span>
+            <span class="title-bar-title">Set up Maps++</span>
+        </div>
+        <div class="title-bar-controls">
+            <button class="title-btn title-btn-close" id="btnTitleClose" title="Close">✕</button>
+        </div>
+    </header>
+
+    <nav class="steps" id="steps" aria-label="Setup steps"></nav>
+
+    <main class="setup-body" id="body">
+
+        <!-- ── Welcome ── -->
+        <section class="step" data-step="welcome">
+            <h1>Welcome to Maps++</h1>
+            <p class="lede">Maps++ runs beside MythWar Online and adds:</p>
+            <ul class="perks">
+                <li><span class="material-symbols-outlined">map</span>
+                    <span>A detailed minimap with your live position, points of interest and your party.</span></li>
+                <li><span class="material-symbols-outlined">rocket_launch</span>
+                    <span>One-key launching, logging in and arranging when you play several characters.</span></li>
+                <li><span class="material-symbols-outlined">tune</span>
+                    <span>An Action ring and shortcuts for the things you do in every fight.</span></li>
+            </ul>
+
+            <h2>How do you play?</h2>
+            <div class="choice-grid" role="radiogroup" aria-label="How do you play?">
+                <button type="button" class="choice-card" data-style="solo" role="radio" aria-checked="false">
+                    <span class="material-symbols-outlined choice-icon">person</span>
+                    <span class="choice-name">One character</span>
+                    <span class="choice-note">Keeps it simple. The multi-boxing tools stay off until you want them.</span>
+                </button>
+                <button type="button" class="choice-card" data-style="multi" role="radio" aria-checked="false">
+                    <span class="material-symbols-outlined choice-icon">groups</span>
+                    <span class="choice-name">Several characters at once</span>
+                    <span class="choice-note">Also sets up launching, logging in and arranging your clients.</span>
+                </button>
+            </div>
+            <p class="hint">Nothing here is permanent: Help → Setup guide in the tray menu brings this back, and Settings has every option.</p>
+        </section>
+
+        <!-- ── Game ── -->
+        <section class="step" data-step="game">
+            <h1>Where is the game?</h1>
+            <p class="lede">Maps++ needs <code>main.exe</code> to launch clients. The minimap works without it.</p>
+
+            <div class="card">
+                <div class="path-row">
+                    <span class="path" id="gamePath">Not set</span>
+                    <button type="button" class="btn btn-sm" id="btnBrowse">Browse…</button>
+                </div>
+                <p class="status" id="gameStatus"></p>
+            </div>
+
+            <div id="candidatesWrap" hidden>
+                <h2>Found on this PC</h2>
+                <ul class="candidates" id="candidates"></ul>
+            </div>
+            <p class="hint">You can skip this and set it later under Settings → Game &amp; startup.</p>
+        </section>
+
+        <!-- ── Minimap ── -->
+        <section class="step" data-step="minimap">
+            <h1>What should Tab do?</h1>
+            <p class="lede">The game has its own minimap on most maps. Maps++'s adds your points of interest, party markers and waypoints.</p>
+
+            <div class="option-list" role="radiogroup" aria-label="What Tab opens">
+                <label class="option">
+                    <input type="radio" name="source" value="game">
+                    <span class="option-copy">
+                        <span class="option-name">The game's minimap where there is one</span>
+                        <span class="option-note">Maps++'s everywhere else. Recommended.</span>
+                    </span>
+                </label>
+                <label class="option">
+                    <input type="radio" name="source" value="mapspp">
+                    <span class="option-copy">
+                        <span class="option-name">Always Maps++'s minimap</span>
+                        <span class="option-note">On every map Maps++ has a picture of.</span>
+                    </span>
+                </label>
+                <label class="option">
+                    <input type="radio" name="source" value="off">
+                    <span class="option-copy">
+                        <span class="option-name">Always the game's minimap</span>
+                        <span class="option-note">Maps++ never takes Tab.</span>
+                    </span>
+                </label>
+            </div>
+
+            <div class="card key-card" id="openKeyCard">
+                <span class="option-copy">
+                    <span class="option-name">A key for Maps++'s minimap</span>
+                    <span class="option-note">Opens it even where Tab shows the game's. Optional.</span>
+                </span>
+                <span class="kbd key-chip" id="openKey">None</span>
+                <button type="button" class="btn btn-sm" id="btnSetKey">Set key…</button>
+                <button type="button" class="btn btn-sm" id="btnClearKey">Clear</button>
+            </div>
+        </section>
+
+        <!-- ── Launching (several characters only) ── -->
+        <section class="step" data-step="launching">
+            <h1>Launching your clients</h1>
+            <p class="lede">These become your launch profiles. Settings → Launching has more, such as launching a saved group of accounts.</p>
+
+            <div class="card">
+                <div class="card-title">Launch primary <span class="kbd" id="primaryChord" hidden></span></div>
+                <div class="field-grid">
+                    <label class="field">
+                        <span class="field-label">Clients</span>
+                        <input type="number" class="input input-narrow" id="primaryCount" min="1" max="32" step="1">
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Display</span>
+                        <select class="select" id="primaryMonitor"></select>
+                    </label>
+                    <label class="field" id="layoutField">
+                        <span class="field-label">Then arrange them as</span>
+                        <select class="select" id="primaryLayout"></select>
+                    </label>
+                </div>
+            </div>
+
+            <div class="card">
+                <label class="check-row">
+                    <input type="checkbox" class="toggle" id="secondEnabled">
+                    <span class="option-copy">
+                        <span class="option-name">A second team, launched separately</span>
+                        <span class="option-note">Launch secondary starts it, on another display.</span>
+                    </span>
+                </label>
+                <div class="field-grid" id="secondFields">
+                    <label class="field">
+                        <span class="field-label">Clients</span>
+                        <input type="number" class="input input-narrow" id="secondCount" min="1" max="32" step="1">
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Display</span>
+                        <select class="select" id="secondMonitor"></select>
+                    </label>
+                </div>
+            </div>
+
+            <div class="card">
+                <label class="check-row">
+                    <input type="checkbox" class="toggle" id="autoLogin">
+                    <span class="option-copy">
+                        <span class="option-name">Log clients in automatically</span>
+                        <span class="option-note" id="autoLoginNote">Each client takes the next saved account.</span>
+                    </span>
+                </label>
+                <div class="accounts-row" id="accountsRow">
+                    <button type="button" class="btn btn-sm" id="btnAccounts">Set up accounts…</button>
+                    <span class="hint" id="accountCount"></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── Features ── -->
+        <section class="step" data-step="features">
+            <h1>Features</h1>
+            <p class="lede" id="featuresLede">Turn off what you won't use. Its menu items and shortcuts go with it.</p>
+            <div class="feature-list" id="featureList"></div>
+        </section>
+
+        <!-- ── Finish ── -->
+        <section class="step" data-step="finish">
+            <h1>You're set</h1>
+
+            <div class="card">
+                <div class="card-title">Keys to remember</div>
+                <table class="keys" id="shortcuts"></table>
+                <p class="hint">Right-click the Maps++ icon in the system tray for everything else.</p>
+            </div>
+
+            <div class="card" id="interfaceCard">
+                <div class="card-title">Look</div>
+                <div class="inline-options" role="radiogroup" aria-label="Interface">
+                    <label class="option compact">
+                        <input type="radio" name="interface" value="webview">
+                        <span class="option-copy">
+                            <span class="option-name">Enhanced</span>
+                            <span class="option-note">Windows like this one</span>
+                        </span>
+                    </label>
+                    <label class="option compact">
+                        <input type="radio" name="interface" value="native">
+                        <span class="option-copy">
+                            <span class="option-name">Low memory</span>
+                            <span class="option-note">Plain Windows menus</span>
+                        </span>
+                    </label>
+                </div>
+                <div class="swatches" role="radiogroup" aria-label="Accent colour">
+                    <span class="field-label">Accent colour</span>
+                    <label class="swatch swatch-amber" title="Amber"><input type="radio" name="accent" value="amber"><span></span></label>
+                    <label class="swatch swatch-blue" title="Blue"><input type="radio" name="accent" value="blue"><span></span></label>
+                    <label class="swatch swatch-green" title="Green"><input type="radio" name="accent" value="green"><span></span></label>
+                </div>
+            </div>
+
+            <div class="card">
+                <label class="check-row">
+                    <input type="checkbox" class="toggle" id="autoStart">
+                    <span class="option-name">Start Maps++ when Windows starts</span>
+                </label>
+                <label class="check-row" id="launchNowRow">
+                    <input type="checkbox" class="toggle" id="launchNow">
+                    <span class="option-copy">
+                        <span class="option-name">Launch the game when I click Finish</span>
+                        <span class="option-note" id="launchNowNote"></span>
+                    </span>
+                </label>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <button type="button" class="btn" id="btnSkip">Skip setup</button>
+        <span class="footer-status" id="footerStatus" role="status" aria-live="polite"></span>
+        <div class="footer-right">
+            <button type="button" class="btn" id="btnBack">Back</button>
+            <button type="button" class="btn btn-primary" id="btnNext">Next</button>
+        </div>
+    </footer>
+
+    <script src="main.js"></script>
+</body>
+</html>

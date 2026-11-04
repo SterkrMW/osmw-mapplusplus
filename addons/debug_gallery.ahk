@@ -3,7 +3,7 @@
 ; ── GUI gallery (debug / promotional) ────────────────────────────
 ; Opens every panel this build has, all at once, and lays them out in one
 ; evenly spaced grid so a single screenshot can show the whole app. Tray →
-; Debug → GUI Gallery; running it again closes everything it opened.
+; Developer → GUI gallery; running it again closes everything it opened.
 ;
 ; Dev-only by construction: it is listed in no variants\*.txt manifest, so
 ; build.ps1 never ships it, while GenerateAddonIncludes() picks it up out of
@@ -43,13 +43,16 @@ global _Gallery_Placed := []      ; one entry per shown surface, for teardown
 
 RegisterAddon(Map(
     "name",       "DebugGallery",
+    "featureLabel",  "GUI gallery",
+    "devOnly",       true,
+    "description",   "Opens every panel at once, for screenshots.",
     "OnTrayMenu", _Gallery_OnTrayMenu
 ))
 
 RegisterHotkeyAction(Map(
     "id", "debugGuiGallery",
-    "label", "Toggle the GUI gallery (debug)",
-    "category", "Debug",
+    "label", "Toggle the GUI gallery",
+    "category", "Developer",
     ; Unbound by default: a promotional tool does not deserve a chord out of the
     ; box, and the tray entry is the discoverable way in.
     "default", "",
@@ -59,11 +62,11 @@ RegisterHotkeyAction(Map(
 
 _Gallery_OnTrayMenu(trayGroups) {
     global _Gallery_Active
-    if !trayGroups.Has("debug")
+    if !trayGroups.Has("developer")
         return
-    label := _Gallery_Active ? "Close GUI Gallery" : "GUI Gallery…"
-    trayGroups["debug"].Add(label "`t" GetHotkeyDisplay("debugGuiGallery"),
-        (*) => _Gallery_Toggle())
+    label := _Gallery_Active ? "Close GUI gallery" : "GUI gallery…"
+    trayGroups["developer"].Add(label, (*) => _Gallery_Toggle(),
+        Map("section", "tools", "hotkey", "debugGuiGallery"))
 }
 
 _Gallery_Toggle(*) {
@@ -181,10 +184,14 @@ _Gallery_Surfaces() {
             "fn", "ShowSettingsWindow", "guiVars", ["gSettingsGui"]),
         Map("key", "calibration", "label", "Map calibration",
             "fn", "ShowCalibrationPanel", "guiVars", ["gCalibGui"]),
+        ; Closed through its own teardown, which also clears gSetupActive so
+        ; the first-run prompts it holds off are not held off forever.
+        Map("key", "setup", "label", "Setup guide",
+            "fn", "Setup_Show", "guiVars", ["gSetupGui"], "closeFn", "_Setup_DestroyWindow"),
         Map("key", "roster", "label", "Client roster", "addon", "ClientRoster",
             "fn", "_ClientRoster_Show", "args", [true],
             "guiVars", ["_ClientRoster_Gui"], "closeFn", "_ClientRoster_Hide"),
-        Map("key", "loginRoster", "label", "Auto-login roster", "addon", "AutoLogin",
+        Map("key", "loginRoster", "label", "Accounts", "addon", "AutoLogin",
             "fn", "_AutoLogin_OpenEditor",
             "guiVars", ["_AutoLogin_WebGui", "_AutoLogin_NativeGui"]),
         Map("key", "radialClients", "label", "Radial — clients", "addon", "ClientRoster",
@@ -193,7 +200,7 @@ _Gallery_Surfaces() {
             "webOnly", true, "openFn", _Gallery_OpenActionsRing, "park", true),
         Map("key", "pois", "label", "Map POIs", "addon", "MapPois",
             "fn", "_Pois_ShowManageWindow", "guiVars", ["_Pois_ManageGui"]),
-        Map("key", "betterHotkeys", "label", "Better Hotkeys", "addon", "BetterHotkeys",
+        Map("key", "betterHotkeys", "label", "Skill hotkeys", "addon", "BetterHotkeys",
             "fn", "_BH_OpenEditor", "guiVars", ["_BH_WebGui", "_BH_NativeGui"]),
         Map("key", "windowLayout", "label", "Window layouts", "addon", "WindowLayout",
             "fn", "_WindowLayout_ShowManager",

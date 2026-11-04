@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Maps++ Auto-login</title>
+    <title>Maps++ Accounts</title>
     <script src="../common/theme.js"></script>
     <link rel="stylesheet" href="../common/style.css">
     <link rel="stylesheet" href="style.css">
@@ -12,7 +12,7 @@
     <header class="title-bar" id="title-bar">
         <div class="title-bar-drag">
             <span class="material-symbols-outlined title-bar-icon">group</span>
-            <span class="title-bar-title">Maps++ Auto-login</span>
+            <span class="title-bar-title">Accounts</span>
         </div>
         <div class="title-bar-controls">
             <button class="title-btn title-btn-close" id="btnTitleClose" title="Close">✕</button>
@@ -23,11 +23,11 @@
         <p class="note note-info">
             Each launched client claims the next enabled row, so five windows
             get five different characters — unless a launch profile or
-            <strong>Client Launch</strong> names the accounts, which wins. Use
+            <strong>Launch other</strong> names the accounts, which wins. Use
             <code>#1</code>–<code>#5</code>
             for the slot on that account, or the display ID. Passwords stay on
             this Windows user and never come back to this page after save.
-            Turn auto-login off under <strong>Settings → Launcher</strong> when
+            Turn auto-login off under <strong>Settings → Launching</strong> when
             you want the stock login screen.
         </p>
 
@@ -54,6 +54,16 @@
                         title="Copy the selected row's account, password and group into a new row">Duplicate</button>
                 <button class="btn btn-sm" id="btnRemove">Remove</button>
             </div>
+            <div class="row-actions launch-actions">
+                <button class="btn btn-sm" id="btnLaunchOnly"
+                        title="Launch one client, logged in as the selected row">Launch this account</button>
+                <button class="btn btn-sm" id="btnLaunchFrom"
+                        title="Launch a batch of clients starting at the selected row">Launch from here</button>
+                <select class="select select-sm" id="launchWhich" aria-label="Launch settings to use">
+                    <option value="primary">with Launch primary's display</option>
+                    <option value="secondary">with Launch secondary's display</option>
+                </select>
+            </div>
         </section>
 
         <section class="section">
@@ -79,9 +89,9 @@
                        placeholder="optional">
                 <datalist id="groupNames"></datalist>
                 <p class="field-hint">
-                    Tag rows that launch together — <strong>Client Launch</strong> and the
-                    launch profiles in <strong>Settings → Launcher</strong> can then run a
-                    whole group at once.
+                    Tag rows that launch together — <strong>Launch other</strong> in the tray
+                    and the launch profiles in <strong>Settings → Launching</strong> can then
+                    run a whole group at once.
                 </p>
             </div>
             <div class="field field-inline">

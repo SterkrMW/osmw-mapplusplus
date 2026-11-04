@@ -78,6 +78,14 @@
     flex-wrap: wrap;
 }
 
+.launch-actions { align-items: center; }
+.select-sm {
+    height: 26px;
+    font-size: var(--text-secondary);
+    padding: 0 8px;
+}
+.launch-actions .select-sm { width: auto; flex: 1 1 200px; }
+
 .field-inline {
     display: flex;
     align-items: center;

@@ -7,30 +7,24 @@
 _Settings_BuildNative() {
     global gSettingsGui, gAddonHooks, gDisabledAddons, gSettingsHotkeyRows
     global gGamePath, gGameArgs, gLaunchOnStartup, gLaunchAutoLogin, gMultiClientCount, gMultiClientDelay
-    global gPrimaryMonitorOverride, gSecondaryMonitorOverride
-    global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gPrimaryProfileId, gSecondaryProfileId, LAUNCH_LAYOUT_DEFAULT
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme, gShowHoverCoords
     global gMinimapSource, MINIMAP_SOURCES, MINIMAP_SOURCE_LABELS, gMinimapFollowGameScale
     global gSettingsNativeFieldSetter, gSettingsRenderedAddonValues
+    global gInterfaceMode, gDeveloperTools
 
     gSettingsRenderedAddonValues := Map()
-    contributors := []
+    ; The same grouped tab model as the WebView2 page, so the two cannot list
+    ; different tabs or put them in a different order.
+    tabLayout := _Settings_GetTabLayout()
+    contributors := Map()
     for _, am in gAddonHooks {
-        ; Same rule as the WebView2 page, so a disabled addon has no tab here
+        ; Same rule as the WebView2 page, so a disabled addon has no page here
         ; either and its Save cannot reach the files it edits.
-        if !_Settings_AddonHasTab(am)
-            continue
-        label := am.Has("settingsLabel") ? am["settingsLabel"]
-            : (am.Has("name") ? am["name"] : "Addon")
-        contributors.Push({ map: am, label: label })
+        if _Settings_AddonHasTab(am)
+            contributors[_Settings_AddonTabLabel(am)] := am
     }
-
-    tabNames := ["Launcher", "Minimap", "Appearance", "Hotkeys"]
-    for c in contributors
-        tabNames.Push(c.label)
-    tabNames.Push("Addons")
 
     g := Gui("+AlwaysOnTop -MinimizeBox", "osMW Maps++ — Settings (Native)")
     gSettingsGui := g
@@ -38,43 +32,43 @@ _Settings_BuildNative() {
     g.OnEvent("Close", (*) => _Settings_Close())
     g.OnEvent("Escape", (*) => _Settings_Close())
 
-    ; Taller than it was: the Launcher tab now carries the profile editor that
-    ; replaced the two fixed display/layout pairs.
-    tab := g.Add("Tab3", "x10 y10 w650 h548", tabNames)
+    ; ── Pages ──
+    ; A tree of the tabs down the left rather than a Tab3 strip: sixteen tabs
+    ; wrapped a strip onto three rows, and its pages' content sat at a fixed y
+    ; under it. Each page's controls are recorded as they are added and shown
+    ; or hidden together. The page bodies below keep the coordinates they had
+    ; inside the old tab; PAdd moves every absolute x right of the tree.
+    NAV_W := 176
+    pages := Map()
+    pageOrder := []
+    curPage := ""
     contentX := 28
     contentY := 58
 
-    ; Launcher ----------------------------------------------------
-    tab.UseTab(1)
-    g.Add("Text", "x" contentX " y" contentY " w130", "Game path:")
-    gamePathEdit := g.Add("Edit", "x158 yp-3 w390 ReadOnly", gGamePath)
-    browseBtn := g.Add("Button", "x556 yp-1 w78", "Browse…")
+    ; Launching ---------------------------------------------------
+    UsePage("Game & startup")
+    PAdd("Text", "x" contentX " y" contentY " w130", "Game (main.exe):")
+    gamePathEdit := PAdd("Edit", "x158 yp-3 w390 ReadOnly", gGamePath)
+    browseBtn := PAdd("Button", "x556 yp-1 w78", "Browse…")
     browseBtn.OnEvent("Click", BrowseGame)
+    gameStatus := _Settings_GameStatus(gGamePath)
+    gameStatusText := PAdd("Text", "x158 y+6 w476 h32 c666666", gameStatus.text)
 
-    g.Add("Text", "x" contentX " y+20 w130", "Game arguments:")
-    gameArgsEdit := g.Add("Edit", "x158 yp-3 w476", gGameArgs)
+    PAdd("Text", "x" contentX " y+14 w130", "Extra arguments:")
+    gameArgsEdit := PAdd("Edit", "x158 yp-3 w476", gGameArgs)
 
-    autoStartCb := g.Add("CheckBox", "x" contentX " y+20 w520",
-        "Start Maps++ automatically when Windows starts")
+    autoStartCb := PAdd("CheckBox", "x" contentX " y+24 w520",
+        "Start Maps++ when Windows starts")
     autoStartCb.Value := IsRunOnStartupEnabled() ? 1 : 0
-    launchOnStartupCb := g.Add("CheckBox", "x" contentX " y+10 w520",
-        "Launch a game client when Maps++ starts")
+    launchOnStartupCb := PAdd("CheckBox", "x" contentX " y+10 w520",
+        "Launch the game when Maps++ starts")
     launchOnStartupCb.Value := gLaunchOnStartup ? 1 : 0
-    launchAutoLoginCb := g.Add("CheckBox", "x" contentX " y+10 w520",
-        "Auto-login launched clients (intro click-through + roster)")
-    launchAutoLoginCb.Value := gLaunchAutoLogin ? 1 : 0
 
-    ; Paired on one row: the profile editor below needs the vertical space, and
-    ; these two are read together anyway.
-    g.Add("Text", "x" contentX " y+22 w130", "Clients per launch:")
-    countEdit := g.Add("Edit", "x158 yp-3 w70 Number", String(gMultiClientCount))
-    g.Add("Text", "x244 yp+3 w120", "Launch delay (ms):")
-    delayEdit := g.Add("Edit", "x370 yp-3 w70 Number", String(gMultiClientDelay))
-
+    UsePage("Launching")
     ; ── Launch profiles ──
-    ; The Primary/Secondary display and layout pairs that used to sit here are
-    ; now per-profile; the two dropdowns at the bottom say which profile each
-    ; launch action runs. Same store and same validation as the WebView2 page.
+    ; Same store and same validation as the WebView2 page. A profile's count is
+    ; always explicit here: the global "Clients per launch" it could defer to
+    ; is no longer shown, so a stored 0 is shown and saved as what it meant.
     monitorChoices := _Settings_MonitorChoices()
     launchLayoutOptions := _Settings_LaunchLayoutOptions()
     launchLayoutLabels := []
@@ -84,6 +78,7 @@ _Settings_BuildNative() {
     accountLabels := []
     for choice in accountChoices
         accountLabels.Push(choice["label"])
+    defaultCount := Max(1, gMultiClientCount)
 
     nativeProfiles := []
     for _, pid in LaunchProfileIds() {
@@ -92,47 +87,57 @@ _Settings_BuildNative() {
             "id", pid,
             "name", prof["name"],
             "accounts", prof["accounts"],
-            "count", prof["count"],
+            "count", (prof["count"] >= 1) ? prof["count"] : defaultCount,
             "monitor", prof["monitor"],
             "layout", prof["layout"]))
     }
     profileSel := nativeProfiles.Length ? 1 : 0
     profileSyncing := false
 
-    ; Absolute Y from here down. The two columns have to line up with each other
-    ; and the whole block has to end inside the tab, which a chain of y+ offsets
-    ; through controls of three different heights does not reliably do.
-    listY := 306
-    fieldY := listY
-    g.Add("Text", "x" contentX " y284 w200", "Launch profiles:")
-    profileList := g.Add("ListBox", "x" contentX " y" listY " w240 r8")
-    addProfileBtn := g.Add("Button", "x" contentX " y438 w76", "Add")
-    dupProfileBtn := g.Add("Button", "x+6 yp w76", "Duplicate")
-    delProfileBtn := g.Add("Button", "x+6 yp w76", "Remove")
+    primaryChord := GetHotkeyDisplay("launchPrimary")
+    secondaryChord := GetHotkeyDisplay("launchSecondary")
+    PAdd("Text", "x" contentX " y" contentY " w180",
+        "Launch primary" (primaryChord != "" ? " (" primaryChord ")" : "") " runs:")
+    primaryProfileDdl := PAdd("DropDownList", "x218 yp-3 w300")
+    PAdd("Text", "x" contentX " y+12 w180",
+        "Launch secondary" (secondaryChord != "" ? " (" secondaryChord ")" : "") " runs:")
+    secondaryProfileDdl := PAdd("DropDownList", "x218 yp-3 w300")
+    PAdd("Text", "x" contentX " y+6 w606 c666666",
+        "None takes Launch secondary out of the tray. Other profiles are under Launch other in the tray.")
 
-    g.Add("Text", "x286 y" fieldY " w70", "Name:")
-    profileNameEdit := g.Add("Edit", "x360 y" (fieldY - 3) " w274 Limit40")
-    g.Add("Text", "x286 y" (fieldY + 29) " w70", "Accounts:")
-    profileAccountsDdl := g.Add("DropDownList", "x360 y" (fieldY + 26) " w274", accountLabels)
-    g.Add("Text", "x286 y" (fieldY + 58) " w70", "Clients:")
-    profileCountEdit := g.Add("Edit", "x360 y" (fieldY + 55) " w70 Number")
-    g.Add("Text", "x436 y" (fieldY + 58) " w198 c666666", "0 = Clients per launch")
-    g.Add("Text", "x286 y" (fieldY + 87) " w70", "Display:")
-    profileMonitorDdl := g.Add("DropDownList", "x360 y" (fieldY + 84) " w274", monitorChoices)
+    ; Absolute Y from here down. The two columns have to line up with each other
+    ; and the whole block has to end inside the page, which a chain of y+
+    ; offsets through controls of three different heights does not reliably do.
+    listY := 166
+    fieldY := listY
+    PAdd("Text", "x" contentX " y" (listY - 22) " w200", "Profiles:")
+    profileList := PAdd("ListBox", "x" contentX " y" listY " w240 r8")
+    addProfileBtn := PAdd("Button", "x" contentX " y" (listY + 132) " w76", "Add")
+    dupProfileBtn := PAdd("Button", "x+6 yp w76", "Duplicate")
+    delProfileBtn := PAdd("Button", "x+6 yp w76", "Remove")
+
+    PAdd("Text", "x286 y" fieldY " w70", "Name:")
+    profileNameEdit := PAdd("Edit", "x360 y" (fieldY - 3) " w274 Limit40")
+    PAdd("Text", "x286 y" (fieldY + 29) " w70", "Accounts:")
+    profileAccountsDdl := PAdd("DropDownList", "x360 y" (fieldY + 26) " w274", accountLabels)
+    PAdd("Text", "x286 y" (fieldY + 58) " w70", "Clients:")
+    profileCountEdit := PAdd("Edit", "x360 y" (fieldY + 55) " w70 Number")
+    profileCountHint := PAdd("Text", "x436 y" (fieldY + 58) " w198 c666666", "")
+    PAdd("Text", "x286 y" (fieldY + 87) " w70", "Display:")
+    profileMonitorDdl := PAdd("DropDownList", "x360 y" (fieldY + 84) " w274", monitorChoices)
     profileLayoutDdl := 0
     if launchLayoutOptions.available {
-        g.Add("Text", "x286 y" (fieldY + 116) " w70", "Layout:")
-        profileLayoutDdl := g.Add("DropDownList", "x360 y" (fieldY + 113) " w274", launchLayoutLabels)
+        PAdd("Text", "x286 y" (fieldY + 116) " w70", "Layout:")
+        profileLayoutDdl := PAdd("DropDownList", "x360 y" (fieldY + 113) " w274", launchLayoutLabels)
     }
 
-    g.Add("Text", "x" contentX " y478 w130", "Primary runs:")
-    primaryProfileDdl := g.Add("DropDownList", "x158 y475 w280")
-    g.Add("Text", "x" contentX " y508 w130", "Secondary runs:")
-    secondaryProfileDdl := g.Add("DropDownList", "x158 y505 w280")
-
-    g.Add("Text", "x" contentX " y534 w606 c666666",
-        "Any other profile is one click away under Client Launch in the tray menu."
-        . " Interface mode is changed from Tray → Interface.")
+    launchAutoLoginCb := PAdd("CheckBox", "x" contentX " y" (listY + 178) " w440",
+        "Log launched clients in automatically (needs the osMW client mods)")
+    launchAutoLoginCb.Value := gLaunchAutoLogin ? 1 : 0
+    if _Settings_AccountsEditorAvailable()
+        PAdd("Button", "x486 yp-4 w148", "Edit accounts…").OnEvent("Click", (*) => _Settings_OpenAccounts())
+    PAdd("Text", "x" contentX " y+16 w180", "Delay between clients (ms):")
+    delayEdit := PAdd("Edit", "x218 yp-3 w70 Number", String(gMultiClientDelay))
 
     profileList.OnEvent("Change", SelectProfile)
     addProfileBtn.OnEvent("Click", AddProfile)
@@ -148,55 +153,67 @@ _Settings_BuildNative() {
     RefreshProfileBindings(gPrimaryProfileId, gSecondaryProfileId)
 
     ; Minimap -----------------------------------------------------
-    tab.UseTab(2)
-    g.Add("Text", "x" contentX " y" contentY " w150", "Tab key:")
-    sourceDdl := g.Add("DropDownList", "x178 yp-3 w440", MINIMAP_SOURCE_LABELS)
+    UsePage("Minimap")
+    PAdd("Text", "x" contentX " y" contentY " w150", "Tab key:")
+    sourceDdl := PAdd("DropDownList", "x178 yp-3 w440", MINIMAP_SOURCE_LABELS)
     sourceDdl.Value := 1
     for i, src in MINIMAP_SOURCES {
         if (src = gMinimapSource)
             sourceDdl.Value := i
     }
     openChord := GetHotkeyDisplay("openMapsppMinimap")
-    g.Add("Text", "x178 y+4 w440 cGray",
+    PAdd("Text", "x178 y+4 w440 cGray",
         "“Open Maps++ minimap” opens this overlay even where the game has its own"
         . (openChord != "" ? " (" openChord ")." : " — bind it under Hotkeys."))
-    g.Add("Text", "x" contentX " y+18 w150", "Scale (%):")
-    scaleEdit := g.Add("Edit", "x178 yp-3 w80 Number", String(gMinimapScale))
-    g.Add("UpDown", "Range50-200", gMinimapScale)
-    g.Add("Text", "x" contentX " y+22 w150", "Opacity (%):")
-    opacityEdit := g.Add("Edit", "x178 yp-3 w80 Number", String(gMinimapOpacity))
-    g.Add("UpDown", "Range30-100", gMinimapOpacity)
-    followScaleCb := g.Add("CheckBox", "x" contentX " y+12 w520",
+    PAdd("Text", "x" contentX " y+18 w150", "Scale (%):")
+    scaleEdit := PAdd("Edit", "x178 yp-3 w80 Number", String(gMinimapScale))
+    PAdd("UpDown", "Range50-200", gMinimapScale)
+    PAdd("Text", "x" contentX " y+22 w150", "Opacity (%):")
+    opacityEdit := PAdd("Edit", "x178 yp-3 w80 Number", String(gMinimapOpacity))
+    PAdd("UpDown", "Range30-100", gMinimapOpacity)
+    followScaleCb := PAdd("CheckBox", "x" contentX " y+12 w520",
         "Grow with the game's display scale (the client mods' 2×/3×)")
     followScaleCb.Value := gMinimapFollowGameScale ? 1 : 0
-    g.Add("Text", "x" contentX " y+22 w150", "Anchor:")
-    anchorDdl := g.Add("DropDownList", "x178 yp-3 w220", MINIMAP_ANCHORS)
+    PAdd("Text", "x" contentX " y+22 w150", "Anchor:")
+    anchorDdl := PAdd("DropDownList", "x178 yp-3 w220", MINIMAP_ANCHORS)
     anchorDdl.Choose(gMinimapAnchor)
-    g.Add("Text", "x" contentX " y+22 w150", "Horizontal nudge:")
-    offsetXEdit := g.Add("Edit", "x178 yp-3 w100", String(gMinimapOffsetX))
-    g.Add("Text", "x" contentX " y+22 w150", "Vertical nudge:")
-    offsetYEdit := g.Add("Edit", "x178 yp-3 w100", String(gMinimapOffsetY))
-    keepOpenCb := g.Add("CheckBox", "x" contentX " y+24 w520",
+    PAdd("Text", "x" contentX " y+22 w150", "Horizontal nudge:")
+    offsetXEdit := PAdd("Edit", "x178 yp-3 w100", String(gMinimapOffsetX))
+    PAdd("Text", "x" contentX " y+22 w150", "Vertical nudge:")
+    offsetYEdit := PAdd("Edit", "x178 yp-3 w100", String(gMinimapOffsetY))
+    keepOpenCb := PAdd("CheckBox", "x" contentX " y+24 w520",
         "Keep the minimap open when the game loses focus")
     keepOpenCb.Value := gMinimapKeepOpen ? 1 : 0
-    hoverCoordsCb := g.Add("CheckBox", "x" contentX " y+10 w520",
+    hoverCoordsCb := PAdd("CheckBox", "x" contentX " y+10 w520",
         "Show coordinates under the cursor")
     hoverCoordsCb.Value := gShowHoverCoords ? 1 : 0
 
     ; Appearance --------------------------------------------------
-    tab.UseTab(3)
-    g.Add("Text", "x" contentX " y" contentY " w590",
-        "Choose the highlight colour used across Maps++. Backgrounds and status colours stay unchanged.")
-    g.Add("Text", "x" contentX " y+28 w150", "Accent colour:")
+    UsePage("Appearance")
+    PAdd("Text", "x" contentX " y" contentY " w150", "Interface:")
+    interfaceValues := ["webview", "native"]
+    runtimeOk := WebView2RuntimeAvailable()
+    interfaceDdl := PAdd("DropDownList", "x178 yp-3 w300", [
+        "Enhanced" (runtimeOk ? "" : " (needs the WebView2 Runtime)"),
+        "Low memory (this window)"])
+    interfaceDdl.Value := (gInterfaceMode = "native") ? 2 : 1
+    PAdd("Text", "x178 y+4 w440 c666666", "Maps++ restarts when you save a change here.")
+    PAdd("Text", "x" contentX " y+22 w150", "Accent colour:")
     accentSchemeValues := ["amber", "blue", "green"]
-    accentSchemeDdl := g.Add("DropDownList", "x178 yp-3 w220", ["Amber (default)", "Blue", "Green"])
+    accentSchemeDdl := PAdd("DropDownList", "x178 yp-3 w220", ["Amber (default)", "Blue", "Green"])
     accentSchemeDdl.Value := (gAccentScheme = "blue") ? 2 : ((gAccentScheme = "green") ? 3 : 1)
+    PAdd("Text", "x178 y+4 w440 c666666", "The highlight colour in Maps++'s windows and on the minimap.")
+    developerToolsCb := PAdd("CheckBox", "x" contentX " y+22 w600",
+        "Show developer tools in the tray menu (signature tools, debug state, reload)")
+    developerToolsCb.Value := gDeveloperTools ? 1 : 0
+    PAdd("Text", "x" contentX " y+4 w600 c666666",
+        "Shift+right-click on the tray icon shows them once without this.")
 
     ; Hotkeys -----------------------------------------------------
-    tab.UseTab(4)
-    g.Add("Text", "x" contentX " y" contentY " w590",
+    UsePage("Hotkeys")
+    PAdd("Text", "x" contentX " y" contentY " w590",
         "Select an action to change, unbind, or reset it. Escape cancels shortcut capture.")
-    hotkeyLv := g.Add("ListView", "x" contentX " y82 w590 h340 -Multi Grid", ["Action", "Shortcut"])
+    hotkeyLv := PAdd("ListView", "x" contentX " y82 w590 h400 -Multi Grid", ["Action", "Shortcut"])
     nativeHotkeyRows := []
     for action in GetHotkeyActionsForSettings() {
         hotkeyLv.Add(, action["label"], FormatHotkeySettingsDisplay(action["chord"]))
@@ -211,22 +228,22 @@ _Settings_BuildNative() {
     gSettingsHotkeyRows := nativeHotkeyRows
     hotkeyLv.ModifyCol(1, 420)
     hotkeyLv.ModifyCol(2, 145)
-    captureBtn := g.Add("Button", "x" contentX " y434 w130", "Change selected")
-    unbindBtn := g.Add("Button", "x+8 w130", "Unbind selected")
-    resetBtn := g.Add("Button", "x+8 w130", "Reset selected")
-    resetAllBtn := g.Add("Button", "x+8 w130", "Reset all")
+    captureBtn := PAdd("Button", "x" contentX " y494 w130", "Change selected")
+    unbindBtn := PAdd("Button", "x+8 w130", "Unbind selected")
+    resetBtn := PAdd("Button", "x+8 w130", "Reset selected")
+    resetAllBtn := PAdd("Button", "x+8 w130", "Reset all")
     captureBtn.OnEvent("Click", BeginHotkeyCapture)
     unbindBtn.OnEvent("Click", UnbindSelectedHotkey)
     resetBtn.OnEvent("Click", ResetSelectedHotkey)
     resetAllBtn.OnEvent("Click", ResetAllHotkeys)
 
-    ; Addon-contributed tabs -------------------------------------
+    ; Addon-contributed pages -------------------------------------
     addonFieldGroups := Map()
-    for i, c in contributors {
-        tab.UseTab(4 + i)
-        addonName := _Settings_AddonKey(c.map)
+    for pageName, am in contributors {
+        UsePage(pageName)
+        addonName := _Settings_AddonKey(am)
         ; Records what each field shows, so Save hands the addon only changes.
-        fields := _Settings_AddonFieldsFor(c.map)
+        fields := _Settings_AddonFieldsFor(am)
         controls := []
         y := contentY
         for field in fields {
@@ -235,7 +252,7 @@ _Settings_BuildNative() {
                 infoText := field.Has("text") ? field["text"] : ""
                 lineCount := StrSplit(infoText, "`n").Length
                 infoH := Max(42, lineCount * 18)
-                g.Add("Text", "x" contentX " y" y " w590 h" infoH " Wrap", infoText)
+                PAdd("Text", "x" contentX " y" y " w590 h" infoH " Wrap", infoText)
                 y += infoH + 10
                 continue
             }
@@ -249,12 +266,12 @@ _Settings_BuildNative() {
                 ; below cannot see it. The addon acts the moment this is
                 ; clicked; it does not wait for Save.
                 actionId := field.Has("id") ? field["id"] : ""
-                btn := g.Add("Button", "x" contentX " y" y " w200", label)
+                btn := PAdd("Button", "x" contentX " y" y " w200", label)
                 btn.OnEvent("Click",
                     _SettingsNative_MakeActionHandler(addonName, actionId))
                 y += 30
                 if field.Has("hint") {
-                    g.Add("Text", "x" contentX " y" y " w590", field["hint"])
+                    PAdd("Text", "x" contentX " y" y " w590", field["hint"])
                     y += 20
                 }
                 y += 6
@@ -263,42 +280,42 @@ _Settings_BuildNative() {
             if (fieldType = "checkbox") {
                 ; Narrower than the row so a revert button fits on the same
                 ; line; without that every default-bearing checkbox would cost
-                ; a second row in a tab that already does not scroll.
-                ctrl := g.Add("CheckBox", "x" contentX " y" y " w480", label)
+                ; a second row on a page that does not scroll.
+                ctrl := PAdd("CheckBox", "x" contentX " y" y " w480", label)
                 ctrl.Value := value ? 1 : 0
-                _SettingsNative_AddRevert(g, field, ctrl, fieldType, y)
+                AddRevert(field, ctrl, fieldType, y)
                 y += 32
             } else if (fieldType = "orderedlist") {
-                g.Add("Text", "x" contentX " y" y " w590", label)
+                PAdd("Text", "x" contentX " y" y " w590", label)
                 y += 20
-                ctrl := g.Add("ListView", "x" contentX " y" y " w500 h190 Checked -Multi NoSortHdr",
+                ctrl := PAdd("ListView", "x" contentX " y" y " w500 h190 Checked -Multi NoSortHdr",
                     ["Action"])
                 rowIds := _SettingsNative_FillOrderedList(ctrl, field)
                 ; The row order is the value, so it needs to be editable. The
                 ; buttons carry their own copy of rowIds — the save loop reads
                 ; the same object back off the controls entry.
-                upBtn := g.Add("Button", "x+8 y" y " w70", "Move up")
-                downBtn := g.Add("Button", "x" (contentX + 508) " y" (y + 32) " w70", "Move down")
+                upBtn := PAdd("Button", "x+8 y" y " w70", "Move up")
+                downBtn := PAdd("Button", "x" (contentX + 508) " y" (y + 32) " w70", "Move down")
                 upBtn.OnEvent("Click", _SettingsNative_MakeOrderedMover(ctrl, rowIds, -1))
                 downBtn.OnEvent("Click", _SettingsNative_MakeOrderedMover(ctrl, rowIds, 1))
                 y += 200
             } else {
-                g.Add("Text", "x" contentX " y" y " w180", label)
+                PAdd("Text", "x" contentX " y" y " w180", label)
                 if (fieldType = "dropdown") {
                     options := field.Has("options") ? field["options"] : []
-                    ctrl := g.Add("DropDownList", "x218 y" (y - 3) " w300", options)
+                    ctrl := PAdd("DropDownList", "x218 y" (y - 3) " w300", options)
                     ctrl.Value := Integer(value) + 1
                 } else if (fieldType = "combo") {
                     options := field.Has("options") ? field["options"] : []
-                    ctrl := g.Add("ComboBox", "x218 y" (y - 3) " w300", options)
+                    ctrl := PAdd("ComboBox", "x218 y" (y - 3) " w300", options)
                     try ctrl.Choose(String(value))
                     if (ctrl.Value = 0)
                         ctrl.Text := String(value)
                 } else {
                     editOpts := (fieldType = "number") ? " Number" : ""
-                    ctrl := g.Add("Edit", "x218 y" (y - 3) " w300" editOpts, String(value))
+                    ctrl := PAdd("Edit", "x218 y" (y - 3) " w300" editOpts, String(value))
                 }
-                _SettingsNative_AddRevert(g, field, ctrl, fieldType, y)
+                AddRevert(field, ctrl, fieldType, y)
                 y += 36
             }
             controls.Push(Map("field", field, "control", ctrl, "rowIds", rowIds))
@@ -311,39 +328,120 @@ _Settings_BuildNative() {
     ; _Settings_Close.
     gSettingsNativeFieldSetter := _SettingsNative_MakeFieldSetter(addonFieldGroups)
 
-    ; Addon enable/disable tab -----------------------------------
-    tab.UseTab(tabNames.Length)
-    g.Add("Text", "x" contentX " y" contentY " w590",
-        "Enable or disable addons. Reload Maps++ to fully apply changes.")
+    ; Features (addon enable/disable) -----------------------------
+    UsePage("Features")
+    PAdd("Text", "x" contentX " y" contentY " w600",
+        "Turn off what you don't use: its tray items, shortcuts and settings page go with it."
+        . " Maps++ offers to restart when you save a change here.")
+    featureLv := PAdd("ListView", "x" contentX " y+10 w606 h420 Checked -Multi NoSortHdr Grid",
+        ["Feature", "Group", "What it does"])
+    groupNames := Map("map", "Map", "multibox", "Multi-boxing", "tools", "Tools")
     addonChecks := []
-    y := contentY + 34
-    for _, am in gAddonHooks {
-        name := am.Has("name") ? am["name"] : ""
-        if (name = "")
-            continue
-        label := am.Has("settingsLabel") ? am["settingsLabel"] : name
-        cb := g.Add("CheckBox", "x" contentX " y" y " w430", label)
-        cb.Value := (gDisabledAddons.Has(name) && gDisabledAddons[name]) ? 0 : 1
-        addonChecks.Push(Map("name", name, "control", cb))
-        y += 28
+    for entry in _Settings_FeatureList() {
+        grpName := groupNames.Has(entry["group"]) ? groupNames[entry["group"]] : "Tools"
+        featureLv.Add(entry["enabled"] ? "Check" : "", entry["label"], grpName, entry["description"])
+        addonChecks.Push(entry["name"])
     }
+    featureLv.ModifyCol(1, 130)
+    featureLv.ModifyCol(2, 90)
+    featureLv.ModifyCol(3, 360)
+
+    ; Navigation ---------------------------------------------------
+    nav := g.Add("TreeView", "x10 y10 w" (NAV_W - 16) " h552 -Buttons -Lines")
+    navPages := Map()
+    firstItem := 0
+    for grp in tabLayout {
+        parent := 0
+        if (grp["group"] != "")
+            parent := nav.Add(grp["group"], 0, "Bold")
+        for t in grp["tabs"] {
+            if !pages.Has(t["name"])
+                continue
+            item := nav.Add(t["name"], parent)
+            navPages[item] := t["name"]
+            if !firstItem
+                firstItem := item
+        }
+        ; Expanded once it has children; a heading added with Expand and no
+        ; children yet is not reliably drawn open.
+        if parent
+            nav.Modify(parent, "Expand")
+    }
+    nav.OnEvent("ItemSelect", NavSelect)
 
     ; Shared buttons ---------------------------------------------
-    tab.UseTab()
     resetDefaultsBtn := g.Add("Button", "x10 y572 w160", "Reset to Defaults")
-    saveBtn := g.Add("Button", "x454 y572 w96 Default", "Save")
-    cancelBtn := g.Add("Button", "x558 y572 w96", "Cancel")
+    saveBtn := g.Add("Button", "x" (NAV_W + 454) " y572 w96 Default", "Save")
+    cancelBtn := g.Add("Button", "x" (NAV_W + 558) " y572 w96", "Cancel")
     resetDefaultsBtn.OnEvent("Click", (*) => _Settings_HandleResetDefaults())
     saveBtn.OnEvent("Click", SaveNativeSettings)
     cancelBtn.OnEvent("Click", (*) => _Settings_Close())
-    g.Show("w664 h614")
+    if firstItem
+        nav.Modify(firstItem, "Select")
+    ShowPage(pageOrder.Length ? pageOrder[1] : "")
+    g.Show("w" (NAV_W + 664) " h614")
+
+    ; ── Page plumbing ──
+
+    UsePage(newPage) {
+        curPage := newPage
+        if !pages.Has(newPage) {
+            pages[newPage] := []
+            pageOrder.Push(newPage)
+        }
+        ; The page's own heading, where the tab strip used to name it.
+        g.SetFont("s11 Bold")
+        pages[newPage].Push(g.Add("Text", "x" (NAV_W + 28) " y18 w600", newPage))
+        g.SetFont("s9 Norm")
+    }
+
+    ; g.Add for the page being built: shifts absolute x past the tree and
+    ; records the control so ShowPage can hide it with the rest of its page.
+    ; Its locals are named so no outer variable shares them: a nested function
+    ; assigning a name the builder also uses would write the builder's copy.
+    PAdd(ctrlType, opts := "", params*) {
+        pageCtrl := g.Add(ctrlType, _SettingsNative_ShiftX(opts, NAV_W), params*)
+        pages[curPage].Push(pageCtrl)
+        return pageCtrl
+    }
+
+    AddRevert(revertField, revertCtrl, revertType, revertY) {
+        if (!revertField.Has("default") || !IsObject(revertCtrl))
+            return
+        revertBtnY := (revertType = "checkbox") ? revertY - 2 : revertY - 3
+        revertBtn := PAdd("Button", "x526 y" revertBtnY " w110 h24", "Default")
+        revertBtn.OnEvent("Click",
+            _SettingsNative_MakeRevertHandler(revertCtrl, revertType, revertField["default"]))
+    }
+
+    ShowPage(shownPage) {
+        for pageKey, pageCtrls in pages {
+            pageVisible := (pageKey = shownPage)
+            for pageMember in pageCtrls
+                pageMember.Visible := pageVisible
+        }
+    }
+
+    NavSelect(*) {
+        navItem := nav.GetSelection()
+        if navPages.Has(navItem) {
+            ShowPage(navPages[navItem])
+            return
+        }
+        ; A group heading: go to its first page.
+        navChild := nav.GetChild(navItem)
+        if navChild
+            nav.Modify(navChild, "Select")
+    }
 
     BrowseGame(*) {
         global PROCESS_EXE
         selected := FileSelect(1, A_ScriptDir, "Locate " PROCESS_EXE " (game executable)",
             "Executables (*.exe)")
-        if (selected != "")
+        if (selected != "") {
             gamePathEdit.Value := selected
+            gameStatusText.Text := _Settings_GameStatus(selected).text
+        }
     }
 
     ; ── Launch profile editor ──
@@ -370,7 +468,7 @@ _Settings_BuildNative() {
         prof := has ? nativeProfiles[profileSel] : 0
         profileNameEdit.Value := has ? prof["name"] : ""
         profileAccountsDdl.Value := has ? _SettingsNative_AccountChoice(accountChoices, prof["accounts"]) : 1
-        profileCountEdit.Value := has ? String(prof["count"]) : "0"
+        profileCountEdit.Value := has ? String(prof["count"]) : ""
         profileMonitorDdl.Value := has ? _Settings_MonitorIndexToChoice(prof["monitor"]) : 1
         if IsObject(profileLayoutDdl) {
             profileLayoutDdl.Value := has
@@ -380,7 +478,48 @@ _Settings_BuildNative() {
             ctrl.Enabled := has
         if IsObject(profileLayoutDdl)
             profileLayoutDdl.Enabled := has
+        SyncCountField(true)
         profileSyncing := false
+    }
+
+    ; A group launches exactly its rows and "only" exactly one account, so for
+    ; those the count is not the user's to set.
+    FixedCount() {
+        idx := profileAccountsDdl.Value
+        if (idx >= 1 && idx <= accountChoices.Length && accountChoices[idx].Has("fixedCount"))
+            return accountChoices[idx]["fixedCount"]
+        return 0
+    }
+
+    ; Locks the Clients box for a group or single account, and puts the
+    ; profile's own count back in it — but that only on selecting a profile
+    ; (writeCount), never from ApplyProfileFields.
+    ;
+    ; Writing an Edit raises its Change event, and that event runs as a thread
+    ; of its own *after* this returns, past the profileSyncing guard. Called
+    ; from ApplyProfileFields — which that very event runs — an unconditional
+    ; write started the next round, forever: Settings never appeared and the
+    ; script stopped doing anything else. So: no write while the user is
+    ; typing, and none that would not change the text, which leaves the event
+    ; a write does raise with nothing to do.
+    SyncCountField(writeCount := false) {
+        has := (profileSel >= 1 && profileSel <= nativeProfiles.Length)
+        fixed := has ? FixedCount() : 0
+        if fixed {
+            SetCountText(String(fixed))
+            profileCountEdit.Enabled := false
+            profileCountHint.Text := (fixed = 1) ? "set by the account" : "set by the group"
+        } else {
+            profileCountEdit.Enabled := has
+            if (has && writeCount)
+                SetCountText(String(nativeProfiles[profileSel]["count"]))
+            profileCountHint.Text := ""
+        }
+    }
+
+    SetCountText(countText) {
+        if (profileCountEdit.Value != countText)
+            profileCountEdit.Value := countText
     }
 
     SelectProfile(*) {
@@ -404,20 +543,23 @@ _Settings_BuildNative() {
         prof["accounts"] := (idx >= 1 && idx <= accountChoices.Length)
             ? accountChoices[idx]["value"] : ""
         raw := Trim(profileCountEdit.Value)
-        prof["count"] := (IsInteger(raw) && Integer(raw) >= 0) ? Integer(raw) : 0
+        if (!FixedCount() && IsInteger(raw) && Integer(raw) >= 1)
+            prof["count"] := Min(Integer(raw), 32)
         prof["monitor"] := _Settings_ChoiceToMonitorIndex(profileMonitorDdl.Value)
         if (IsObject(profileLayoutDdl) && launchLayoutOptions.available) {
             li := profileLayoutDdl.Value
             if (li >= 1 && li <= launchLayoutOptions.items.Length)
                 prof["layout"] := launchLayoutOptions.items[li].value
         }
+        SyncCountField()
         RefreshProfileList()
         RefreshProfileBindings(_SettingsNative_BoundId(primaryProfileDdl, nativeProfiles),
-            _SettingsNative_BoundId(secondaryProfileDdl, nativeProfiles))
+            _SettingsNative_SecondaryId(secondaryProfileDdl, nativeProfiles))
     }
 
     ; The two binding dropdowns are rebuilt from the draft whenever a name
     ; changes, so they can never offer a name the list no longer shows.
+    ; Secondary's list leads with None (run nothing).
     RefreshProfileBindings(primaryId, secondaryId) {
         labels := []
         primaryIdx := 1
@@ -427,17 +569,18 @@ _Settings_BuildNative() {
             if (prof["id"] = primaryId)
                 primaryIdx := i
             if (prof["id"] = secondaryId)
-                secondaryIdx := i
+                secondaryIdx := i + 1
         }
         profileSyncing := true
         primaryProfileDdl.Delete()
         secondaryProfileDdl.Delete()
+        secondaryProfileDdl.Add(["None"])
         if labels.Length {
             primaryProfileDdl.Add(labels)
             secondaryProfileDdl.Add(labels)
             primaryProfileDdl.Value := primaryIdx
-            secondaryProfileDdl.Value := secondaryIdx
         }
+        secondaryProfileDdl.Value := (secondaryId = "") ? 1 : secondaryIdx
         profileSyncing := false
     }
 
@@ -448,14 +591,14 @@ _Settings_BuildNative() {
             "id", _SettingsNative_NextProfileId(nativeProfiles),
             "name", "Profile " (nativeProfiles.Length + 1),
             "accounts", "",
-            "count", 0,
+            "count", defaultCount,
             "monitor", 0,
             "layout", LAUNCH_LAYOUT_DEFAULT))
         profileSel := nativeProfiles.Length
         RefreshProfileList()
         FillProfileFields()
         RefreshProfileBindings(_SettingsNative_BoundId(primaryProfileDdl, nativeProfiles),
-            _SettingsNative_BoundId(secondaryProfileDdl, nativeProfiles))
+            _SettingsNative_SecondaryId(secondaryProfileDdl, nativeProfiles))
     }
 
     DuplicateProfile(*) {
@@ -473,7 +616,7 @@ _Settings_BuildNative() {
         RefreshProfileList()
         FillProfileFields()
         RefreshProfileBindings(_SettingsNative_BoundId(primaryProfileDdl, nativeProfiles),
-            _SettingsNative_BoundId(secondaryProfileDdl, nativeProfiles))
+            _SettingsNative_SecondaryId(secondaryProfileDdl, nativeProfiles))
     }
 
     RemoveProfile(*) {
@@ -482,16 +625,17 @@ _Settings_BuildNative() {
         if (profileSel < 1 || nativeProfiles.Length <= 1)
             return
         primaryId := _SettingsNative_BoundId(primaryProfileDdl, nativeProfiles)
-        secondaryId := _SettingsNative_BoundId(secondaryProfileDdl, nativeProfiles)
+        secondaryId := _SettingsNative_SecondaryId(secondaryProfileDdl, nativeProfiles)
         goneId := nativeProfiles[profileSel]["id"]
         nativeProfiles.RemoveAt(profileSel)
         if (profileSel > nativeProfiles.Length)
             profileSel := nativeProfiles.Length
-        ; A binding pointing at the removed profile has to land somewhere real.
+        ; A binding pointing at the removed profile has to land somewhere real
+        ; — or, for secondary, on None, which is real too.
         if (primaryId = goneId)
             primaryId := nativeProfiles[1]["id"]
         if (secondaryId = goneId)
-            secondaryId := nativeProfiles[nativeProfiles.Length]["id"]
+            secondaryId := (nativeProfiles.Length > 1) ? nativeProfiles[nativeProfiles.Length]["id"] : ""
         RefreshProfileList()
         FillProfileFields()
         RefreshProfileBindings(primaryId, secondaryId)
@@ -564,8 +708,16 @@ _Settings_BuildNative() {
             hotkeys.Push(Map("id", row["id"], "chord", row["pending"]))
 
         addonToggles := Map()
-        for entry in addonChecks
-            addonToggles[entry["name"]] := entry["control"].Value ? true : false
+        checkedRows := Map()
+        row := 0
+        loop {
+            row := featureLv.GetNext(row, "C")
+            if !row
+                break
+            checkedRows[row] := true
+        }
+        for i, addonName in addonChecks
+            addonToggles[addonName] := checkedRows.Has(i)
 
         addonSettings := Map()
         for addonName, entries in addonFieldGroups {
@@ -602,13 +754,12 @@ _Settings_BuildNative() {
                 "autoStart", autoStartCb.Value ? true : false,
                 "launchOnStartup", launchOnStartupCb.Value ? true : false,
                 "launchAutoLogin", launchAutoLoginCb.Value ? true : false,
-                "multiClientCount", Trim(countEdit.Value),
                 "multiClientDelay", Trim(delayEdit.Value),
                 ; Same shape the WebView2 page sends, so both frontends land in
                 ; _Settings_ApplyProfiles and cannot validate differently.
                 "profiles", profilePayload,
                 "primaryProfile", _SettingsNative_BoundId(primaryProfileDdl, nativeProfiles),
-                "secondaryProfile", _SettingsNative_BoundId(secondaryProfileDdl, nativeProfiles)
+                "secondaryProfile", _SettingsNative_SecondaryId(secondaryProfileDdl, nativeProfiles)
             ),
             "minimap", Map(
                 "source", MINIMAP_SOURCES[sourceDdl.Value],
@@ -622,7 +773,9 @@ _Settings_BuildNative() {
                 "keepOpen", keepOpenCb.Value ? true : false
             ),
             "appearance", Map(
-                "accentScheme", accentSchemeValues[accentSchemeDdl.Value]
+                "accentScheme", accentSchemeValues[accentSchemeDdl.Value],
+                "interfaceMode", interfaceValues[interfaceDdl.Value],
+                "developerTools", developerToolsCb.Value ? true : false
             ),
             "hotkeys", hotkeys,
             "addons", addonToggles,
@@ -650,6 +803,26 @@ _SettingsNative_AccountChoice(choices, value) {
 _SettingsNative_BoundId(ddl, profiles) {
     idx := ddl.Value
     return (idx >= 1 && idx <= profiles.Length) ? profiles[idx]["id"] : ""
+}
+
+; Secondary's dropdown leads with None, so its positions are off by one and
+; position 1 means "run nothing".
+_SettingsNative_SecondaryId(ddl, profiles) {
+    idx := ddl.Value - 1
+    return (idx >= 1 && idx <= profiles.Length) ? profiles[idx]["id"] : ""
+}
+
+; Every absolute "x<n>" in a control's options moved right by dx, leaving
+; relative ones (x+8, xp, xm, xs) alone. How the native pages keep the
+; coordinates they had inside the old tab strip while sitting beside the tree.
+_SettingsNative_ShiftX(opts, dx) {
+    out := ""
+    pos := 1
+    while (found := RegExMatch(opts, "(?<![\w+-])x(\d+)", &m, pos)) {
+        out .= SubStr(opts, pos, found - pos) "x" (Integer(m[1]) + dx)
+        pos := found + m.Len
+    }
+    return out SubStr(opts, pos)
 }
 
 ; Lowest unused positive id, so a removed profile's config.ini section cannot be
@@ -727,15 +900,6 @@ _SettingsNative_SetFieldValue(addonFieldGroups, addonName, fieldId, value) {
 ; Rows leave a gutter for this on purpose: the label is w180 at contentX and
 ; the control is w300 at x218, so x526 w110 lands inside the 650-wide tab.
 ; Checkbox rows are narrowed to w480 in the builder for the same reason.
-
-_SettingsNative_AddRevert(g, field, ctrl, fieldType, y) {
-    if (!field.Has("default") || !IsObject(ctrl))
-        return
-    btnY := (fieldType = "checkbox") ? y - 2 : y - 3
-    btn := g.Add("Button", "x526 y" btnY " w110 h24", "Default")
-    btn.OnEvent("Click",
-        _SettingsNative_MakeRevertHandler(ctrl, fieldType, field["default"]))
-}
 
 _SettingsNative_MakeRevertHandler(ctrl, fieldType, defaultValue) {
     return (*) => _SettingsNative_ApplyRevert(ctrl, fieldType, defaultValue)

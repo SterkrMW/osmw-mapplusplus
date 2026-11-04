@@ -27,10 +27,16 @@ ShowSettingsWindow() {
             return
         }
     }
+    ; Logged before and after, so a report of Settings "not opening" can say
+    ; whether the window was ever finished.
+    started := A_TickCount
     if IsNativeInterface() {
+        LogInfo("Settings", "Opening (native)")
         _Settings_BuildNative()
+        LogInfo("Settings", "Open (native) after " (A_TickCount - started) " ms")
         return
     }
+    LogInfo("Settings", "Opening (enhanced)")
     if _Settings_CanUseWebView() {
         ; Settings is where a user goes to fix things, so it must open even if
         ; WebView2 fails despite the startup probe.
@@ -117,7 +123,22 @@ _Settings_OnWebMessage(wv, args) {
             CancelHotkeyCapture()
         case "addon-action":
             _Settings_HandleAddonAction(msg)
+        case "edit-accounts":
+            ; Opens another WebView2 window, which cannot finish inside this
+            ; message call.
+            DeferFromWebMessage(_Settings_OpenAccounts)
     }
+}
+
+; Launching → Edit accounts…, shared by both frontends. The Accounts editor is
+; AutoLogin's; a build or configuration without it gets no button.
+_Settings_AccountsEditorAvailable() {
+    return IsAddonEnabled("AutoLogin") && GetFuncByName("_AutoLogin_OpenEditor")
+}
+
+_Settings_OpenAccounts(*) {
+    if (fn := GetFuncByName("_AutoLogin_OpenEditor"))
+        fn()
 }
 
 ; ── Send full state to JS ────────────────────────────────────
@@ -132,7 +153,7 @@ _Settings_SendState() {
     global gMinimapSource, gMinimapFollowGameScale, GAME_LOGICAL_W, GAME_LOGICAL_H
     global APP_VERSION, gVersionCheckEnabled, VERSION_CHECK_URL
     global gUpdateVersion, gUpdateNotes
-    global gPrimaryProfileId, gSecondaryProfileId
+    global gPrimaryProfileId, gSecondaryProfileId, gInterfaceMode, gDeveloperTools
 
     ; Monitor choices
     monChoices := _Settings_MonitorChoices()
@@ -161,7 +182,7 @@ _Settings_SendState() {
     ; Addon enable/disable list
     addonsJson := _Settings_AddonsListToJson()
 
-    ; Tab names
+    ; Tab names, and the grouped sidebar they are drawn as
     tabNames := _Settings_GetTabNames()
     tabNamesJson := "["
     for i, name in tabNames {
@@ -170,10 +191,15 @@ _Settings_SendState() {
         tabNamesJson .= _JSON_Str(name)
     }
     tabNamesJson .= "]"
+    tabGroupsJson := _Settings_TabLayoutToJson()
+
+    ; What the Game & startup tab says under the path.
+    gameStatus := _Settings_GameStatus(gGamePath)
 
     json := '{"type":"settings-state"'
         . ',"appVersion":' _JSON_Str(APP_VERSION)
         . ',"tabNames":' tabNamesJson
+        . ',"tabGroups":' tabGroupsJson
         . ',"launcher":{'
             . '"versionCheck":' (gVersionCheckEnabled ? "true" : "false")
             . ',"versionCheckAvailable":' (VERSION_CHECK_URL != "" ? "true" : "false")
@@ -181,6 +207,9 @@ _Settings_SendState() {
             . ',"updateVersion":' _JSON_Str(gUpdateVersion)
             . ',"updateNotes":' _JSON_Str(gUpdateNotes)
             . ',"gamePath":' _JSON_Str(gGamePath)
+            . ',"gameStatus":' _JSON_Str(gameStatus.text)
+            . ',"gameStatusTone":' _JSON_Str(gameStatus.tone)
+            . ',"accountsEditorAvailable":' (_Settings_AccountsEditorAvailable() ? "true" : "false")
             . ',"gameArgs":' _JSON_Str(gGameArgs)
             . ',"autoStart":' (IsRunOnStartupEnabled() ? "true" : "false")
             . ',"launchOnStartup":' (gLaunchOnStartup ? "true" : "false")
@@ -219,7 +248,12 @@ _Settings_SendState() {
             . ',"clientH":' (preview.ok ? preview.h : GAME_LOGICAL_H)
             . ',"contentScale":' (preview.ok ? preview.scale : 1)
         . '}'
-        . ',"appearance":{"accentScheme":' _JSON_Str(gAccentScheme) '}'
+        . ',"appearance":{"accentScheme":' _JSON_Str(gAccentScheme)
+            . ',"interfaceMode":' _JSON_Str(gInterfaceMode)
+            ; Enhanced can only be offered as working when the runtime is there;
+            ; choosing it anyway is still allowed, as the retry it always was.
+            . ',"runtimeAvailable":' (WebView2RuntimeAvailable() ? "true" : "false")
+            . ',"developerTools":' (gDeveloperTools ? "true" : "false") '}'
         . ',"hotkeys":{"actions":' hotkeysJson '}'
         . ',"addonTabs":' addonTabsJson
         . ',"addons":' addonsJson
@@ -228,18 +262,100 @@ _Settings_SendState() {
     _Settings_PostMessage(json)
 }
 
-_Settings_GetTabNames() {
+; The sidebar, as groups of tabs. Core tabs come first in their group; each
+; addon's tab joins the group its RegisterAddon map names ("settingsGroup":
+; map | multibox | tools, tools when absent) and is sorted by label there, so a
+; build's include order does not decide where it lands. Features is last.
+;
+; Both frontends, Save and Reset read tab names from this one model — the
+; native window used to keep its own copy of the list.
+_Settings_GetTabLayout() {
     global gAddonHooks
-    tabNames := ["Launcher", "Minimap", "Appearance", "Hotkeys"]
+    groups := [
+        Map("group", "General", "key", "general", "tabs", [
+            Map("name", "Game & startup", "icon", "folder_open"),
+            Map("name", "Launching", "icon", "rocket_launch"),
+            Map("name", "Appearance", "icon", "visibility"),
+            Map("name", "Hotkeys", "icon", "keyboard")]),
+        Map("group", "Map", "key", "map", "tabs", [
+            Map("name", "Minimap", "icon", "map")]),
+        Map("group", "Multi-boxing", "key", "multibox", "tabs", []),
+        Map("group", "Tools", "key", "tools", "tabs", [])]
     for _, am in gAddonHooks {
-        if _Settings_AddonHasTab(am) {
-            label := am.Has("settingsLabel") ? am["settingsLabel"]
-                : (am.Has("name") ? am["name"] : "Addon")
-            tabNames.Push(label)
+        if !_Settings_AddonHasTab(am)
+            continue
+        key := am.Has("settingsGroup") ? am["settingsGroup"] : "tools"
+        target := groups[groups.Length]
+        for g in groups {
+            if (g["key"] = key) {
+                target := g
+                break
+            }
         }
+        tab := Map("name", _Settings_AddonTabLabel(am), "addon", true,
+            "icon", am.Has("settingsIcon") ? am["settingsIcon"] : "tune")
+        ; After the core tabs, alphabetical among the addon ones.
+        tabs := target["tabs"]
+        at := tabs.Length + 1
+        for i, existing in tabs {
+            if (existing.Has("addon") && StrCompare(existing["name"], tab["name"]) > 0) {
+                at := i
+                break
+            }
+        }
+        tabs.InsertAt(at, tab)
     }
-    tabNames.Push("Addons")
-    return tabNames
+    out := []
+    for g in groups {
+        if g["tabs"].Length
+            out.Push(g)
+    }
+    out.Push(Map("group", "", "key", "features", "tabs", [
+        Map("name", "Features", "icon", "extension")]))
+    return out
+}
+
+_Settings_GetTabNames() {
+    names := []
+    for g in _Settings_GetTabLayout() {
+        for t in g["tabs"]
+            names.Push(t["name"])
+    }
+    return names
+}
+
+_Settings_TabLayoutToJson() {
+    json := "["
+    for gi, g in _Settings_GetTabLayout() {
+        json .= (gi > 1 ? "," : "") '{"group":' _JSON_Str(g["group"]) ',"tabs":['
+        for ti, t in g["tabs"]
+            json .= (ti > 1 ? "," : "") '{"name":' _JSON_Str(t["name"]) ',"icon":' _JSON_Str(t["icon"]) '}'
+        json .= "]}"
+    }
+    return json "]"
+}
+
+_Settings_AddonTabLabel(am) {
+    return am.Has("settingsLabel") ? am["settingsLabel"]
+        : (am.Has("name") ? am["name"] : "Addon")
+}
+
+; One line under the game path: whether it points at something, and whether
+; the client mods are beside it (auto-login and the chat mod need them). Takes
+; the path rather than reading gGamePath, so a path just picked with Browse —
+; not saved yet — is described too.
+_Settings_GameStatus(path) {
+    global NATIVE_MODS_CORE_DLL
+    if (path = "")
+        return {text: "Not set — Maps++ can't launch clients until it is.", tone: "warn"}
+    if !FileExist(path)
+        return {text: "That file no longer exists. Browse to main.exe again.", tone: "warn"}
+    dir := ""
+    SplitPath(path, , &dir)
+    if FileExist(dir "\" NATIVE_MODS_CORE_DLL)
+        return {text: "Found. The osMW client mods are installed in this folder.", tone: "ok"}
+    return {text: "Found. The osMW client mods are not in this folder, so auto-login"
+        . " and the chat mod are unavailable.", tone: "info"}
 }
 
 ; Whether an addon gets a Settings tab. One rule for the tab names, both
@@ -247,7 +363,7 @@ _Settings_GetTabNames() {
 ;
 ; A disabled addon gets none. Before this its tab was still shown and still
 ; saved, which for Chat Mod meant "turn the addon off" did not stop Maps++
-; writing the game's osmw.ini — the opposite of what the Addons tab promises.
+; writing the game's osmw.ini — the opposite of what the Features tab promises.
 _Settings_AddonHasTab(am) {
     if !am.Has("OnSettingsWeb")
         return false
@@ -493,25 +609,49 @@ _Settings_FieldToJson(f) {
 
 ; ── Addons list → JSON ───────────────────────────────────────
 
+; The Features tab: every addon in this build, with the group and one-line
+; description its RegisterAddon map gives. Developer-only addons ("devOnly")
+; are listed only while developer tools are on, so the list a player sees is
+; the list of things meant for players.
 _Settings_AddonsListToJson() {
-    global gAddonHooks, gDisabledAddons
     json := "["
     first := true
+    for entry in _Settings_FeatureList() {
+        if !first
+            json .= ","
+        first := false
+        json .= '{"name":' _JSON_Str(entry["name"])
+            . ',"label":' _JSON_Str(entry["label"])
+            . ',"description":' _JSON_Str(entry["description"])
+            . ',"group":' _JSON_Str(entry["group"])
+            . ',"enabled":' (entry["enabled"] ? "true" : "false") '}'
+    }
+    json .= "]"
+    return json
+}
+
+; Shared by both Settings frontends and the setup guide.
+_Settings_FeatureList() {
+    global gAddonHooks, gDisabledAddons, gDeveloperTools
+    out := []
     for _, am in gAddonHooks {
         nm := am.Has("name") ? am["name"] : ""
         if (nm = "")
             continue
-        if !first
-            json .= ","
-        first := false
-        enabled := !(gDisabledAddons.Has(nm) && gDisabledAddons[nm])
-        label := am.Has("settingsLabel") ? am["settingsLabel"] : nm
-        json .= '{"name":' _JSON_Str(nm)
-            . ',"label":' _JSON_Str(label)
-            . ',"enabled":' (enabled ? "true" : "false") '}'
+        if (am.Has("devOnly") && am["devOnly"] && !gDeveloperTools)
+            continue
+        out.Push(Map(
+            "name", nm,
+            "label", am.Has("featureLabel") ? am["featureLabel"]
+                : (am.Has("settingsLabel") ? am["settingsLabel"] : nm),
+            "description", am.Has("description") ? am["description"] : "",
+            "group", am.Has("settingsGroup") ? am["settingsGroup"] : "tools",
+            ; Only for playing several characters at once: the setup guide
+            ; leaves these off for someone who plays one.
+            "multibox", (am.Has("multibox") && am["multibox"]) ? true : false,
+            "enabled", !(gDisabledAddons.Has(nm) && gDisabledAddons[nm])))
     }
-    json .= "]"
-    return json
+    return out
 }
 
 ; Launch profiles for the page. Monitors go out as the same 0-based choice index
@@ -550,14 +690,16 @@ _Settings_AccountChoices() {
     try choices := choicesFn()
     if !IsObject(choices)
         return out
+    ; fixedCount: a group launches exactly its rows and "only" exactly one, so
+    ; the page disables the profile's Clients field for those and says why.
     for grp in choices["groups"]
-        out.Push(Map("value", grp["spec"],
+        out.Push(Map("value", grp["spec"], "fixedCount", grp["count"],
             "label", "Group: " grp["name"] " (" grp["count"] ")"))
     for row in choices["rows"]
         out.Push(Map("value", row["startSpec"],
             "label", "Start at: " row["account"] " (row " row["index"] ")"))
     for row in choices["rows"]
-        out.Push(Map("value", row["onlySpec"],
+        out.Push(Map("value", row["onlySpec"], "fixedCount", 1,
             "label", "Only: " row["account"] " (" row["character"] ")"))
     return out
 }
@@ -570,7 +712,8 @@ _Settings_AccountChoicesToJson() {
             json .= ","
         first := false
         json .= '{"value":' _JSON_Str(choice["value"])
-            . ',"label":' _JSON_Str(choice["label"]) '}'
+            . ',"label":' _JSON_Str(choice["label"])
+            . (choice.Has("fixedCount") ? ',"fixedCount":' choice["fixedCount"] : "") '}'
     }
     return json "]"
 }
@@ -625,10 +768,20 @@ _Settings_ApplyProfiles(launcher, launchLayouts) {
 
     gLaunchProfiles := built
     primary := Trim(String(launcher.Has("primaryProfile") ? launcher["primaryProfile"] : ""))
-    secondary := Trim(String(launcher.Has("secondaryProfile") ? launcher["secondaryProfile"] : ""))
     ids := LaunchProfileIds()
     gPrimaryProfileId := built.Has(primary) ? primary : ids[1]
-    gSecondaryProfileId := built.Has(secondary) ? secondary : ids[ids.Length >= 2 ? 2 : 1]
+    ; Secondary may run nothing ("" from the page's None): the tray then has
+    ; no second launch row and its hotkey says it is not set up. A page that
+    ; did not send the key at all keeps what is bound.
+    if launcher.Has("secondaryProfile") {
+        secondary := Trim(String(launcher["secondaryProfile"]))
+        if (secondary = "")
+            gSecondaryProfileId := ""
+        else
+            gSecondaryProfileId := built.Has(secondary) ? secondary : ids[ids.Length >= 2 ? 2 : 1]
+    } else if (gSecondaryProfileId != "" && !built.Has(gSecondaryProfileId)) {
+        gSecondaryProfileId := ids[ids.Length >= 2 ? 2 : 1]
+    }
     ; SaveLauncherConfig writes the profiles and re-syncs the mirrored globals,
     ; so nothing here needs to touch gPrimaryMonitorOverride and friends.
     return ""
@@ -648,23 +801,29 @@ _Settings_HandleSave(msg) {
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme, gShowHoverCoords
     global gAddonHooks, gHotkeyActions, gVersionCheckEnabled, gMinimapSource
-    global gMinimapFollowGameScale
+    global gMinimapFollowGameScale, gInterfaceMode, gDeveloperTools, CONFIG_INI
 
     ; ── Launcher ──
+    ; Every field is optional: a frontend that no longer renders one (Clients
+    ; per launch left the page when profiles took over the count) keeps the
+    ; stored value instead of throwing on the missing key.
     launcher := msg["launcher"]
-    gGamePath := launcher["gamePath"]
-    gGameArgs := Trim(launcher["gameArgs"])
-    gLaunchOnStartup := launcher["launchOnStartup"] ? true : false
+    if launcher.Has("gamePath")
+        gGamePath := launcher["gamePath"]
+    if launcher.Has("gameArgs")
+        gGameArgs := Trim(launcher["gameArgs"])
+    if launcher.Has("launchOnStartup")
+        gLaunchOnStartup := launcher["launchOnStartup"] ? true : false
     if launcher.Has("launchAutoLogin")
         gLaunchAutoLogin := launcher["launchAutoLogin"] ? true : false
-    cnt := launcher["multiClientCount"]
-    dly := launcher["multiClientDelay"]
+    cnt := launcher.Has("multiClientCount") ? launcher["multiClientCount"] : gMultiClientCount
+    dly := launcher.Has("multiClientDelay") ? launcher["multiClientDelay"] : gMultiClientDelay
     if (!IsInteger(cnt) || Integer(cnt) < 1) {
         _Settings_SendSaveResult(false, "Clients per launch must be a whole number of 1 or more.")
         return false
     }
     if (!IsInteger(dly) || Integer(dly) < 0) {
-        _Settings_SendSaveResult(false, "Launch delay must be 0 or a positive number of milliseconds.")
+        _Settings_SendSaveResult(false, "Delay between clients must be 0 or a positive number of milliseconds.")
         return false
     }
     gMultiClientCount := Integer(cnt)
@@ -695,7 +854,8 @@ _Settings_HandleSave(msg) {
     if launcher.Has("versionCheck")
         gVersionCheckEnabled := launcher["versionCheck"] ? true : false
     SaveLauncherConfig()
-    SetRunOnStartup(launcher["autoStart"] ? true : false)
+    if launcher.Has("autoStart")
+        SetRunOnStartup(launcher["autoStart"] ? true : false)
 
     ; ── Minimap ──
     mm := msg["minimap"]
@@ -711,6 +871,19 @@ _Settings_HandleSave(msg) {
             ? appearance["accentScheme"] : gAccentScheme)
     previousAccentScheme := gAccentScheme
     SetAccentScheme(nextAccentScheme)
+    if (IsObject(appearance) && appearance.Has("developerTools")) {
+        gDeveloperTools := appearance["developerTools"] ? true : false
+        IniWrite(gDeveloperTools ? "1" : "0", CONFIG_INI, "UI", "DeveloperTools")
+    }
+    ; Applied after Save has finished and the window is gone, because changing
+    ; it restarts Maps++. Choosing Enhanced again while the runtime is missing
+    ; is the retry the tray's Interface menu used to offer.
+    nextInterface := ""
+    if (IsObject(appearance) && appearance.Has("interfaceMode")) {
+        mode := (StrLower(appearance["interfaceMode"]) = "native") ? "native" : "webview"
+        if (mode != gInterfaceMode || (mode = "webview" && !WebView2RuntimeAvailable()))
+            nextInterface := mode
+    }
 
     previousScale := gMinimapScale
     gMinimapScale := Integer(mm["scale"])
@@ -784,10 +957,17 @@ _Settings_HandleSave(msg) {
     }
 
     ; ── Addon enable/disable ──
+    ; An addon switched on has had no OnInit this session and one switched off
+    ; keeps its timers running, so either way the change only fully takes after
+    ; a restart — offered once the window has closed.
+    addonsChanged := false
     addonToggles := msg.Has("addons") ? msg["addons"] : Map()
     if IsObject(addonToggles) {
         for nm, enabled in addonToggles {
-            SetAddonEnabled(nm, enabled ? true : false)
+            want := enabled ? true : false
+            if (IsAddonEnabled(nm) != want)
+                addonsChanged := true
+            SetAddonEnabled(nm, want)
         }
     }
 
@@ -826,7 +1006,22 @@ _Settings_HandleSave(msg) {
     ; already applied; this short handoff only makes the successful state
     ; perceptible instead of destroying the window before JS receives it.
     SetTimer(() => _Settings_Close(), -380)
+    ; Both run after the close, outside this (possibly WebView2) message call:
+    ; one restarts, the other asks first.
+    if (nextInterface != "")
+        SetTimer(() => SetInterfaceMode(nextInterface), -600)
+    else if addonsChanged
+        SetTimer(_Settings_OfferRestart, -600)
     return true
+}
+
+_Settings_OfferRestart() {
+    if ConfirmAction("Restart Maps++ now to finish turning features on and off?"
+        . "`n`nUntil it restarts, a feature you turned on is not running yet, and one"
+        . " you turned off may still be.",
+        "Maps++ — Settings",
+        Map("severity", "ask", "okLabel", "Restart now", "cancelLabel", "Later"))
+        Reload()
 }
 
 ; ── Reset to Defaults ────────────────────────────────────────
@@ -836,7 +1031,7 @@ _Settings_HandleSave(msg) {
 ; each addon's own OnSettingsWebSave) instead of a parallel code path.
 ;
 ; Deliberately NOT touched: the Windows "run on login" registry entry
-; (autoStart appears on the Launcher tab but registry is intentionally left
+; (autoStart appears on the Game & startup tab but registry is intentionally left
 ; alone) and the WebView-vs-Native interface mode. A reset scoped to settings
 ; defaults shouldn't reach into either.
 ResetAllSettingsToDefaults() {
@@ -847,12 +1042,13 @@ ResetAllSettingsToDefaults() {
     global gMinimapKeepOpen, gShowHoverCoords, gMinimapSource, gMinimapFollowGameScale
     global gAddonHooks, gHotkeyActions, LAUNCH_LAYOUT_DEFAULT
     global gLaunchProfiles, gPrimaryProfileId, gSecondaryProfileId
+    global gDeveloperTools, CONFIG_INI
 
     ; ── Launcher ──
     gGameArgs := DefaultRead("Launcher", "GameArgs", "")
     gLaunchOnStartup := (DefaultRead("Launcher", "LaunchOnStartup", "0") = "1")
     gLaunchAutoLogin := (DefaultRead("Launcher", "LaunchAutoLogin", "1") != "0")
-    gMultiClientCount := Integer(DefaultRead("Launcher", "MultiClientCount", "5"))
+    gMultiClientCount := Integer(DefaultRead("Launcher", "MultiClientCount", "1"))
     gMultiClientDelay := Integer(DefaultRead("Launcher", "MultiClientDelay", "0"))
     gPrimaryMonitorOverride := Integer(DefaultRead("Launcher", "PrimaryMonitor", "0"))
     gSecondaryMonitorOverride := Integer(DefaultRead("Launcher", "SecondaryMonitor", "0"))
@@ -863,10 +1059,12 @@ ResetAllSettingsToDefaults() {
     ; globals is not enough: SaveLauncherConfig re-syncs them *from* the
     ; profiles, which would put the old values straight back. Rebuild the two
     ; seeded profiles instead, and SaveLaunchProfiles drops any others' sections.
+    ; Counts are explicit: Settings no longer shows the global fallback that a
+    ; count of 0 used to defer to.
     gLaunchProfiles := Map(
-        "1", Map("id", "1", "name", "Primary", "accounts", "", "count", 0,
+        "1", Map("id", "1", "name", "Primary", "accounts", "", "count", gMultiClientCount,
             "monitor", gPrimaryMonitorOverride, "layout", gPrimaryLaunchLayout),
-        "2", Map("id", "2", "name", "Secondary", "accounts", "", "count", 0,
+        "2", Map("id", "2", "name", "Secondary", "accounts", "", "count", gMultiClientCount,
             "monitor", gSecondaryMonitorOverride, "layout", gSecondaryLaunchLayout))
     gPrimaryProfileId := "1"
     gSecondaryProfileId := "2"
@@ -887,6 +1085,8 @@ ResetAllSettingsToDefaults() {
     ; ── Appearance ── (accent before overlay rebuild, same order as save)
     SetAccentScheme(DefaultRead("UI", "AccentScheme", "amber"))
     RebuildOverlayGui()
+    gDeveloperTools := (DefaultRead("UI", "DeveloperTools", "0") = "1")
+    IniWrite(gDeveloperTools ? "1" : "0", CONFIG_INI, "UI", "DeveloperTools")
 
     ; ── Hotkeys ── (mirrors SaveHotkeyOverrides' own persist:false skip)
     for id, action in gHotkeyActions {
@@ -1001,7 +1201,7 @@ _Settings_ResetDefaultsBegin() {
     if !ConfirmAction(
         "Reset every Maps++ setting to its default? This includes addon "
         . "on/off state and all keyboard shortcuts.`n`n"
-        . "The Chat Mod tab is left alone: those settings belong to the game's "
+        . "The Chat mod tab is left alone: those settings belong to the game's "
         . "client mods (osmw.ini), where the in-game F12 panel edits them too.",
         "Maps++ — Settings",
         Map("severity", "danger", "danger", true, "owner", owner))
@@ -1084,7 +1284,9 @@ _Settings_HandleBrowse() {
     selected := FileSelect(1, A_ScriptDir, "Locate " PROCESS_EXE " (game executable)", "Executables (*.exe)")
     if (selected = "")
         return
-    _Settings_PostMessage('{"type":"browse-result","path":' _JSON_Str(selected) '}')
+    status := _Settings_GameStatus(selected)
+    _Settings_PostMessage('{"type":"browse-result","path":' _JSON_Str(selected)
+        . ',"status":' _JSON_Str(status.text) ',"tone":' _JSON_Str(status.tone) '}')
 }
 
 ; ── Hotkey capture bridge ────────────────────────────────────
@@ -1233,13 +1435,15 @@ _Settings_LaunchLayoutOptions() {
     if (!namesFn || !defaultFn)
         return { available: false, items: [] }
 
+    ; Built-in presets are stored by key ("Grid2x2") but shown by name.
+    labelFn := GetFuncByName("_WindowLayout_PresetLabel")
     defaultName := defaultFn()
     items := [
         { value: "", label: "None — center clients only" },
-        { value: LAUNCH_LAYOUT_DEFAULT, label: "Default — " defaultName }
+        { value: LAUNCH_LAYOUT_DEFAULT, label: "Default — " (labelFn ? labelFn(defaultName) : defaultName) }
     ]
     for name in namesFn()
-        items.Push({ value: name, label: name })
+        items.Push({ value: name, label: labelFn ? labelFn(name) : name })
     return { available: true, items: items }
 }
 

@@ -24,7 +24,6 @@
     <div class="settings-layout">
         <!-- Left Sidebar Navigation -->
         <aside class="sidebar">
-            <div class="sidebar-title">Preferences</div>
             <nav class="nav-list" id="tab-bar">
                 <!-- Tabs are populated dynamically by JS from the AHK state payload -->
             </nav>
@@ -34,44 +33,38 @@
         <main class="content-area">
             <div class="panels" id="panels">
 
-                <!-- ── Launcher ── -->
-                <section class="panel" data-tab="Launcher">
+                <!-- ── Game & startup ── -->
+                <section class="panel" data-tab="Game &amp; startup">
                     <div class="panel-header">
-                        <h2>Launcher</h2>
-                        <div class="panel-desc">Configure the game executable location and multi-client launch behaviour.</div>
+                        <h2>Game &amp; startup</h2>
+                        <div class="panel-desc">Where the game is, and what happens when Windows and Maps++ start.</div>
                     </div>
 
                     <div class="setting-card">
                         <label class="field">
-                            <span class="field-label">Game path</span>
+                            <span class="field-label">Game (main.exe)</span>
                             <div class="browse-row">
                                 <input type="text" id="gamePath" class="input" readonly placeholder="Not set">
                                 <button class="btn btn-sm" id="btnBrowse">Browse…</button>
                             </div>
+                            <small class="field-hint game-status" id="gameStatus"></small>
                         </label>
 
                         <label class="field">
-                            <span class="field-label">Game args</span>
-                            <input type="text" id="gameArgs" class="input" placeholder="Optional command-line arguments">
+                            <span class="field-label">Extra launch arguments</span>
+                            <input type="text" id="gameArgs" class="input" placeholder="Usually empty">
                         </label>
                     </div>
 
                     <div class="setting-card">
                         <label class="field field-check">
                             <input type="checkbox" id="autoStart" class="toggle">
-                            <span>Start Maps++ automatically when Windows starts</span>
+                            <span>Start Maps++ when Windows starts</span>
                         </label>
 
                         <label class="field field-check">
                             <input type="checkbox" id="launchOnStartup" class="toggle">
-                            <span>Launch a game client when Maps++ starts</span>
-                        </label>
-
-                        <label class="field field-check">
-                            <input type="checkbox" id="launchAutoLogin" class="toggle">
-                            <span>Auto-login launched clients
-                                <small class="field-hint">Clicks through the intro, then each client claims the next roster row. Off leaves the stock login screen.</small>
-                            </span>
+                            <span>Launch the game when Maps++ starts</span>
                         </label>
 
                         <!-- Hidden entirely when no update URL is configured, so
@@ -89,27 +82,41 @@
                             <span class="update-status" id="updateStatus"></span>
                         </div>
                     </div>
+                </section>
 
-                    <div class="setting-card">
-                        <div class="field-row">
-                            <label class="field field-half">
-                                <span class="field-label">Clients per launch</span>
-                                <input type="number" id="multiClientCount" class="input input-narrow" min="1" step="1">
+                <!-- ── Launching ── -->
+                <section class="panel" data-tab="Launching">
+                    <div class="panel-header">
+                        <h2>Launching</h2>
+                        <div class="panel-desc">What the two launch actions start: which accounts, how many clients, on which display.</div>
+                    </div>
+
+                    <div class="setting-card launch-targets">
+                        <div class="launch-target">
+                            <div class="launch-target-title">Launch primary <span class="kbd-inline" id="primaryChord"></span></div>
+                            <label class="field">
+                                <span class="field-label">Runs profile</span>
+                                <select id="primaryProfile" class="select"></select>
                             </label>
-                            <label class="field field-half">
-                                <span class="field-label">Launch delay (ms)</span>
-                                <input type="number" id="multiClientDelay" class="input input-narrow" min="0" step="50">
+                        </div>
+
+                        <div class="launch-target">
+                            <div class="launch-target-title">Launch secondary <span class="kbd-inline" id="secondaryChord"></span></div>
+                            <label class="field">
+                                <span class="field-label">Runs profile</span>
+                                <select id="secondaryProfile" class="select"></select>
                             </label>
+                        </div>
+
+                        <div class="panel-hint">
+                            Choose <strong>None</strong> for Launch secondary if you only ever
+                            start one team; it then leaves the tray menu. Every other profile
+                            is one click away under <strong>Launch other</strong> in the tray.
                         </div>
                     </div>
 
                     <div class="setting-card">
-                        <div class="launch-target-title">Launch profiles</div>
-                        <div class="panel-hint">
-                            A profile is everything a launch does: which accounts, how many
-                            clients, which display, which layout. Launch (Primary) and Launch
-                            (Secondary) each run one, so both stay a single click and hotkey.
-                        </div>
+                        <div class="launch-target-title">Profiles</div>
 
                         <div class="table-container">
                             <table class="table" id="profileTable">
@@ -138,15 +145,16 @@
                                 <input type="text" id="profileName" class="input" maxlength="40">
                             </label>
                             <label class="field field-half">
-                                <span class="field-label">Accounts</span>
-                                <select id="profileAccounts" class="select"></select>
+                                <span class="field-label">Clients</span>
+                                <input type="number" id="profileCount" class="input input-narrow"
+                                       min="1" max="32" step="1">
+                                <small class="field-hint" id="profileCountHint" hidden></small>
                             </label>
                         </div>
                         <div class="field-row">
                             <label class="field field-half">
-                                <span class="field-label">Clients</span>
-                                <input type="number" id="profileCount" class="input input-narrow"
-                                       min="0" step="1" placeholder="auto">
+                                <span class="field-label">Accounts</span>
+                                <select id="profileAccounts" class="select"></select>
                             </label>
                             <label class="field field-half">
                                 <span class="field-label">Display</span>
@@ -157,36 +165,28 @@
                             <span class="field-label">Layout after launch</span>
                             <select id="profileLayout" class="select"></select>
                         </label>
-                        <div class="panel-hint">
-                            Leave Clients blank for "Clients per launch" above — a group of
-                            accounts always launches exactly as many clients as it has rows.
-                            <span class="launch-layout-field">Layout <em>Default</em> follows the one
-                            selected under Window Layout; a named layout keeps this profile
-                            independent.</span>
+                        <div class="panel-hint launch-layout-field">
+                            <em>Default</em> follows the layout chosen under Window layout; a named
+                            layout keeps this profile independent of it.
                         </div>
                     </div>
 
-                    <div class="setting-card launch-targets">
-                        <div class="launch-target">
-                            <div class="launch-target-title">Primary launch</div>
-                            <label class="field">
-                                <span class="field-label">Runs profile</span>
-                                <select id="primaryProfile" class="select"></select>
-                            </label>
+                    <div class="setting-card">
+                        <label class="field field-check" id="launchAutoLoginField">
+                            <input type="checkbox" id="launchAutoLogin" class="toggle">
+                            <span>Log launched clients in automatically
+                                <small class="field-hint">Clicks through the intro, then each client claims the next account row. Off leaves the game's own login screen. Needs the osMW client mods.</small>
+                            </span>
+                        </label>
+                        <div class="field" id="accountsRow" hidden>
+                            <button type="button" class="btn btn-sm" id="btnEditAccounts">Edit accounts…</button>
                         </div>
 
-                        <div class="launch-target">
-                            <div class="launch-target-title">Secondary launch</div>
-                            <label class="field">
-                                <span class="field-label">Runs profile</span>
-                                <select id="secondaryProfile" class="select"></select>
-                            </label>
-                        </div>
-
-                        <div class="panel-hint">
-                            Any other profile is still one click away under
-                            <strong>Client Launch</strong> in the tray menu.
-                        </div>
+                        <label class="field">
+                            <span class="field-label">Delay between clients (ms)</span>
+                            <input type="number" id="multiClientDelay" class="input input-narrow" min="0" step="50">
+                            <small class="field-hint">0 starts them all together. Raise it if the game struggles with several starting at once.</small>
+                        </label>
                     </div>
                 </section>
 
@@ -207,7 +207,7 @@
                             </select>
                         </label>
                         <div class="panel-hint" id="minimapSourceHint">The game now has its own minimap on every map Maps++ ships.
-                            <strong>Open Maps++ minimap</strong> opens this overlay even there — bind it under Hotkeys, or use Tray → Map &amp; Overlay.</div>
+                            <strong>Open Maps++ minimap</strong> opens this overlay even there — bind it under Hotkeys, or use Tray → Minimap.</div>
                     </div>
 
                     <div class="setting-card">
@@ -295,7 +295,34 @@
                 <section class="panel" data-tab="Appearance">
                     <div class="panel-header">
                         <h2>Appearance</h2>
-                        <div class="panel-desc">Choose the highlight colour used across Maps++. Backgrounds and status colours stay unchanged.</div>
+                        <div class="panel-desc">How Maps++ looks, and how much of it the tray menu shows.</div>
+                    </div>
+
+                    <div class="setting-card">
+                        <fieldset class="scheme-fieldset">
+                            <legend class="field-label">Interface</legend>
+                            <div class="scheme-options">
+                                <label class="scheme-option scheme-plain">
+                                    <input type="radio" name="interfaceMode" value="webview">
+                                    <span class="material-symbols-outlined scheme-glyph" aria-hidden="true">web_asset</span>
+                                    <span class="scheme-copy">
+                                        <span class="scheme-name">Enhanced</span>
+                                        <span class="scheme-note" id="enhancedNote">Panels like this one</span>
+                                    </span>
+                                    <span class="scheme-check" aria-hidden="true">&#10003;</span>
+                                </label>
+                                <label class="scheme-option scheme-plain">
+                                    <input type="radio" name="interfaceMode" value="native">
+                                    <span class="material-symbols-outlined scheme-glyph" aria-hidden="true">memory</span>
+                                    <span class="scheme-copy">
+                                        <span class="scheme-name">Low memory</span>
+                                        <span class="scheme-note">Plain Windows menus</span>
+                                    </span>
+                                    <span class="scheme-check" aria-hidden="true">&#10003;</span>
+                                </label>
+                            </div>
+                        </fieldset>
+                        <div class="panel-hint" id="interfaceHint">Maps++ restarts when you save a change here.</div>
                     </div>
 
                     <div class="setting-card">
@@ -333,6 +360,15 @@
                         </fieldset>
                         <div class="panel-hint">Changes are previewed here. Save to apply the accent to every Maps++ panel.</div>
                     </div>
+
+                    <div class="setting-card">
+                        <label class="field field-check">
+                            <input type="checkbox" id="developerTools" class="toggle">
+                            <span>Show developer tools in the tray menu
+                                <small class="field-hint">Signature tools, debug state and reload, for checking Maps++ after a game update. Shift+right-click on the tray icon shows them once without this.</small>
+                            </span>
+                        </label>
+                    </div>
                 </section>
 
                 <!-- ── Hotkeys ── -->
@@ -352,11 +388,11 @@
 
                 <!-- Dynamic Addon tabs will be inserted here by JS -->
 
-                <!-- ── Addons (enable/disable) ── -->
-                <section class="panel" data-tab="Addons">
+                <!-- ── Features (addon enable/disable) ── -->
+                <section class="panel" data-tab="Features">
                     <div class="panel-header">
-                        <h2>Addons</h2>
-                        <div class="panel-desc">Enable or disable installed script extensions. Reload (<kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Alt</kbd>+<kbd class="kbd">R</kbd>) to fully apply changes.</div>
+                        <h2>Features</h2>
+                        <div class="panel-desc">Turn off what you don't use: its tray items, shortcuts and settings tab go with it. Maps++ offers to restart when you save a change here.</div>
                     </div>
                     <div id="addonsContainer" class="addons-container">
                         <!-- Populated dynamically -->

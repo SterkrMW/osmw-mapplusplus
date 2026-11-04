@@ -42,6 +42,7 @@ function onAhkMessage(event) {
         case 'layouts-state':
             state = Object.assign(state, msg);
             renderLayoutList();
+            renderPresetList();
             renderMonitorSelect();
             renderCharSelect();
             updateControls();
@@ -147,6 +148,50 @@ function renderLayoutList() {
         li.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
         });
+        list.appendChild(li);
+    });
+}
+
+// Built-in presets: read-only, so no selection or editor — just Apply and
+// Make default. They arrive with a display label; the key is what AHK stores.
+function renderPresetList() {
+    const list = $('presetList');
+    list.innerHTML = '';
+    state.presets.forEach(p => {
+        const li = document.createElement('li');
+        li.className = 'layout-item preset-item';
+
+        const name = document.createElement('span');
+        name.className = 'layout-name';
+        name.textContent = p.label;
+        name.title = p.label;
+        li.appendChild(name);
+
+        if (p.isDefault) {
+            const dot = document.createElement('span');
+            dot.className = 'default-dot';
+            dot.textContent = '●';
+            dot.title = 'Default layout';
+            li.appendChild(dot);
+        }
+
+        const actions = document.createElement('span');
+        actions.className = 'preset-actions';
+        const apply = document.createElement('button');
+        apply.className = 'btn btn-sm';
+        apply.textContent = 'Apply';
+        apply.title = 'Arrange clients as ' + p.label;
+        apply.addEventListener('click', () =>
+            sendToAhk('apply-preset', { key: p.key, monitorIndex: Number($('monitorSelect').value) || 0 }));
+        actions.appendChild(apply);
+        if (!p.isDefault) {
+            const makeDefault = document.createElement('button');
+            makeDefault.className = 'btn btn-sm btn-ghost';
+            makeDefault.textContent = 'Make default';
+            makeDefault.addEventListener('click', () => sendToAhk('set-default-preset', { key: p.key }));
+            actions.appendChild(makeDefault);
+        }
+        li.appendChild(actions);
         list.appendChild(li);
     });
 }
@@ -646,10 +691,10 @@ function openNameModal(mode) {
     blank.value = '';
     blank.textContent = 'Empty (one slot)';
     seed.appendChild(blank);
-    state.presets.forEach(p => {
+    state.presets.filter(p => p.seedable).forEach(p => {
         const opt = document.createElement('option');
-        opt.value = p;
-        opt.textContent = p;
+        opt.value = p.key;
+        opt.textContent = p.label;
         seed.appendChild(opt);
     });
 
@@ -805,7 +850,12 @@ if (new URLSearchParams(location.search).has('preview') && !window.chrome?.webvi
             { name: 'Sable', running: false }, { name: 'Morrow', running: true }
         ],
         monitors: [{ index: 1, label: 'Display 1 · 1920 × 1080', workW: 1920, workH: 1080 }],
-        presets: ['Two columns', 'Four corners'], defaultLayoutName: 'Four box — main left', clientCount: 4
+        presets: [
+            { key: 'Grid2x2', label: 'Grid 2×2', isDefault: false, seedable: true },
+            { key: 'CenterFocus', label: 'Center focus', isDefault: false, seedable: true },
+            { key: 'Reset', label: 'Stack top-left', isDefault: false, seedable: false }
+        ],
+        defaultLayoutName: 'Four box — main left', clientCount: 4
     } });
     onAhkMessage({ data: {
         type: 'layout-detail', id: 1, name: 'Four box — main left', monitorIndex: 1,

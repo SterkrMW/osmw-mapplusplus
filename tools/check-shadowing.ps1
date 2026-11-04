@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Flags local variables that shadow an AutoHotkey built-in.
+    Flags local variables and parameters that shadow an AutoHotkey built-in.
 
 .DESCRIPTION
     AHK v2 refuses to compile a script whose local variable shares a name with a
@@ -32,8 +32,22 @@ $reserved = @(
     'trim', 'strlen', 'substr', 'input', 'hotkey', 'menu', 'gui', 'func',
     'loop', 'while', 'until', 'if', 'else', 'return', 'break', 'continue',
     'global', 'static', 'throw', 'try', 'catch', 'finally', 'switch', 'case',
-    'and', 'or', 'not', 'in', 'is', 'contains', 'true', 'false', 'unset'
+    'and', 'or', 'not', 'in', 'is', 'contains', 'true', 'false', 'unset',
+    # Process and thread control. These do not stop the build at all: a local
+    # or parameter by one of these names compiles, then turns the matching
+    # call into "This value of type Integer has no method named Call" when it
+    # runs. A `reload := true` parameter did exactly that to Reload().
+    'reload', 'exitapp', 'exit', 'pause', 'suspend', 'critical', 'persistent',
+    'edit', 'log'
 )
+
+# A function or method definition's parameter list, on one line:
+#   Name(a, b := 1, &c, d*) {
+# The brace is what tells a definition from a call on a line of its own. A
+# definition with its brace on the next line is not checked.
+# Parameters are locals too, and the same collision applies. Lines that start
+# with a keyword (if, while, ...) are control flow, not definitions.
+$defPattern = '^\s*([A-Za-z_]\w*)\(([^()]*)\)\s*\{\s*$'
 
 $files = @()
 $files += Get-ChildItem -LiteralPath $Root -Filter '*.ahk' -File |
@@ -59,6 +73,16 @@ foreach ($f in $files) {
                 }
             }
         }
+        elseif ($code -match $defPattern -and $reserved -notcontains $Matches[1].ToLower()) {
+            foreach ($param in ($Matches[2] -split ',')) {
+                $pname = ($param -replace ':=.*$', '' -replace '[&*]', '').Trim()
+                if ($pname -and $reserved -contains $pname.ToLower()) {
+                    $hits += [pscustomobject]@{
+                        File = $f.Name; Line = $lineNo; Name = $pname; Text = $code.Trim()
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -74,5 +98,5 @@ foreach ($h in $hits) {
     Write-Host ("      {0}" -f $h.Text) -ForegroundColor DarkGray
 }
 Write-Host ""
-Write-Host "Rename these - Ahk2Exe will refuse to compile without saying why." -ForegroundColor Red
+Write-Host "Rename these - Ahk2Exe may refuse to compile without saying why, or the call they shadow fails when it runs." -ForegroundColor Red
 exit 1

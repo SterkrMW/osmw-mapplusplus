@@ -48,20 +48,31 @@ GetHotkeyDisplay(id) {
 FormatHotkeyDisplay(chord) {
     if (chord = "")
         return ""
+    ; Modifiers are collected and then printed in one fixed order, so "+^c"
+    ; (as a default was typed) and "^+c" (as the capture writes it) display
+    ; the same: Ctrl+Shift+C.
     modNames := Map("^", "Ctrl", "!", "Alt", "+", "Shift", "#", "Win")
-    mods := ""
+    seen := Map()
     i := 1
     while (i <= StrLen(chord)) {
         ch := SubStr(chord, i, 1)
         if modNames.Has(ch) {
-            mods .= modNames[ch] "+"
+            seen[ch] := true
             i++
         } else
             break
     }
+    mods := ""
+    for ch in ["^", "!", "+", "#"] {
+        if seen.Has(ch)
+            mods .= modNames[ch] "+"
+    }
     key := SubStr(chord, i)
     if (key = "")
         return RTrim(mods, "+")
+    ; "Ctrl+Alt+l" beside the fixed "Ctrl+Alt+R" read as two conventions.
+    if (StrLen(key) = 1)
+        key := StrUpper(key)
     return mods key
 }
 
@@ -134,7 +145,10 @@ CanonicalHotkeyChord(chord) {
     return out StrLower(key)
 }
 
-GetHotkeyConflictAction(chord, exceptId := "") {
+; usePending: weigh the Settings window's unsaved rows. A capture started from
+; anywhere else (the setup guide) compares against the saved chords only, since
+; an open Settings window's drafts are not what that caller is about to write.
+GetHotkeyConflictAction(chord, exceptId := "", usePending := true) {
     global gHotkeyActions, gHotkeyReserved, gSettingsHotkeyRows
     chord := CanonicalHotkeyChord(chord)
     if (chord = "")
@@ -143,7 +157,7 @@ GetHotkeyConflictAction(chord, exceptId := "") {
         if (chord = CanonicalHotkeyChord(reserved))
             return "(reserved — cannot rebind Reload, Exit, or debug/calibration keys)"
     }
-    if IsObject(gSettingsHotkeyRows) {
+    if (usePending && IsObject(gSettingsHotkeyRows)) {
         for row in gSettingsHotkeyRows {
             if row.Has("id") && row["id"] = exceptId
                 continue
@@ -307,8 +321,8 @@ RegisterCoreHotkeyActions() {
     ; through Quick Actions and the tray, and users can opt into direct chords.
     RegisterHotkeyAction(Map(
         "id", "toggleMinimap",
-        "label", "Toggle minimap",
-        "category", "Core",
+        "label", "Toggle minimap (game or Maps++, per Settings → Minimap)",
+        "category", "Minimap",
         "default", "Tab",
         "handler", HandleTab,
         "hotIfFn", HotIfToggleMinimap,
@@ -320,15 +334,15 @@ RegisterCoreHotkeyActions() {
     RegisterHotkeyAction(Map(
         "id", "openMapsppMinimap",
         "label", "Open Maps++ minimap (even where the game has one)",
-        "category", "Core",
+        "category", "Minimap",
         "default", "",
         "handler", (*) => ToggleMapsppMinimap(),
         "hotIfFn", HotIfGameOrOverlay
     ))
     RegisterHotkeyAction(Map(
         "id", "closeOverlay",
-        "label", "Close overlay",
-        "category", "Core",
+        "label", "Close the Maps++ minimap",
+        "category", "Minimap",
         "default", "RButton",
         "handler", CloseOverlay,
         "hotIfFn", HotIfCloseOverlay,
@@ -337,22 +351,22 @@ RegisterCoreHotkeyActions() {
     ))
     RegisterHotkeyAction(Map(
         "id", "launchPrimary",
-        "label", "Launch clients (primary monitor)",
-        "category", "Core",
+        "label", "Launch primary",
+        "category", "Launching",
         "default", "^!l",
         "handler", (*) => LaunchConfiguredClients("primary")
     ))
     RegisterHotkeyAction(Map(
         "id", "launchSecondary",
-        "label", "Launch clients (secondary monitor)",
-        "category", "Core",
+        "label", "Launch secondary",
+        "category", "Launching",
         "default", "^!k",
         "handler", (*) => LaunchConfiguredClients("secondary")
     ))
     RegisterHotkeyAction(Map(
         "id", "sendEnterUntilReady",
         "label", "Send Enter until ready",
-        "category", "Core",
+        "category", "Actions",
         "default", "^!e",
         "handler", SendEnterUntilReady,
         "hotIfFn", HotIfGameOrOverlay
@@ -360,7 +374,7 @@ RegisterCoreHotkeyActions() {
     RegisterHotkeyAction(Map(
         "id", "openSettings",
         "label", "Open Settings",
-        "category", "Core",
+        "category", "General",
         "default", "^!,",
         "handler", ShowSettingsWindow
     ))
@@ -368,9 +382,9 @@ RegisterCoreHotkeyActions() {
 
 GetHotkeyActionsForSettings() {
     global gHotkeyActions
-    categoryOrder := ["Core", "Quick Actions", "Client Roster", "Window Layout",
-        "View Mode", "Battle", "Inventory", "Chat", "Map POIs", "Party Markers",
-        "Character Vendor"]
+    ; The tray's own groups, in its order, so a shortcut is filed under the
+    ; same name as the menu item it duplicates.
+    categoryOrder := ["General", "Launching", "Minimap", "Clients", "Actions", "Developer"]
     byCategory := Map()
     for id, action in gHotkeyActions {
         if !IsHotkeyActionEnabled(action)
@@ -438,9 +452,14 @@ StartHotkeyCapture(row, onDone, onCancel := 0) {
 }
 
 _HotkeyCaptureKeyDown(hook, vk, onDone) {
-    global gHotkeyCaptureRow, gHotkeyCaptureHook, gSettingsGui
+    global gHotkeyCaptureRow, gHotkeyCaptureHook, gHotkeyCaptureCancel, gSettingsGui
 
-    if IsObject(gSettingsGui) && gSettingsGui && !WinActive("ahk_id " gSettingsGui.Hwnd)
+    ; Only keys pressed while the capturing window is active count. The row
+    ; names its window; a row without one is the Settings window's, which was
+    ; the only caller before the setup guide.
+    owner := gHotkeyCaptureRow.Has("ownerHwnd") ? gHotkeyCaptureRow["ownerHwnd"]
+        : ((IsObject(gSettingsGui) && gSettingsGui) ? gSettingsGui.Hwnd : 0)
+    if (owner && !WinActive("ahk_id " owner))
         return
 
     if (vk = 0x1B) { ; Escape
@@ -475,7 +494,8 @@ _HotkeyCaptureKeyDown(hook, vk, onDone) {
         return
 
     exceptId := gHotkeyCaptureRow.Has("id") ? gHotkeyCaptureRow["id"] : ""
-    conflict := GetHotkeyConflictAction(chord, exceptId)
+    usePending := !(gHotkeyCaptureRow.Has("ownerHwnd") && gHotkeyCaptureRow["ownerHwnd"])
+    conflict := GetHotkeyConflictAction(chord, exceptId, usePending)
     if (conflict != "") {
         TrayTip("Already used by " conflict ".", "Hotkeys", "Iconx")
         return
@@ -492,6 +512,10 @@ _HotkeyCaptureKeyDown(hook, vk, onDone) {
     gHotkeyCaptureRow["button"].Text := FormatHotkeyDisplay(chord)
     gHotkeyCaptureRow := 0
     gHotkeyCaptureHook := 0
+    ; Finished, so the cancel callback is spent. Left armed, the next
+    ; CancelHotkeyCapture — Settings closing, another capture starting — would
+    ; report a cancel for a capture that had already succeeded.
+    gHotkeyCaptureCancel := 0
     if onDone is Func
         onDone(chord)
 }

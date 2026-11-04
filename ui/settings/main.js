@@ -98,23 +98,22 @@ function handleSettingsState(msg) {
     populateAddonTabs();
     populateAddons();
     buildTabBar();
-    activateTab(state.tabNames[0] || 'Launcher');
+    activateTab(state.tabNames[0] || 'Game & startup');
     setDirty(false);
 }
 
 // ── Tab switching ──────────────────────────────────────────────
 
+// Icons arrive with each tab in state.tabGroups (core tabs from settings.ahk,
+// addon tabs from their RegisterAddon "settingsIcon"); this only covers a host
+// that sent the flat tabNames list alone.
 const TAB_ICONS = {
-    'Launcher': 'rocket_launch',
+    'Game & startup': 'folder_open',
+    'Launching': 'rocket_launch',
     'Minimap': 'map',
-    'Appearance': 'settings',
+    'Appearance': 'visibility',
     'Hotkeys': 'keyboard',
-    'Client Roster': 'groups',
-    'Discord': 'forum',
-    'Map POIs': 'place',
-    'Party Markers': 'shield',
-    'Window Layout': 'grid_view',
-    'Addons': 'extension',
+    'Features': 'extension',
 };
 
 function buildTabBar() {
@@ -122,48 +121,82 @@ function buildTabBar() {
     bar.setAttribute('role', 'tablist');
     bar.setAttribute('aria-orientation', 'vertical');
     bar.innerHTML = '';
-    for (const name of state.tabNames) {
-        const btn = document.createElement('button');
-        btn.className = 'tab-btn';
-        btn.type = 'button';
-        btn.setAttribute('role', 'tab');
-        btn.dataset.tab = name;
-        btn.title = name;
-
-        const iconName = TAB_ICONS[name] || 'tune';
-        const icon = document.createElement('span');
-        icon.className = 'material-symbols-outlined tab-icon';
-        icon.textContent = iconName;
-
-        const label = document.createElement('span');
-        label.className = 'tab-label';
-        label.textContent = name;
-
-        btn.appendChild(icon);
-        btn.appendChild(label);
-        btn.addEventListener('click', () => activateTab(name));
-        btn.addEventListener('keydown', event => {
-            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-            event.preventDefault();
-            const tabs = [...bar.querySelectorAll('.tab-btn')];
-            const step = event.key === 'ArrowDown' ? 1 : -1;
-            const next = tabs[(tabs.indexOf(btn) + step + tabs.length) % tabs.length];
-            next.focus();
-            activateTab(next.dataset.tab);
-        });
-        bar.appendChild(btn);
+    const groups = state.tabGroups && state.tabGroups.length
+        ? state.tabGroups
+        : [{ group: '', tabs: state.tabNames.map(name => ({ name })) }];
+    for (const group of groups) {
+        // A heading is presentational: arrow keys walk the tabs straight past it.
+        if (group.group) {
+            const heading = document.createElement('div');
+            heading.className = 'nav-group-title';
+            heading.textContent = group.group;
+            heading.setAttribute('role', 'presentation');
+            bar.appendChild(heading);
+        } else if (bar.childElementCount) {
+            const rule = document.createElement('div');
+            rule.className = 'nav-group-rule';
+            rule.setAttribute('role', 'presentation');
+            bar.appendChild(rule);
+        }
+        for (const tab of group.tabs)
+            bar.appendChild(makeTabButton(tab.name, tab.icon));
     }
+}
+
+function makeTabButton(name, iconHint) {
+    const bar = document.getElementById('tab-bar');
+    const btn = document.createElement('button');
+    btn.className = 'tab-btn';
+    btn.type = 'button';
+    btn.setAttribute('role', 'tab');
+    btn.dataset.tab = name;
+    btn.title = name;
+
+    const iconName = iconHint || TAB_ICONS[name] || 'tune';
+    const icon = document.createElement('span');
+    icon.className = 'material-symbols-outlined tab-icon';
+    icon.textContent = iconName;
+
+    const label = document.createElement('span');
+    label.className = 'tab-label';
+    label.textContent = name;
+
+    btn.appendChild(icon);
+    btn.appendChild(label);
+    btn.addEventListener('click', () => activateTab(name));
+    btn.addEventListener('keydown', event => {
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        event.preventDefault();
+        const tabs = [...bar.querySelectorAll('.tab-btn')];
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        const next = tabs[(tabs.indexOf(btn) + step + tabs.length) % tabs.length];
+        next.focus();
+        activateTab(next.dataset.tab);
+    });
+    return btn;
 }
 
 // ── Appearance ────────────────────────────────────────────────
 
 function populateAppearance() {
+    const appearance = state.appearance || {};
     const scheme = window.AccentTheme
-        ? window.AccentTheme.normalize(state.appearance && state.appearance.accentScheme)
+        ? window.AccentTheme.normalize(appearance.accentScheme)
         : 'amber';
     const option = document.querySelector(`input[name="accentScheme"][value="${scheme}"]`);
     if (option) option.checked = true;
     if (window.AccentTheme) window.AccentTheme.preview(scheme);
+
+    const mode = appearance.interfaceMode === 'native' ? 'native' : 'webview';
+    const modeInput = document.querySelector(`input[name="interfaceMode"][value="${mode}"]`);
+    if (modeInput) modeInput.checked = true;
+    // Chosen but unusable can only be seen from the native window, but the
+    // runtime can also go missing between opens; say so where the choice is.
+    const note = document.getElementById('enhancedNote');
+    if (note) note.textContent = appearance.runtimeAvailable === false
+        ? 'Needs the WebView2 Runtime' : 'Panels like this one';
+    const dev = document.getElementById('developerTools');
+    if (dev) dev.checked = !!appearance.developerTools;
 }
 
 document.querySelectorAll('input[name="accentScheme"]').forEach(option => {
@@ -203,6 +236,23 @@ function activateTab(name) {
 
 function populateLauncher() {
     document.getElementById('gamePath').value = state.launcher.gamePath || '';
+    const status = document.getElementById('gameStatus');
+    if (status) {
+        status.textContent = state.launcher.gameStatus || '';
+        status.dataset.tone = state.launcher.gameStatusTone || '';
+    }
+    const accountsRow = document.getElementById('accountsRow');
+    if (accountsRow) accountsRow.hidden = !state.launcher.accountsEditorAvailable;
+    // The launch actions' current keys, beside their names, because "primary"
+    // means nothing until you know which shortcut it is.
+    const chordFor = (id) => {
+        const action = ((state.hotkeys && state.hotkeys.actions) || []).find(a => a.id === id);
+        return action && action.chord ? action.display : '';
+    };
+    const pc = document.getElementById('primaryChord');
+    if (pc) pc.textContent = chordFor('launchPrimary');
+    const sc = document.getElementById('secondaryChord');
+    if (sc) sc.textContent = chordFor('launchSecondary');
     document.getElementById('gameArgs').value = state.launcher.gameArgs || '';
     document.getElementById('autoStart').checked = !!state.launcher.autoStart;
     document.getElementById('launchOnStartup').checked = !!state.launcher.launchOnStartup;
@@ -235,7 +285,6 @@ function populateLauncher() {
         const get = document.getElementById('btnGetUpdate');
         if (get) get.hidden = false;
     }
-    document.getElementById('multiClientCount').value = state.launcher.multiClientCount || 5;
     document.getElementById('multiClientDelay').value = state.launcher.multiClientDelay || 0;
 
     document.querySelectorAll('.launch-layout-field').forEach(el => {
@@ -243,10 +292,18 @@ function populateLauncher() {
     });
     populateProfiles();
 
+    if (launcherButtonsBound) return;
+    launcherButtonsBound = true;
+
     // Browse button
     document.getElementById('btnBrowse').addEventListener('click', () => {
         sendToAhk('browse-game-path');
     });
+
+    // Opens the Accounts editor beside this window; it saves on its own, so
+    // this panel has nothing to wait for.
+    const editAccounts = document.getElementById('btnEditAccounts');
+    if (editAccounts) editAccounts.addEventListener('click', () => sendToAhk('edit-accounts'));
 
     // Manual update check. The button is disabled while the request is in
     // flight — it is bounded by a timeout AHK-side, but a button that can be
@@ -277,6 +334,22 @@ let profiles = [];
 let profileSelected = -1;
 let profileButtonsBound = false;
 let profileBindingsBound = false;
+let launcherButtonsBound = false;
+
+/* A profile's client count as Settings shows it. 0 is how profiles saved
+   before this page stored "use the global Clients per launch"; that field is
+   gone, so 0 is shown — and saved — as the number it stood for. */
+function effectiveCount(count) {
+    const n = parseInt(count, 10) || 0;
+    return n >= 1 ? n : Math.max(1, parseInt(state.launcher.multiClientCount, 10) || 1);
+}
+
+/* A group launches exactly its rows and "only" exactly one account, so for
+   those the count is not the user's to set. */
+function fixedCountFor(accounts) {
+    const found = (state.launcher.accountChoices || []).find(c => c.value === accounts);
+    return found && Number.isFinite(found.fixedCount) ? found.fixedCount : null;
+}
 
 function newProfileId() {
     // Ids are numeric strings because they name a config.ini section, and the
@@ -301,7 +374,7 @@ function populateProfiles() {
         id: String(p.id),
         name: p.name || '',
         accounts: p.accounts || '',
-        count: parseInt(p.count, 10) || 0,
+        count: effectiveCount(p.count),
         monitorChoice: parseInt(p.monitorChoice, 10) || 0,
         layout: p.layout || ''
     }));
@@ -347,10 +420,11 @@ function renderProfileList() {
         if (p.id === primaryId) bound.push('Primary');
         if (p.id === secondaryId) bound.push('Secondary');
 
+        const fixed = fixedCountFor(p.accounts);
         [
             p.name || '(unnamed)',
             accountLabel(p.accounts),
-            p.count > 0 ? String(p.count) : 'auto',
+            String(fixed !== null ? fixed : p.count),
             (state.launcher.monitorChoices || [])[p.monitorChoice] || '',
             bound.join(' + ')
         ].forEach(text => {
@@ -377,7 +451,7 @@ function selectProfile(i) {
     const p = profiles[i];
     document.getElementById('profileName').value = p ? p.name : '';
     document.getElementById('profileAccounts').value = p ? p.accounts : '';
-    document.getElementById('profileCount').value = (p && p.count > 0) ? p.count : '';
+    document.getElementById('profileCount').value = p ? p.count : '';
     document.getElementById('profileMonitor').value = p ? p.monitorChoice : 0;
     if (state.launcher.layoutAvailable)
         document.getElementById('profileLayout').value = p ? p.layout : '';
@@ -386,7 +460,26 @@ function selectProfile(i) {
             const el = document.getElementById(id);
             if (el) el.disabled = !p;
         });
+    syncCountField();
     renderProfileList();
+}
+
+function syncCountField() {
+    const p = profiles[profileSelected];
+    const input = document.getElementById('profileCount');
+    const hint = document.getElementById('profileCountHint');
+    const fixed = p ? fixedCountFor(p.accounts) : null;
+    if (fixed !== null) {
+        input.disabled = true;
+        input.value = fixed;
+        hint.hidden = false;
+        hint.textContent = fixed === 1 ? 'Set by the account: one client.'
+            : `Set by the group: ${fixed} clients.`;
+    } else {
+        input.disabled = !p;
+        if (p) input.value = p.count;
+        hint.hidden = true;
+    }
 }
 
 function applyProfileFields() {
@@ -395,10 +488,14 @@ function applyProfileFields() {
         return;
     p.name = document.getElementById('profileName').value.trim();
     p.accounts = document.getElementById('profileAccounts').value;
-    p.count = parseInt(document.getElementById('profileCount').value, 10) || 0;
+    if (fixedCountFor(p.accounts) === null) {
+        const typed = parseInt(document.getElementById('profileCount').value, 10);
+        if (typed >= 1) p.count = Math.min(typed, 32);
+    }
     p.monitorChoice = parseInt(document.getElementById('profileMonitor').value, 10) || 0;
     if (state.launcher.layoutAvailable)
         p.layout = document.getElementById('profileLayout').value;
+    syncCountField();
     renderProfileBindings(document.getElementById('primaryProfile').value,
         document.getElementById('secondaryProfile').value);
     setDirty(true);
@@ -410,7 +507,9 @@ function applyProfileFields() {
 function renderProfileBindings(primaryId, secondaryId) {
     const options = profiles.map(p => ({ value: p.id, label: p.name || '(unnamed)' }));
     populateValueSelect('primaryProfile', options, primaryId);
-    populateValueSelect('secondaryProfile', options, secondaryId);
+    // Secondary may run nothing at all — the tray then shows one launch row.
+    populateValueSelect('secondaryProfile',
+        [{ value: '', label: 'None' }, ...options], secondaryId || '');
     if (!profileBindingsBound) {
         profileBindingsBound = true;
         ['primaryProfile', 'secondaryProfile'].forEach(id => {
@@ -430,7 +529,7 @@ function addProfile() {
         id: newProfileId(),
         name: 'Profile ' + (profiles.length + 1),
         accounts: '',
-        count: 0,
+        count: effectiveCount(0),
         monitorChoice: 0,
         layout: state.launcher.layoutAvailable
             ? (state.launcher.launchLayoutOptions[0] || {}).value || '' : ''
@@ -470,9 +569,10 @@ function removeProfile() {
     let secondaryId = secondarySel.value;
     const goneId = profiles[profileSelected].id;
     profiles.splice(profileSelected, 1);
-    // A binding pointing at the removed profile has to land somewhere real.
+    // A binding pointing at the removed profile has to land somewhere real —
+    // or, for secondary, on None, which is real too.
     if (primaryId === goneId) primaryId = profiles[0].id;
-    if (secondaryId === goneId) secondaryId = profiles[profiles.length - 1].id;
+    if (secondaryId === goneId) secondaryId = profiles.length > 1 ? profiles[profiles.length - 1].id : '';
     selectProfile(Math.min(profileSelected, profiles.length - 1));
     renderProfileBindings(primaryId, secondaryId);
     renderProfileList();
@@ -485,7 +585,7 @@ function collectProfiles() {
         id: p.id,
         name: p.name || 'Profile ' + p.id,
         accounts: p.accounts,
-        count: p.count,
+        count: effectiveCount(p.count),
         monitorChoice: p.monitorChoice,
         layout: state.launcher.layoutAvailable ? p.layout : ''
     }));
@@ -545,6 +645,11 @@ function populateSelect(id, options, selectedIndex) {
 function handleBrowseResult(msg) {
     if (msg.path) {
         document.getElementById('gamePath').value = msg.path;
+        const status = document.getElementById('gameStatus');
+        if (status && msg.status) {
+            status.textContent = msg.status;
+            status.dataset.tone = msg.tone || '';
+        }
         setDirty(true);
         showToast('Game path selected', 'success');
     }
@@ -680,16 +785,10 @@ function populateHotkeys() {
     for (const action of state.hotkeys.actions) {
         const cat = action.category || 'Other';
         if (cat !== prevCat) {
-            const isCore = cat === 'Core';
+            // Categories are the tray's groups now (Minimap, Clients…), which
+            // mix core and addon actions, so there is no "from an addon" mark.
             const header = document.createElement('div');
-            header.className = `hotkey-category ${isCore ? 'category-core' : 'category-addon'}`;
-            if (!isCore) {
-                const icon = document.createElement('span');
-                icon.className = 'material-symbols-outlined category-icon';
-                icon.textContent = 'extension';
-                icon.title = 'Provided by an addon — disappears if the addon is disabled';
-                header.appendChild(icon);
-            }
+            header.className = 'hotkey-category category-core';
             const label = document.createElement('span');
             label.textContent = cat;
             header.appendChild(label);
@@ -910,9 +1009,9 @@ function populateAddonTabs() {
 
         section.appendChild(card);
 
-        // Insert before the Addons panel
-        const addonsPanel = panels.querySelector('[data-tab="Addons"]');
-        panels.insertBefore(section, addonsPanel);
+        // Insert before the Features panel; the sidebar decides display order.
+        const featuresPanel = panels.querySelector('[data-tab="Features"]');
+        panels.insertBefore(section, featuresPanel);
     }
 }
 
@@ -1287,28 +1386,54 @@ function ensureAddonValues(name) {
 
 // ── Addons enable/disable ──────────────────────────────────────
 
+// Grouped the way the sidebar is, each with the one line its addon gives.
+const FEATURE_GROUPS = [
+    ['map', 'Map'], ['multibox', 'Multi-boxing'], ['tools', 'Tools']
+];
+
 function populateAddons() {
     const container = document.getElementById('addonsContainer');
     container.innerHTML = '';
     if (!state.addons) return;
 
-    for (const addon of state.addons) {
-        const row = document.createElement('label');
-        row.className = 'addon-row';
+    const known = new Set(FEATURE_GROUPS.map(([key]) => key));
+    for (const [key, title] of FEATURE_GROUPS) {
+        const members = state.addons.filter(a =>
+            (known.has(a.group) ? a.group : 'tools') === key);
+        if (!members.length) continue;
 
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.className = 'toggle';
-        cb.checked = addon.enabled;
-        cb.dataset.addonName = addon.name;
+        const heading = document.createElement('h3');
+        heading.className = 'feature-group-title';
+        heading.textContent = title;
+        container.appendChild(heading);
 
-        const name = document.createElement('span');
-        name.className = 'addon-name';
-        name.textContent = addon.label || addon.name;
+        for (const addon of members) {
+            const row = document.createElement('label');
+            row.className = 'addon-row';
 
-        row.appendChild(cb);
-        row.appendChild(name);
-        container.appendChild(row);
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'toggle';
+            cb.checked = addon.enabled;
+            cb.dataset.addonName = addon.name;
+
+            const copy = document.createElement('span');
+            copy.className = 'addon-copy';
+            const name = document.createElement('span');
+            name.className = 'addon-name';
+            name.textContent = addon.label || addon.name;
+            copy.appendChild(name);
+            if (addon.description) {
+                const desc = document.createElement('span');
+                desc.className = 'addon-desc';
+                desc.textContent = addon.description;
+                copy.appendChild(desc);
+            }
+
+            row.appendChild(cb);
+            row.appendChild(copy);
+            container.appendChild(row);
+        }
     }
 }
 
@@ -1342,7 +1467,8 @@ function collectAndSave() {
         launchAutoLogin:    document.getElementById('launchAutoLogin')
             ? document.getElementById('launchAutoLogin').checked : true,
         versionCheck:       document.getElementById('versionCheck').checked,
-        multiClientCount:   parseInt(document.getElementById('multiClientCount').value, 10) || 5,
+        // No multiClientCount: each profile carries its own count now, and
+        // the host keeps the stored value as the fallback for old profiles.
         multiClientDelay:   parseInt(document.getElementById('multiClientDelay').value, 10) || 0,
         // Display and layout live on the profiles now; the host mirrors the
         // bound profiles back into the old per-target keys itself.
@@ -1365,8 +1491,12 @@ function collectAndSave() {
     };
 
     const selectedScheme = document.querySelector('input[name="accentScheme"]:checked');
+    const selectedMode = document.querySelector('input[name="interfaceMode"]:checked');
     const appearance = {
         accentScheme: selectedScheme ? selectedScheme.value : 'amber',
+        interfaceMode: selectedMode ? selectedMode.value
+            : ((state.appearance && state.appearance.interfaceMode) || 'webview'),
+        developerTools: document.getElementById('developerTools').checked,
     };
 
     if (window.AccentTheme) window.AccentTheme.apply(appearance.accentScheme);
@@ -1461,28 +1591,51 @@ const previewTab = new URLSearchParams(location.search).get('preview');
 if (previewTab !== null && !window.chrome?.webview) {
     handleSettingsState({
         type: 'settings-state',
-        tabNames: ['Launcher', 'Minimap', 'Appearance', 'Hotkeys', 'Map POIs', 'Addons'],
+        tabNames: ['Game & startup', 'Launching', 'Appearance', 'Hotkeys', 'Minimap', 'Map POIs', 'Features'],
+        tabGroups: [
+            { group: 'General', tabs: [
+                { name: 'Game & startup', icon: 'folder_open' }, { name: 'Launching', icon: 'rocket_launch' },
+                { name: 'Appearance', icon: 'visibility' }, { name: 'Hotkeys', icon: 'keyboard' }] },
+            { group: 'Map', tabs: [{ name: 'Minimap', icon: 'map' }, { name: 'Map POIs', icon: 'place' }] },
+            { group: '', tabs: [{ name: 'Features', icon: 'extension' }] }
+        ],
         launcher: {
-            gamePath: 'C:\\Games\\MythWar\\mythwar.exe', gameArgs: '-windowed',
+            gamePath: 'C:\\Games\\MythWar\\main.exe', gameArgs: '',
+            gameStatus: 'Found. The osMW client mods are installed in this folder.', gameStatusTone: 'ok',
+            accountsEditorAvailable: true,
             autoStart: true, launchOnStartup: false, launchAutoLogin: true, multiClientCount: 4, multiClientDelay: 650,
             monitorChoices: ['Display 1 · 1920 × 1080', 'Display 2 · 2560 × 1440'],
             primaryMonitorChoice: 0, secondaryMonitorChoice: 1, layoutAvailable: true,
             launchLayoutOptions: [{ value: '', label: 'Default layout' }, { value: 'Four box', label: 'Four box' }],
-            primaryLaunchLayout: 'Four box', secondaryLaunchLayout: ''
+            primaryLaunchLayout: 'Four box', secondaryLaunchLayout: '',
+            profiles: [
+                { id: '1', name: 'Main team', accounts: 'group:Main', count: 0, monitorChoice: 0, layout: 'Four box' },
+                { id: '2', name: 'Alts', accounts: '', count: 3, monitorChoice: 1, layout: '' }
+            ],
+            primaryProfile: '1', secondaryProfile: '2',
+            accountChoices: [
+                { value: '', label: 'Next free roster row' },
+                { value: 'group:Main', label: 'Group: Main (5)', fixedCount: 5 }
+            ]
         },
         minimap: { source: 'game', openChordDisplay: '', scale: 115, opacity: 80, anchor: 'TopRight', offsetX: -12, offsetY: 18, keepOpen: true, followGameScale: true, baseW: 400, baseH: 300, clientW: 1600, clientH: 1200, contentScale: 2 },
-        appearance: { accentScheme: 'amber' },
+        appearance: { accentScheme: 'amber', interfaceMode: 'webview', runtimeAvailable: true, developerTools: false },
         hotkeys: { actions: [
-            { id: 'toggle-map', label: 'Toggle minimap', category: 'Core', chord: '^m', display: 'Ctrl+M', defaultChord: '^m', defaultDisplay: 'Ctrl+M' },
-            { id: 'settings', label: 'Open settings', category: 'Core', chord: '^,', display: 'Ctrl+,', defaultChord: '^,', defaultDisplay: 'Ctrl+,' },
-            { id: 'layout', label: 'Apply default layout', category: 'Window Layout', chord: '!l', display: 'Alt+L', defaultChord: '!l', defaultDisplay: 'Alt+L' }
+            { id: 'openSettings', label: 'Open Settings', category: 'General', chord: '^!,', display: 'Ctrl+Alt+,', defaultChord: '^!,', defaultDisplay: 'Ctrl+Alt+,' },
+            { id: 'launchPrimary', label: 'Launch primary', category: 'Launching', chord: '^!l', display: 'Ctrl+Alt+L', defaultChord: '^!l', defaultDisplay: 'Ctrl+Alt+L' },
+            { id: 'toggleMinimap', label: 'Toggle minimap', category: 'Minimap', chord: 'Tab', display: 'Tab', defaultChord: 'Tab', defaultDisplay: 'Tab' },
+            { id: 'windowLayoutPrimary', label: 'Arrange windows', category: 'Clients', chord: '', display: 'Not bound', defaultChord: '', defaultDisplay: 'Not bound' }
         ] },
         addonTabs: [{ label: 'Map POIs', addonName: 'Map POIs', fields: [
             { type: 'info', text: 'Choose which points of interest appear on the minimap.' },
             { type: 'checkbox', id: 'enabled', label: 'Show map points of interest', value: true },
             { type: 'number', id: 'radius', label: 'Marker radius', value: 8, min: 2, max: 24 }
         ] }],
-        addons: [{ name: 'Map POIs', enabled: true }, { name: 'Window Layout', enabled: true }, { name: 'Discord RPC', enabled: false }]
+        addons: [
+            { name: 'MapPois', label: 'Map POIs', group: 'map', enabled: true, description: 'Mark NPCs, shops and portals on the Maps++ minimap.' },
+            { name: 'WindowLayout', label: 'Window layout', group: 'multibox', enabled: true, description: 'Arrange your clients across the screen in one keypress.' },
+            { name: 'DiscordRpc', label: 'Discord', group: 'tools', enabled: false, description: 'Show your current map in your Discord status.' }
+        ]
     });
     if (previewTab && state.tabNames.includes(previewTab)) activateTab(previewTab);
 }

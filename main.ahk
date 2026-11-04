@@ -17,19 +17,30 @@ SetTitleMatchMode(2)
 #Include native_mods.ahk
 #Include settings.ahk
 #Include dialogs.ahk
+#Include setup.ahk
 #Include radial.ahk
 #Include hotkeys.ahk
 #Include *i _addons.ahk
+
+; First, before the log line below and before anything writes config.ini: both
+; are how an earlier install is told apart from a fresh one. An upgrade has the
+; defaults this version changed pinned here, before the loaders read them.
+gSetupRun := Setup_DetectFirstRun()
+if (gSetupRun = "upgrade")
+    _Setup_MarkUpgrade()
 
 InitAppNotificationRegistration()
 
 ; ── Launcher startup ─────────────────────────────────────────────
 
-; Before any config work: LoadLauncherConfig can block on the game-path prompt
-; (or fail outright), and a session that never gets past it still needs to have
+; Before any config work, so a session that fails during it has still
 ; identified itself in the log.
 LogInfo("Startup", "Maps++ " APP_VERSION (A_IsCompiled ? " (compiled)" : " (source)")
     . " — AHK " A_AhkVersion ", " (A_PtrSize = 8 ? "64-bit" : "32-bit"))
+
+; ResolveWritableIniPath's probe leaves a fresh install with an empty config.ini,
+; and whichever IniWrite reaches it first would fix it as ANSI for good.
+EnsureIniUtf16(CONFIG_INI)
 
 LoadLauncherConfig()
 LoadMinimapConfig()
@@ -94,17 +105,24 @@ if !FileExist(MARKER_PNG) {
 ; ── Tray menu ────────────────────────────────────────────────────
 
 RebuildTrayMenu()
+; Both modes listen to the tray icon now: the right-button release is where a
+; held Shift is noticed and the native menu rebuilt to match, and in enhanced
+; mode where the web menu replaces it.
+OnMessage(0x0404, _OnTrayNotify)
+; Same reason as radial.ahk's _Radial_OnExit: tearing the menu window down on
+; exit emits a WM_ACTIVATE that would otherwise reach the handler after the
+; globals it reads are gone.
+OnExit(_Tray_UnhookMessages)
 if IsWebViewInterface() {
-    OnMessage(0x0404, _OnTrayNotify)
     OnMessage(0x0006, _OnTrayWmActivate)
-    ; Same reason as radial.ahk's _Radial_OnExit: tearing the menu window down on
-    ; exit emits a WM_ACTIVATE that would otherwise reach the handler after the
-    ; globals it reads are gone.
-    OnExit(_Tray_UnhookMessages)
     ; Enhanced mode intentionally pays the memory cost up front so the first
     ; right-click is as quick as every one after it.
     SetTimer(_PrewarmWebTrayMenu, -6000)
 }
+
+; The setup guide on a fresh install, the one-time notice on an upgrade, and a
+; "launch now" carried across the restart a finished guide may have needed.
+Setup_AfterStartup(gSetupRun)
 
 _Tray_UnhookMessages(*) {
     try OnMessage(0x0404, _OnTrayNotify, 0)
@@ -112,8 +130,22 @@ _Tray_UnhookMessages(*) {
 }
 
 _OnTrayNotify(wParam, lParam, msg, hwnd) {
-    ; 0x0205 = WM_RBUTTONUP (right-click on system tray icon)
+    global gTrayDevReveal
+    ; 0x0205 = WM_RBUTTONUP (right-click on system tray icon). Everything is
+    ; done here, on the release, and nothing on the press: a message monitor
+    ; that is still running when the next message for it arrives never sees
+    ; that message, so rebuilding on the press could swallow the release, and
+    ; with it the menu — no menu at all for a quick click.
     if (lParam = 0x0205) {
+        ; Still held as the button comes up: Shift+right-click shows the
+        ; Developer group for this one open.
+        gTrayDevReveal := GetKeyState("Shift") ? true : false
+        ; Native: rebuild, then return nothing so AHK shows the menu it now
+        ; holds. (The web menu rebuilds itself as it opens.)
+        if !IsWebViewInterface() {
+            RebuildTrayMenu()
+            return
+        }
         ; Returning nothing lets AHK show the native menu, which is the
         ; fallback both for a session already switched to native and for a
         ; WebView2 that fails here despite the startup probe. Uncaught, that
@@ -382,7 +414,7 @@ _TrayItemsToJson(items) {
 }
 
 _ConvertHmenuToWebItems(hMenu, idPrefix := "menu_") {
-    global gWebTrayCallbacks
+    global gWebTrayCallbacks, gTrayMeta
     items := []
     count := DllCall("GetMenuItemCount", "Ptr", hMenu, "Int")
     if (count <= 0)
@@ -405,33 +437,34 @@ _ConvertHmenuToWebItems(hMenu, idPrefix := "menu_") {
         DllCall("GetMenuString", "Ptr", hMenu, "UInt", idx, "Ptr", buf, "Int", bufLen + 1, "UInt", 0x400)
         str := StrGet(buf)
 
-        parts := StrSplit(str, "`t")
-        label := parts[1]
-        rawLabel := label
+        parts := StrSplit(str, "`t", , 2)
+        ; "&&" is how TrayGroup keeps a literal ampersand (a profile named
+        ; "Tom & Jerry") from becoming a keyboard mnemonic natively.
+        label := StrReplace(parts[1], "&&", "&")
         shortcut := (parts.Length >= 2) ? parts[2] : ""
-        isDefault := meta.isDefault
-        isSelected := meta.isChecked
-        stateText := ""
-        if (SubStr(label, 1, 2) = "● ") {
-            isSelected := true
-            label := SubStr(label, 3)
-        }
-        if RegExMatch(label, "^(.*) — (On|Off)$", &stateMatch) {
-            label := stateMatch[1]
-            stateText := stateMatch[2]
-        }
+
+        ; What the native menu cannot say, TrayGroup recorded by position.
+        info := gTrayMeta.Has(hMenu "|" idx) ? gTrayMeta[hMenu "|" idx] : Map()
+        icon := info.Has("icon") ? info["icon"] : ""
+        stateText := info.Has("state") ? info["state"] : ""
+        ; A toggle's check mark is only how the native menu shows its state;
+        ; the page shows the ON/OFF pill instead, so only a radio choice (or an
+        ; unannotated check) keeps the ✓.
+        isSelected := info.Has("selected") ? (info["selected"] ? true : false)
+            : (stateText = "" && meta.isChecked)
+        isExit := info.Has("exit") && info["exit"]
 
         hSub := DllCall("GetSubMenu", "Ptr", hMenu, "Int", idx, "Ptr")
         if (hSub) {
             children := _ConvertHmenuToWebItems(hSub, idPrefix idx "_")
-            items.Push(Map("label", label, "icon", _IconForLabel(rawLabel), "children", children,
+            items.Push(Map("label", label, "icon", icon, "children", children,
                 "isSelected", isSelected, "state", stateText))
         } else {
             itemId := idPrefix idx
             cmdId := DllCall("GetMenuItemID", "Ptr", hMenu, "Int", idx, "UInt")
             gWebTrayCallbacks[itemId] := _MakeHmenuCallback(hMenu, cmdId)
-            items.Push(Map("id", itemId, "label", label, "icon", _IconForLabel(rawLabel), "shortcut", shortcut,
-                "isDefault", isDefault, "isExit", label = "Exit", "isSelected", isSelected,
+            items.Push(Map("id", itemId, "label", label, "icon", icon, "shortcut", shortcut,
+                "isDefault", meta.isDefault, "isExit", isExit, "isSelected", isSelected,
                 "state", stateText))
         }
     }
@@ -464,185 +497,305 @@ _MakeHmenuCallback(hMenu, cmdId) {
     return (*) => DllCall("PostMessage", "Ptr", A_ScriptHwnd, "UInt", 0x0111, "Ptr", cmdId, "Ptr", hMenu)
 }
 
-_IconForLabel(lbl) {
-    ; Toggle items may append their live state to the visible label.
-    if (InStr(lbl, "Party Markers — ") = 1)
-        return "shield"
-    ; Carries the version, so match the prefix.
-    ; TODO: `download` once the icon subset is next regenerated.
-    if (InStr(lbl, "Get the update — ") = 1)
-        return "rocket_launch"
-    ; Another toggle carrying its own state in the label.
-    if (InStr(lbl, "Client Mod Logging — ") = 1)
-        return "bug_report"
-    ; The Tab Minimap radio items (MINIMAP_SOURCE_LABELS), selected or not.
-    for _, srcLabel in MINIMAP_SOURCE_LABELS {
-        if (lbl = srcLabel || lbl = "● " srcLabel)
-            return "map"
+; ── Tray groups ──────────────────────────────────────────────────
+;
+; What OnTrayMenu handlers are handed, one per group of the tray menu. It has
+; Menu's shape — Add() for a separator, Add(label, callbackOrMenu), Check(label)
+; — so a handler written against a raw Menu still works, but nothing is built
+; until RebuildTrayMenu has heard from every addon. That is what lets core put
+; the items in a fixed order with separators between sections, regardless of
+; which addons a build has or what order they were included in, and record the
+; metadata the enhanced tray needs (see gTrayMeta).
+;
+; opts (a Map, all optional):
+;   section   which section of the group the item belongs to; the group's
+;             constructor lists them in display order, and a separator goes
+;             between two sections — no handler has to know its neighbours
+;   order     position within the section (default 100; ties keep add order)
+;   hotkey    a hotkey action id: its current chord is shown as the shortcut
+;   shortcut  literal shortcut text, for the fixed (non-rebindable) keys
+;   icon      Material Symbols name — only top-level rows draw one, and the
+;             name must be in the subset listed in ui\common\style.css
+;   toggle    true/false: a check mark natively, an ON/OFF pill on the web.
+;             The label stays plain ("Party markers", not "... — On").
+;   selected  a radio choice that is current
+;   default   the menu's default item (bold; the tray icon's double-click)
+;   exit      rendered in the web menu's footer
+;
+; Labels are plain text: "&" is escaped here, and two items with the same label
+; are told apart rather than collapsing into one (Menu.Add treats a repeated
+; name as "modify that item").
+class TrayGroup {
+    __New(sectionOrder := "") {
+        this.items := []
+        this.sectionOrder := IsObject(sectionOrder) ? sectionOrder : []
     }
-    switch lbl {
-        ; `info` and `folder` are not in the subsetted font and would render as
-        ; permanent tofu, so these borrow the closest names that are.
-        ; TODO: `info` / `folder` once the icon subset is next regenerated.
-        case "About Maps++…": return "search"
-        case "Calibrate This Map…": return "track_changes"
-        case "Open Maps++ Minimap", "Tab Minimap": return "map"
-        case "Copy Diagnostics": return "bug_report"
-        case "Client Mods Status…": return "search"
-        case "Open Log Folder": return "format_list_bulleted"
-        case "Launch (Primary)", "Launch (Secondary)", "Client Launch": return "rocket_launch"
-        case "Primary", "Secondary": return "devices"
-        case "Send Enter Until Ready": return "keyboard"
-        case "Better Hotkeys…": return "keyboard"
-        case "Settings…": return "settings"
-        case "Reload": return "refresh"
-        case "Debug", "Debug State": return "bug_report"
-        case "GUI Gallery…", "Close GUI Gallery": return "grid_view"
-        case "Calibrate Signatures": return "track_changes"
-        case "Verify Signatures": return "search"
-        case "Exit": return "power_settings_new"
-        case "Chat": return "chat"
-        case "Client Roster": return "group"
-        case "Client Roster (list)": return "format_list_bulleted"
-        case "Auto-login roster…": return "group"
-        case "Quick Actions": return "tune"
-        case "Clients & Windows": return "group"
-        case "Map & Overlay": return "location_on"
-        case "Inventory": return "inventory_2"
-        ; TODO: `storefront` once the icon subset is next regenerated.
-        case "Character Vendor": return "inventory_2"
-        case "Pricing Panel…": return "grid_view"
-        case "Verify Slot Mapping…": return "track_changes"
-        case "Map POIs": return "location_on"
-        case "Export to Game Markers…", "Remove Exported Game Markers…": return "map"
-        case "View Mode": return "visibility"
-        case "Window Layout", "Apply Preset", "Apply Custom": return "grid_view"
-        case "Capture Current As…": return "devices"
-        case "Layouts…": return "format_list_bulleted"
-        case "Undo Last Apply": return "refresh"
-        case "Interface": return "tune"
-        case "Native (low memory)", "● Native (low memory)": return "memory"
-        case "WebView2 (enhanced)", "● WebView2 (enhanced)": return "web_asset"
-        default: return "pin_drop"
+
+    Add(label := "", target := "", opts := "") {
+        item := Map("label", String(label), "target", target, "seq", this.items.Length + 1)
+        if (item["label"] = "")
+            item["separator"] := true
+        if (opts is Map) {
+            for k, v in opts
+                item[k] := v
+        }
+        this.items.Push(item)
+        return this
+    }
+
+    ; Menu.Check's shape, for a handler that adds an item and then checks it.
+    Check(label) {
+        for item in this.items {
+            if (item["label"] = label)
+                item["checked"] := true
+        }
+    }
+
+    HasItems() {
+        for item in this.items {
+            if !item.Has("separator")
+                return true
+        }
+        return false
+    }
+
+    ; Builds the native menu — into `into` when given (A_TrayMenu), else a new
+    ; one — and records each row's metadata. Returns the menu, or "" if the
+    ; group turned out to have nothing in it.
+    Build(into := "") {
+        global gTrayMeta
+        if !this.HasItems()
+            return ""
+        m := IsObject(into) ? into : Menu()
+        used := Map()
+        pos := 0
+        pendingSep := false
+        lastRank := 0
+        for item in this._Sorted() {
+            if item.Has("separator") {
+                pendingSep := (pos > 0)
+                continue
+            }
+            target := item["target"]
+            if (target is TrayGroup) {
+                target := target.Build()
+                if (target = "")
+                    continue
+            }
+            rank := this._Rank(item)
+            if (pos > 0 && rank != lastRank)
+                pendingSep := true
+            lastRank := rank
+            if pendingSep {
+                m.Add()
+                pos++
+                pendingSep := false
+            }
+
+            text := _TrayItemText(used, item)
+            m.Add(text, target)
+            info := Map()
+            if item.Has("icon")
+                info["icon"] := item["icon"]
+            if item.Has("toggle") {
+                info["state"] := item["toggle"] ? "On" : "Off"
+                if item["toggle"]
+                    m.Check(text)
+            }
+            if (item.Has("selected") && item["selected"]) || (item.Has("checked") && item["checked"]) {
+                info["selected"] := true
+                m.Check(text)
+            }
+            if (item.Has("exit") && item["exit"])
+                info["exit"] := true
+            if (item.Has("default") && item["default"])
+                m.Default := text
+            gTrayMeta[m.Handle "|" pos] := info
+            pos++
+        }
+        return m
+    }
+
+    _Rank(item) {
+        sec := item.Has("section") ? item["section"] : ""
+        for i, name in this.sectionOrder {
+            if (name = sec)
+                return i
+        }
+        ; An unknown or missing section goes last, in the order it was added.
+        return this.sectionOrder.Length + 1
+    }
+
+    _Key(item) {
+        o := item.Has("order") ? item["order"] : 100
+        return [this._Rank(item), o, item["seq"]]
+    }
+
+    ; Insertion sort on (section, order, add order): a handful of items, and
+    ; it keeps equal keys stable without a comparator library.
+    _Sorted() {
+        out := []
+        for item in this.items {
+            k := this._Key(item)
+            i := out.Length
+            while (i >= 1 && _TrayKeyLess(k, this._Key(out[i])))
+                i--
+            out.InsertAt(i + 1, item)
+        }
+        return out
     }
 }
 
+_TrayKeyLess(a, b) {
+    loop a.Length {
+        if (a[A_Index] != b[A_Index])
+            return a[A_Index] < b[A_Index]
+    }
+    return false
+}
+
+; The native menu text for an item: label escaped and made unique, then the
+; shortcut after a tab. A legacy label may already carry "`t<shortcut>".
+_TrayItemText(used, item) {
+    parts := StrSplit(item["label"], "`t", , 2)
+    base := StrReplace(parts[1], "&", "&&")
+    if used.Has(base) {
+        used[base] += 1
+        base .= " (" used[base] ")"
+    } else {
+        used[base] := 1
+    }
+    shortcut := ""
+    if item.Has("hotkey")
+        shortcut := GetHotkeyDisplay(item["hotkey"])
+    else if item.Has("shortcut")
+        shortcut := item["shortcut"]
+    else if (parts.Length >= 2)
+        shortcut := parts[2]
+    return (shortcut != "") ? (base "`t" shortcut) : base
+}
+
+; ── Tray menu ────────────────────────────────────────────────────
+;
+; Everything is one level of submenu at most. Lists that used to nest deeper
+; now live in the windows that manage them: layout presets in Window layouts,
+; per-account launches in Accounts, POI sharing in Settings → Map POIs.
 RebuildTrayMenu() {
-    global gInterfaceMode, gUpdateVersion
-    trayMenu := A_TrayMenu
-    trayMenu.Delete()
+    global gUpdateVersion, gTrayMeta, gTrayDevReveal, gDeveloperTools
+    global gPrimaryProfileId, gSecondaryProfileId
+    gTrayMeta := Map()
+
+    groups := Map(
+        "minimap",   TrayGroup(["view", "pois", "markers"]),
+        "clients",   TrayGroup(["status", "layout", "chat", "accounts", "broadcast"]),
+        "actions",   TrayGroup(["ring", "game", "tools"]),
+        "help",      TrayGroup(["guide", "support", "about"]),
+        "developer", TrayGroup(["state", "signatures", "tools", "app"]))
+    ; The names before the regroup, for an addon not yet moved. A handler that
+    ; throws on a missing key counts toward quarantine, which takes the addon's
+    ; hotkeys down with it for the session.
+    groups["map"] := groups["minimap"]
+    groups["quickActions"] := groups["actions"]
+    groups["debug"] := groups["developer"]
+
+    ; Core entries. Addons add theirs to the same groups below, and the
+    ; sections decide where each lands, so the order here does not matter.
+    groups["minimap"].Add("Open Maps++ minimap",
+        (*) => (FocusTrackedGameClient(), ToggleMapsppMinimap()),
+        Map("section", "view", "order", 10, "hotkey", "openMapsppMinimap"))
+    groups["minimap"].Add("Calibrate this map…", (*) => ShowCalibrationPanel(),
+        Map("section", "view", "order", 20))
+
+    groups["actions"].Add("Send Enter until ready", (*) => SendEnterUntilReady(),
+        Map("section", "game", "order", 10, "hotkey", "sendEnterUntilReady"))
+
+    groups["help"].Add("Setup guide…", (*) => Setup_Show(), Map("section", "guide"))
+    groups["help"].Add("Copy diagnostics", (*) => CopyDiagnosticsReport(),
+        Map("section", "support", "order", 10))
+    groups["help"].Add("Open log folder", (*) => OpenLogFolder(),
+        Map("section", "support", "order", 20))
+    groups["help"].Add("Client mods status…", (*) => ShowClientModsStatus(),
+        Map("section", "support", "order", 30))
+    ; The client mods' own logs, off by default.
+    groups["help"].Add("Client mod logging", (*) => ToggleModLogging(),
+        Map("section", "support", "order", 40, "toggle", ModLoggingEnabled()))
+    groups["help"].Add("About Maps++…", (*) => ShowAboutDialog(), Map("section", "about"))
+
+    groups["developer"].Add("Debug state", (*) => ShowDebugState(),
+        Map("section", "state", "shortcut", "Ctrl+Alt+D"))
+    groups["developer"].Add("Calibrate signatures", (*) => CalibrateSignaturesNow(),
+        Map("section", "signatures", "order", 10, "shortcut", "Ctrl+Alt+S"))
+    groups["developer"].Add("Verify signatures", (*) => VerifyResolution(),
+        Map("section", "signatures", "order", 20, "shortcut", "Ctrl+Alt+V"))
+    groups["developer"].Add("Reload Maps++", (*) => Reload(),
+        Map("section", "app", "shortcut", "Ctrl+Alt+R"))
+
+    FireAddonHook("OnTrayMenu", groups)
+
+    top := TrayGroup(["update", "launch", "groups", "settings", "exit"])
     ; Only present when a newer version was actually seen, so the notification
     ; is not the user's only chance to act on it.
-    if (gUpdateVersion != "") {
-        trayMenu.Add("Get the update — " gUpdateVersion, (*) => OpenUpdatePage())
-        trayMenu.Add()
+    if (gUpdateVersion != "")
+        top.Add("Get the update — " gUpdateVersion, (*) => OpenUpdatePage(),
+            Map("section", "update", "icon", "download"))
+
+    ; The launch rows are named after the profiles they run, so "Launch Alts"
+    ; says what it does; the profiles themselves are edited in Settings.
+    primary := LaunchProfileById(gPrimaryProfileId)
+    primaryName := IsObject(primary) ? primary["name"] : "Primary"
+    top.Add("Launch " _TrayClip(primaryName), (*) => LaunchConfiguredClients("primary"),
+        Map("section", "launch", "order", 10, "hotkey", "launchPrimary",
+            "icon", "rocket_launch", "default", true))
+    secondary := (gSecondaryProfileId != "") ? LaunchProfileById(gSecondaryProfileId) : ""
+    if IsObject(secondary) {
+        ; One profile can back both launches (its display decides where);
+        ; the label must still differ from the row above.
+        secondaryLabel := (gSecondaryProfileId = gPrimaryProfileId)
+            ? "Launch " _TrayClip(primaryName) " (secondary)"
+            : "Launch " _TrayClip(secondary["name"])
+        top.Add(secondaryLabel, (*) => LaunchConfiguredClients("secondary"),
+            Map("section", "launch", "order", 20, "hotkey", "launchSecondary",
+                "icon", "rocket_launch"))
     }
-    trayMenu.Add("Launch (Primary)`t" GetHotkeyDisplay("launchPrimary"), (*) => LaunchConfiguredClients("primary"))
-    trayMenu.Add("Launch (Secondary)`t" GetHotkeyDisplay("launchSecondary"), (*) => LaunchConfiguredClients("secondary"))
-    clientLaunchMenu := BuildClientLaunchMenu()
-    if IsObject(clientLaunchMenu)
-        trayMenu.Add("Client Launch", clientLaunchMenu)
-    trayMenu.Add()
+    top.Add("Launch other", _BuildLaunchOtherGroup(),
+        Map("section", "launch", "order", 30, "icon", "format_list_bulleted"))
 
-    ; Addons contribute to task-oriented groups instead of competing for a
-    ; flat top-level list. Every shipped variant has at least one entry in
-    ; each group, but the count guard also handles users disabling addons.
-    quickActionsMenu := Menu()
-    clientsMenu := Menu()
-    mapMenu := Menu()
-    ; Built here rather than beside its own trayMenu.Add() below so its core
-    ; entries come first and an addon's diagnostic tool can append to the group
-    ; the rest of them live in. It is attached at the same place as always.
-    debugMenu := Menu()
-    debugMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
-    debugMenu.Add("Copy Diagnostics", (*) => CopyDiagnosticsReport())
-    debugMenu.Add("Open Log Folder", (*) => OpenLogFolder())
-    ; The client mods' own logs, off by default. State in the label as well as
-    ; the checkmark, since the enhanced tray renders the label and not the mark.
-    modLogOn := ModLoggingEnabled()
-    modLogLabel := "Client Mod Logging — " (modLogOn ? "On" : "Off")
-    debugMenu.Add(modLogLabel, (*) => ToggleModLogging())
-    if modLogOn
-        debugMenu.Check(modLogLabel)
-    debugMenu.Add("Client Mods Status…", (*) => ShowClientModsStatus())
-    debugMenu.Add()
-    debugMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
-    debugMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
-    trayGroups := Map(
-        "quickActions", quickActionsMenu,
-        "clients", clientsMenu,
-        "map", mapMenu,
-        "debug", debugMenu
-    )
-    quickActionsMenu.Add("Send Enter Until Ready`t" GetHotkeyDisplay("sendEnterUntilReady"), (*) => SendEnterUntilReady())
-    FireAddonHook("OnTrayMenu", trayGroups)
+    top.Add("Minimap", groups["minimap"], Map("section", "groups", "order", 10, "icon", "map"))
+    top.Add("Clients", groups["clients"], Map("section", "groups", "order", 20, "icon", "group"))
+    top.Add("Actions", groups["actions"], Map("section", "groups", "order", 30, "icon", "tune"))
 
-    if _TrayMenuHasItems(quickActionsMenu)
-        trayMenu.Add("Quick Actions", quickActionsMenu)
-    if _TrayMenuHasItems(clientsMenu)
-        trayMenu.Add("Clients & Windows", clientsMenu)
-    ; Core, not an addon: the minimap needs calibration in every variant, and
-    ; lite ships the minimap. Added before the count check so the group always
-    ; has at least this entry.
-    mapMenu.Add("Open Maps++ Minimap`t" GetHotkeyDisplay("openMapsppMinimap"),
-        (*) => (FocusTrackedGameClient(), ToggleMapsppMinimap()))
-    ; Radio items marked with "● " the way Interface does it below, since the
-    ; enhanced tray renders that prefix and not the native checkmark.
-    sourceMenu := Menu()
-    for i, src in MINIMAP_SOURCES {
-        sourceMenu.Add((gMinimapSource = src ? "● " : "") MINIMAP_SOURCE_LABELS[i],
-            SetMinimapSource.Bind(src))
-    }
-    mapMenu.Add("Tab Minimap", sourceMenu)
-    mapMenu.Add("Calibrate This Map…", (*) => ShowCalibrationPanel())
-    if _TrayMenuHasItems(mapMenu)
-        trayMenu.Add("Map & Overlay", mapMenu)
+    top.Add("Settings…", (*) => ShowSettingsWindow(),
+        Map("section", "settings", "order", 10, "hotkey", "openSettings", "icon", "settings"))
+    top.Add("Help", groups["help"], Map("section", "settings", "order", 20, "icon", "help"))
+    if (gDeveloperTools || gTrayDevReveal)
+        top.Add("Developer", groups["developer"],
+            Map("section", "settings", "order", 30, "icon", "bug_report"))
 
-    trayMenu.Add()
-    trayMenu.Add("Settings…`t" GetHotkeyDisplay("openSettings"), (*) => ShowSettingsWindow())
-    interfaceMenu := Menu()
-    nativeLabel := (gInterfaceMode = "native" ? "● " : "") "Native (low memory)"
-    webLabel := (gInterfaceMode = "webview" ? "● " : "") "WebView2 (enhanced)"
-    ; Chosen but unusable: say so where the choice is made. Only the native menu
-    ; can be on screen in that state, so the web menu's label→icon map never
-    ; sees this text. Clicking it reloads, which re-probes the runtime.
-    if (gInterfaceMode = "webview" && !IsWebViewInterface())
-        webLabel .= " — runtime unavailable"
-    interfaceMenu.Add(nativeLabel, (*) => SetInterfaceMode("native"))
-    interfaceMenu.Add(webLabel, (*) => SetInterfaceMode("webview"))
-    trayMenu.Add("Interface", interfaceMenu)
-    trayMenu.Add("Reload`tCtrl+Alt+R", (*) => Reload())
-    trayMenu.Add("Debug", debugMenu)
-    trayMenu.Add("About Maps++…", (*) => ShowAboutDialog())
-    trayMenu.Add()
-    trayMenu.Add("Exit`tCtrl+Alt+Q", (*) => ExitApp())
-    trayMenu.Default := "Launch (Primary)`t" GetHotkeyDisplay("launchPrimary")
+    top.Add("Exit", (*) => ExitApp(),
+        Map("section", "exit", "shortcut", "Ctrl+Alt+Q", "icon", "power_settings_new", "exit", true))
+
+    A_TrayMenu.Delete()
+    top.Build(A_TrayMenu)
     A_IconTip := "osMW Maps++"
 }
 
-_TrayMenuHasItems(menu) {
-    return DllCall("GetMenuItemCount", "Ptr", menu.Handle, "Int") > 0
+; A profile name is user text with a 40-character ceiling; the tray row is a
+; fixed width.
+_TrayClip(text, maxChars := 28) {
+    s := Trim(String(text))
+    return (StrLen(s) <= maxChars) ? s : (SubStr(s, 1, maxChars - 1) "…")
 }
 
-; The ad-hoc half of launching: run a named profile that is not the one bound to
-; a launch action, or pick accounts for this one launch without changing any
-; setting. The two Launch items above it are deliberately untouched — they stay
-; one click, one hotkey and the tray's double-click default, and Settings is
-; where what they do is configured.
-;
-; Returns "" when there is nothing to offer (no profiles, no roster, AutoLogin
-; disabled), so the caller leaves the item out instead of showing an empty
-; submenu.
-BuildClientLaunchMenu() {
+; Launch other: the profiles not bound to a launch action, then the roster's
+; account groups. Per-account launches moved into the Accounts editor —
+; listing every account twice over (start-at and only), once per display, is
+; what made this the deepest corner of the old menu.
+_BuildLaunchOtherGroup() {
     global gPrimaryProfileId, gSecondaryProfileId
-    m := Menu()
-    used := Map()
-    added := 0
+    g := TrayGroup(["profiles", "groups"])
 
     for _, id in LaunchProfileIds() {
-        ; The two bound profiles already have a tray item and a hotkey of their
-        ; own two lines up. Listing them again would make this whole menu look
-        ; like a duplicate on a fresh install, where those two are all there is.
+        ; The bound profiles have rows of their own just above.
         if (id = gPrimaryProfileId || id = gSecondaryProfileId)
             continue
         prof := LaunchProfileById(id)
@@ -650,29 +803,22 @@ BuildClientLaunchMenu() {
             continue
         ; An unbound profile carries its own display, so "primary" here only
         ; decides where one that expressed no preference lands.
-        m.Add(_UniqueMenuLabel(used, _ClientLaunchProfileLabel(prof)),
-            _ClientLaunchRunProfile.Bind(prof, "primary"))
-        added++
+        g.Add(_ClientLaunchProfileLabel(prof), _ClientLaunchRunProfile.Bind(prof, "primary"),
+            Map("section", "profiles"))
     }
 
-    accountsFn := GetFuncByName("_AutoLogin_BuildAccountMenu")
-    if (accountsFn && IsAddonEnabled("AutoLogin")) {
-        primary := accountsFn("primary")
-        secondary := accountsFn("secondary")
-        if (IsObject(primary) || IsObject(secondary)) {
-            if added
-                m.Add()
-            if IsObject(primary) {
-                m.Add("Primary", primary)
-                added++
-            }
-            if IsObject(secondary) {
-                m.Add("Secondary", secondary)
-                added++
-            }
+    choicesFn := GetFuncByName("_AutoLogin_LaunchChoices")
+    specFn := GetFuncByName("_AutoLogin_LaunchSpec")
+    if (choicesFn && specFn && IsAddonEnabled("AutoLogin")) {
+        choices := ""
+        try choices := choicesFn()
+        if IsObject(choices) {
+            for grp in choices["groups"]
+                g.Add("Group: " grp["name"] " — " grp["count"] " account" (grp["count"] = 1 ? "" : "s"),
+                    specFn.Bind("primary", grp["spec"]), Map("section", "groups"))
         }
     }
-    return added ? m : ""
+    return g
 }
 
 ; Menu callbacks are handed three arguments of their own (item name, position,
@@ -691,18 +837,7 @@ _ClientLaunchProfileLabel(prof) {
     plan := ResolveAccountPlan(prof["accounts"], n)
     if (IsObject(plan) && plan.Length)
         n := plan.Length
-    return "Profile: " prof["name"] " (" n ")"
-}
-
-; Menu.Add treats a repeated label as "modify that item", so two profiles the
-; user gave the same name would collapse into one entry.
-_UniqueMenuLabel(used, label) {
-    if !used.Has(label) {
-        used[label] := 1
-        return label
-    }
-    used[label] += 1
-    return label " (" used[label] ")"
+    return _TrayClip(prof["name"]) " — " n " client" (n = 1 ? "" : "s")
 }
 
 HandleTab() {
@@ -765,8 +900,7 @@ FocusTrackedGameClient() {
     return WinActive("ahk_id " hwnd) ? true : false
 }
 
-; Tray → Map & Overlay → Tab Minimap. Saved immediately, like the Interface
-; choice beside it; Settings → Minimap shows the same value.
+; Settings → Minimap's Tab choice, and the setup guide's. Saved immediately.
 SetMinimapSource(src, *) {
     global gMinimapSource, CONFIG_INI
     gMinimapSource := NormalizeMinimapSource(src)
@@ -790,7 +924,7 @@ _MaybeShowMinimapSourceNotice(st, mapPath) {
     TrayTip("Tab now opens the game's own minimap here.`n"
         . "For the Maps++ map (POIs, party markers, waypoints) use "
         . (chord != "" ? chord : "Open Maps++ minimap — bind it under Settings → Hotkeys")
-        . ", or Tray → Map & Overlay.", "Maps++", "Iconi")
+        . ", or Tray → Minimap.", "Maps++", "Iconi")
 }
 
 ; Once per client, the first time it is focused: did the client mods load in
@@ -1014,7 +1148,7 @@ ShowAboutDialog() {
             : "Native (low memory)") "`n"
         . active " of " gAddonHooks.Length " addons active`n"
         . updateLine
-        . "`nReporting a problem? Tray → Debug → Copy Diagnostics`n"
+        . "`nReporting a problem? Tray → Help → Copy diagnostics`n"
         . "collects everything needed, ready to paste.",
         "About Maps++")
 }
@@ -1049,7 +1183,7 @@ ToggleModLogging() {
         gameDir := ResolveGameDirectory()
         TrayTip((gameDir = "")
             ? "Could not write the game folder's osmw.ini.`n"
-              . "Set a game path in Settings → Launcher first."
+              . "Set a game path in Settings → Game & startup first."
             : !NativeModsInstalled()
             ? "The osMW client mods are not installed in`n" gameDir
               . "`nso there is no mod logging to turn on."
@@ -1067,7 +1201,7 @@ ToggleModLogging() {
         "Maps++", "Iconi")
 }
 
-; Tray → Debug → Client Mods Status. What osmw_status.ini says about the client
+; Tray → Help → Client mods status. What osmw_status.ini says about the client
 ; mods: which features are running, which stood down and why, and whether
 ; Windows blocked any. Read-only — the file is the core's. Reached from the tray,
 ; so a blocking dialog is fine here (see DeferFromWebMessage for when it isn't).
@@ -1208,7 +1342,7 @@ CaptureCalibrationPoint(index) {
     if !gOverlayVisible || !IsObject(gGui) || !gGui.Hwnd {
         ShowMessage("Open the Maps++ minimap first, then hover a landmark and capture again."
             . "`n`nOn a map where Tab opens the game's own minimap, use Open Maps++ minimap"
-            . " (Tray → Map & Overlay, or its hotkey) instead.",
+            . " (Tray → Minimap, or its hotkey) instead.",
             "Calibration", Map("severity", "warn"))
         return
     }

@@ -25,7 +25,10 @@ global _QUICK_ACTIONS_DEFAULT := "viewModeToggle,battleSend,inventoryOpenClick,c
 
 RegisterAddon(Map(
     "name",              "QuickActions",
-    "settingsLabel",     "Quick Actions",
+    "settingsLabel", "Action ring",
+    "settingsGroup", "tools",
+    "settingsIcon",  "tune",
+    "description",   "Your favourite actions in a ring at the cursor.",
     "OnInit",            _QuickActions_OnInit,
     "OnTrayMenu",        _QuickActions_OnTrayMenu,
     "OnSettingsWeb",     _QuickActions_OnSettingsWeb,
@@ -34,8 +37,8 @@ RegisterAddon(Map(
 
 RegisterHotkeyAction(Map(
     "id", "quickActionsToggle",
-    "label", "Open Quick Actions ring",
-    "category", "Quick Actions",
+    "label", "Open the Action ring",
+    "category", "Actions",
     "default", "^!a",
     "addon", "QuickActions",
     ; Deliberately global rather than hotIfWinActive: the ring is how you reach
@@ -88,8 +91,7 @@ _QuickActions_BuildCatalog() {
             "needsGame", true, "state", "overlay"),
         Map("id", "viewModeToggle",          "label", "View mode",     "icon", "visibility"),
         Map("id", "viewModeCycle",           "label", "Cycle view",    "icon", "visibility"),
-        ; TODO: `swords` once the icon subset is next regenerated.
-        Map("id", "battleSend",              "label", "Battle send",   "icon", "track_changes"),
+        Map("id", "battleSend",              "label", "Battle action", "icon", "swords"),
         Map("id", "inventoryOpenClick",      "label", "Inventory",     "icon", "inventory_2",
             "needsGame", true),
         Map("id", "inventoryOpenSend",       "label", "Inventory (key)", "icon", "inventory_2",
@@ -104,9 +106,8 @@ _QuickActions_BuildCatalog() {
         ; items. Flipping the target is the thing worth reaching mid-fight.
         Map("id", "broadcastToggleTarget",   "label", "Broadcast to",  "icon", "group"),
         ; Resolves its own target client (see _ShopPrices_ResolveOpenTarget), so
-        ; it does not need one focused. Icon matches the tray's Character Vendor
-        ; entry — TODO: `storefront` once the icon subset is next regenerated.
-        Map("id", "shopPricesOpen",          "label", "Vendor",        "icon", "inventory_2"),
+        ; it does not need one focused.
+        Map("id", "shopPricesOpen",          "label", "Vendor",        "icon", "storefront"),
         Map("id", "windowLayoutPrimary",     "label", "Layout",        "icon", "grid_view"),
         Map("id", "windowLayoutSecondary",   "label", "Layout (2nd)",  "icon", "grid_view"),
         Map("id", "windowLayoutUndo",        "label", "Undo layout",   "icon", "refresh"),
@@ -173,8 +174,8 @@ _QuickActions_DoPrewarm() {
 }
 
 _QuickActions_OnTrayMenu(trayGroups) {
-    trayGroups["quickActions"].Add("Open Action Ring`t" GetHotkeyDisplay("quickActionsToggle"),
-        (*) => _QuickActions_Toggle())
+    trayGroups["actions"].Add("Action ring", (*) => _QuickActions_Toggle(),
+        Map("section", "ring", "hotkey", "quickActionsToggle"))
 }
 
 _QuickActions_Toggle() {
@@ -300,13 +301,13 @@ _QuickActions_OnSelect(item, index) {
 
     if (entry.Has("needsGame") && entry["needsGame"]) {
         if !(_QuickActions_Target && WinExist("ahk_id " _QuickActions_Target)) {
-            TrayTip("No game client is running.", "Quick Actions", "Icon!")
+            TrayTip("No game client is running.", "Action ring", "Icon!")
             return
         }
         WinActivate("ahk_id " _QuickActions_Target)
         ; Bail rather than let a click or a keystroke land in the wrong window.
         if !WinWaitActive("ahk_id " _QuickActions_Target, , 0.4) {
-            TrayTip("Could not focus the game client.", "Quick Actions", "Iconx")
+            TrayTip("Could not focus the game client.", "Action ring", "Iconx")
             return
         }
         ; UpdateMapState blanks the resolved map name on its own timer whenever
@@ -340,7 +341,8 @@ _QuickActions_ShowNativeMenu() {
     global gHotkeyActions
     items := _QuickActions_Items()
     if (items.Length = 0) {
-        TrayTip("No quick actions are configured.", "Quick Actions", "Iconi")
+        TrayTip("The Action ring is empty. Choose its actions under Settings → Action ring.",
+            "Action ring", "Iconi")
         return
     }
     m := Menu()

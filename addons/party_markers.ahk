@@ -30,7 +30,11 @@ global _PartyMarkers_GuiHwnd := 0
 
 RegisterAddon(Map(
     "name",             "PartyMarkers",
-    "settingsLabel",    "Party Markers",
+    "settingsLabel", "Party markers",
+    "settingsGroup", "map",
+    "multibox",      true,
+    "settingsIcon",  "shield",
+    "description",   "Shows your other clients as dots on the Maps++ minimap.",
     "OnInit",           _PartyMarkers_OnInit,
     "OnSettingsWeb",     _PartyMarkers_OnSettingsWeb,
     "OnSettingsWebSave", _PartyMarkers_OnSettingsWebSave,
@@ -43,8 +47,8 @@ RegisterAddon(Map(
 
 RegisterHotkeyAction(Map(
     "id", "partyMarkersToggleLayer",
-    "label", "Show/hide party marker layer",
-    "category", "Party Markers",
+    "label", "Show/hide party markers",
+    "category", "Minimap",
     "default", "",
     "addon", "PartyMarkers",
     "handler", (*) => _PartyMarkers_ToggleLayer()
@@ -56,15 +60,10 @@ _PartyMarkers_OnInit() {
 
 _PartyMarkers_OnTrayMenu(trayGroups) {
     global _PartyMarkers_LayerVisible
-    itemLabel := "Party Markers — " (_PartyMarkers_LayerVisible ? "On" : "Off")
-        . "`t" GetHotkeyDisplay("partyMarkersToggleLayer")
-    mapMenu := trayGroups["map"]
-    mapMenu.Add(itemLabel, (*) => _PartyMarkers_ToggleLayer())
-    if _PartyMarkers_LayerVisible {
-        ; Native menus get the familiar checkmark as well as the explicit text;
-        ; the enhanced tray still receives the On/Off label through its bridge.
-        mapMenu.Check(itemLabel)
-    }
+    ; A toggle: a check mark natively, an ON/OFF pill in the enhanced tray.
+    trayGroups["minimap"].Add("Party markers", (*) => _PartyMarkers_ToggleLayer(),
+        Map("section", "markers", "hotkey", "partyMarkersToggleLayer",
+            "toggle", _PartyMarkers_LayerVisible ? true : false))
 }
 
 _PartyMarkers_ToggleLayer() {

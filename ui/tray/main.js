@@ -279,34 +279,62 @@ window.addEventListener('DOMContentLoaded', () => {
 const previewMode = new URLSearchParams(location.search).get('preview');
 if (previewMode !== null && !window.chrome?.webview) {
     document.documentElement.classList.add('preview-mode');
+    // Mirrors RebuildTrayMenu's full-build tree. Keep the two in step.
     onAhkMessage({ data: { type: 'tray-menu-state', items: [
-        { id: 'launch-primary', label: 'Launch (Primary)', icon: 'rocket_launch', shortcut: 'Ctrl+1', isDefault: true },
-        { id: 'launch-secondary', label: 'Launch (Secondary)', icon: 'rocket_launch', shortcut: 'Ctrl+2' },
-        { isDivider: true },
-        { label: 'Quick Actions', icon: 'tune', children: [
-            { id: 'ready', label: 'Send Enter Until Ready', shortcut: 'Ctrl+E' },
-            { id: 'markers', label: 'Party Markers', state: 'On' },
-            { label: 'Character Vendor', children: [
-                { id: 'pricing', label: 'Pricing Panel…' },
-                { id: 'verify-slots', label: 'Verify Slot Mapping…' }
-            ] }
-        ] },
-        { label: 'Clients & Windows', icon: 'group', children: [
-            { id: 'roster', label: 'Client Roster' }, { id: 'layouts', label: 'Window Layout' }
-        ] },
-        { label: 'Map & Overlay', icon: 'location_on', children: [
-            { id: 'pois', label: 'Map POIs' }, { id: 'view', label: 'View Mode' }
+        { id: 'launch-primary', label: 'Launch Primary', icon: 'rocket_launch', shortcut: 'Ctrl+Alt+L', isDefault: true },
+        { id: 'launch-secondary', label: 'Launch Alts on the second screen', icon: 'rocket_launch', shortcut: 'Ctrl+Alt+K' },
+        { label: 'Launch other', icon: 'format_list_bulleted', children: [
+            { id: 'profile-trade', label: 'Trading pair — 2 clients' },
+            { isDivider: true },
+            { id: 'group-a', label: 'Group: Team A — 5 accounts' }
         ] },
         { isDivider: true },
-        { id: 'settings', label: 'Settings…', icon: 'settings', shortcut: 'Ctrl+,' },
-        { label: 'Interface', icon: 'tune', children: [
-            { id: 'native', label: 'Native (low memory)' },
-            { id: 'webview', label: 'WebView2 (enhanced)', isSelected: true }
+        { label: 'Minimap', icon: 'map', children: [
+            { id: 'open-map', label: 'Open Maps++ minimap' },
+            { id: 'calibrate', label: 'Calibrate this map…' },
+            { isDivider: true },
+            { id: 'pois', label: 'Show POIs', state: 'On' },
+            { id: 'add-poi', label: 'Add POI here' },
+            { id: 'manage-pois', label: 'Manage POIs…' },
+            { isDivider: true },
+            { id: 'markers', label: 'Party markers', state: 'Off' }
         ] },
-        { id: 'reload', label: 'Reload', icon: 'refresh', shortcut: 'Ctrl+Alt+R' },
-        { label: 'Debug', icon: 'bug_report', children: [
-            { id: 'debug-state', label: 'Debug State', shortcut: 'Ctrl+Alt+D' },
-            { id: 'verify', label: 'Verify Signatures', shortcut: 'Ctrl+Alt+V' }
+        { label: 'Clients', icon: 'group', children: [
+            { id: 'roster', label: 'Client roster' },
+            { id: 'health', label: 'Party health', shortcut: 'Ctrl+Alt+H' },
+            { isDivider: true },
+            { id: 'arrange', label: 'Arrange windows' },
+            { id: 'undo-arrange', label: 'Undo arrange' },
+            { id: 'layouts', label: 'Window layouts…' },
+            { isDivider: true },
+            { id: 'chat-others', label: 'Toggle chat on other clients', shortcut: 'Ctrl+Shift+C' },
+            { id: 'chat-this', label: 'Toggle chat on this client', shortcut: 'Ctrl+C' },
+            { id: 'chat-size', label: 'Toggle chat size', shortcut: 'Ctrl+Alt+C' },
+            { isDivider: true },
+            { id: 'accounts', label: 'Accounts…' }
+        ] },
+        { label: 'Actions', icon: 'tune', children: [
+            { id: 'ring', label: 'Action ring', shortcut: 'Ctrl+Alt+A' },
+            { isDivider: true },
+            { id: 'ready', label: 'Send Enter until ready', shortcut: 'Ctrl+Alt+E' },
+            { id: 'battle', label: 'Battle action', shortcut: 'Alt+Shift+Q' },
+            { id: 'inventory', label: 'Open inventory', shortcut: 'Alt+E' },
+            { id: 'view', label: 'Toggle view mode' },
+            { isDivider: true },
+            { id: 'vendor', label: 'Character vendor…' },
+            { id: 'skills', label: 'Skill hotkeys…' }
+        ] },
+        { isDivider: true },
+        { id: 'settings', label: 'Settings…', icon: 'settings', shortcut: 'Ctrl+Alt+,' },
+        { label: 'Help', icon: 'help', children: [
+            { id: 'setup', label: 'Setup guide…' },
+            { isDivider: true },
+            { id: 'diag', label: 'Copy diagnostics' },
+            { id: 'logs', label: 'Open log folder' },
+            { id: 'mods', label: 'Client mods status…' },
+            { id: 'mod-log', label: 'Client mod logging', state: 'Off' },
+            { isDivider: true },
+            { id: 'about', label: 'About Maps++…' }
         ] },
         { isDivider: true },
         { id: 'exit', label: 'Exit', icon: 'power_settings_new', shortcut: 'Ctrl+Alt+Q', isExit: true }

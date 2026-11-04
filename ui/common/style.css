@@ -1,12 +1,23 @@
 /* Self-hosted — these used to be @import'd live from fonts.googleapis.com,
    which meant every panel (including the client-radial switcher, which needs
    to pop open instantly mid-fight) depended on a network fetch just to render
-   its own chrome. The Material Symbols file below is subset to only the
-   ~26 icon names this app actually uses (see _IconForLabel in main.ahk,
-   TAB_ICONS in settings/main.js, and the catalog in addons/quick_actions.ahk)
-   — add any new icon name to that subset request or it will render as
-   blank/tofu. font-display: block means there is no fallback glyph: a name
-   outside the subset is a permanent empty box, not a substituted icon. */
+   its own chrome. The Material Symbols file below is subset to only the icon
+   names this app uses (the tray's "icon" options in main.ahk, TAB_ICONS in
+   settings/main.js, the catalog in addons/quick_actions.ahk, and the pages'
+   own markup). font-display: block means there is no fallback glyph: a name
+   outside the subset is a permanent empty box, not a substituted icon.
+
+   The subset contains exactly:
+     arrow_drop_down bug_report chat check_circle devices download extension
+     folder folder_open format_list_bulleted forum grid_view group groups help
+     info inventory_2 keyboard location_on map memory my_location person
+     pin_drop place power_settings_new refresh rocket_launch search settings
+     shield storefront swords track_changes tune visibility warning web_asset
+
+   To add one, regenerate with the whole list (comma-separated, sorted) and
+   download the woff2 the returned CSS points at, sending a desktop Chrome
+   User-Agent so the CSS names woff2:
+     https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=<list>&display=block */
 @font-face {
     font-family: 'Inter';
     font-style: normal;
@@ -536,4 +547,60 @@ button:focus-visible,
 input[type="checkbox"].toggle:focus-visible {
     outline: 2px solid var(--border-focus);
     outline-offset: 2px;
+}
+
+/* ── Custom Keycaps (<kbd>) ──────────────────────────────────── */
+.kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-semibold);
+    color: var(--text);
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.4);
+}
+
+/* ── Toggle Switch ──────────────────────────────────────────── */
+.toggle {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 36px;
+    height: 20px;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    position: relative;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background var(--transition), border-color var(--transition);
+}
+.toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: transform var(--transition), background var(--transition);
+}
+.toggle:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+.toggle:checked::after {
+    transform: translateX(16px);
+    background: var(--accent-text);
+}
+.toggle:active::after { transform: scale(0.84); }
+.toggle:checked:active::after { transform: translateX(16px) scale(0.84); }
+.toggle.just-toggled { animation: toggle-settle 260ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes toggle-settle {
+    0% { box-shadow: 0 0 0 0 var(--accent-glow); }
+    55% { box-shadow: 0 0 0 4px var(--accent-glow); }
+    100% { box-shadow: 0 0 0 0 transparent; }
 }
