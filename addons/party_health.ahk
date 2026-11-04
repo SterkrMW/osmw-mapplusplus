@@ -34,13 +34,18 @@
 ; game for a handful of progress bars is the wrong trade. It is also why it
 ; works identically in both interface modes with no second frontend.
 
-; Layout, in pixels.
+; Layout, in pixels of the game's 800×600 picture at 1×.
 ;
 ; Cells sit side by side; one cell is one client. Height is the constraint that
 ; shapes the rest: the strip has to clear the game's own HP/MP/SP gauges and
 ; still sit inside the client. So each value sits on its own line with a hairline
 ; bar under it, rather than a tall bar with the figures alongside — the numbers
 ; are what you read, and the bar only has to answer "how full" at a glance.
+;
+; Every size here, fonts included, is multiplied by the display module's scale
+; (_PartyHealth_Scale) when the strip is built. That clearance from the game's
+; gauges is a relationship with the picture, so at 2× it has to be 2× too —
+; drawn at 1× the strip sat on a doubled game as a thin band of small print.
 global _PartyHealth_PAD := 4
 global _PartyHealth_GAP := 8
 ; Cells share the client's width and stop growing at MAX, so two clients on a
@@ -54,6 +59,12 @@ global _PartyHealth_BAR_H := 3
 global _PartyHealth_PET_BAR_H := 2
 global _PartyHealth_ROW_STEP := 14      ; value line + its bar
 global _PartyHealth_PET_STEP := 13
+global _PartyHealth_NAME_PT := 8
+global _PartyHealth_VAL_PT := 7
+; The display module's scales are exact integers, 1× to 3×. Anything past this
+; is a property misread rather than a real picture, and must not produce a strip
+; wider than the screen.
+global _PartyHealth_SCALE_MAX := 4
 ; A party holds five characters (BATTLE_PARTY_SLOTS counts their pets too), so
 ; no legitimate group is larger. Also what keeps the strip from being squeezed
 ; into unreadability by a stray extra client.
@@ -425,20 +436,31 @@ _PartyHealth_MixColor(fromHex, toHex, t) {
 ; width. Below CELL_W_MIN the strip is allowed to be wider than the window
 ; rather than shrinking into unreadability — a cell narrower than its own text
 ; helps nobody, and the caller keeps the result on screen.
-_PartyHealth_CellMetrics(count, availW) {
+_PartyHealth_CellMetrics(count, availW, scale := 1) {
     global _PartyHealth_PAD, _PartyHealth_GAP, _PartyHealth_CELL_W_MAX, _PartyHealth_CELL_W_MIN
     if (count < 1) {
         return { cellW: 0, totalW: 0 }
     }
-    chrome := _PartyHealth_PAD * 2 + _PartyHealth_GAP * (count - 1)
+    chrome := (_PartyHealth_PAD * 2 + _PartyHealth_GAP * (count - 1)) * scale
     cellW := Floor((availW - chrome) / count)
-    if (cellW > _PartyHealth_CELL_W_MAX) {
-        cellW := _PartyHealth_CELL_W_MAX
+    if (cellW > _PartyHealth_CELL_W_MAX * scale) {
+        cellW := _PartyHealth_CELL_W_MAX * scale
     }
-    if (cellW < _PartyHealth_CELL_W_MIN) {
-        cellW := _PartyHealth_CELL_W_MIN
+    if (cellW < _PartyHealth_CELL_W_MIN * scale) {
+        cellW := _PartyHealth_CELL_W_MIN * scale
     }
     return { cellW: cellW, totalW: cellW * count + chrome }
+}
+
+; How much bigger than 1× to draw the strip: the display module's own scale for
+; the picture it sits on. 1 on a stock client or in the module's Stock mode,
+; which is exactly the strip as it always was.
+_PartyHealth_Scale(area) {
+    global _PartyHealth_SCALE_MAX
+    if !area.managed {
+        return 1
+    }
+    return Max(1, Min(_PartyHealth_SCALE_MAX, Round(area.scale)))
 }
 
 ; Centred along the bottom edge of the active client's game picture — which, under
@@ -524,11 +546,11 @@ _PartyHealth_ShowNoActivate() {
     _PartyHealth_Shown := true
 }
 
-; What the layout depends on: which clients, whether a pet row is needed, and
-; how wide a cell is. Values are not in it — those change every poll and must
-; not cause a rebuild.
-_PartyHealth_SignatureFor(clients, cellW, anyPet) {
-    sig := cellW ":" (anyPet ? "p" : "-") "|"
+; What the layout depends on: which clients, whether a pet row is needed, how
+; wide a cell is and the scale it is drawn at. Values are not in it — those
+; change every poll and must not cause a rebuild.
+_PartyHealth_SignatureFor(clients, cellW, anyPet, scale := 1) {
+    sig := scale "x" cellW ":" (anyPet ? "p" : "-") "|"
     for snap in clients {
         sig .= snap.pid ","
     }
@@ -544,7 +566,7 @@ _PartyHealth_Build(clients) {
     global _PartyHealth_NAME_H, _PartyHealth_VAL_H
     global _PartyHealth_ROW_STEP, _PartyHealth_PET_STEP
     global _PartyHealth_COL_TEXT, _PartyHealth_COL_TEXT_MUTED, _PartyHealth_COL_TEXT_DIM
-    global _PartyHealth_COL_HP_FULL
+    global _PartyHealth_COL_HP_FULL, _PartyHealth_NAME_PT, _PartyHealth_VAL_PT
 
     anyPet := false
     if _PartyHealth_ShowPets {
@@ -555,11 +577,24 @@ _PartyHealth_Build(clients) {
         }
     }
     area := GameContentRect()
-    metrics := _PartyHealth_CellMetrics(clients.Length, area.w)
-    sig := _PartyHealth_SignatureFor(clients, metrics.cellW, anyPet)
+    s := _PartyHealth_Scale(area)
+    metrics := _PartyHealth_CellMetrics(clients.Length, area.w, s)
+    sig := _PartyHealth_SignatureFor(clients, metrics.cellW, anyPet, s)
     if (sig = _PartyHealth_Signature && IsObject(_PartyHealth_Gui)) {
         return
     }
+
+    ; Every 1× size, at this picture's scale.
+    pad := _PartyHealth_PAD * s
+    nameH := _PartyHealth_NAME_H * s
+    valH := _PartyHealth_VAL_H * s
+    barH := _PartyHealth_BAR_H * s
+    petBarH := _PartyHealth_PET_BAR_H * s
+    rowStep := _PartyHealth_ROW_STEP * s
+    petStep := _PartyHealth_PET_STEP * s
+    gap := _PartyHealth_GAP * s
+    nameFont := "s" (_PartyHealth_NAME_PT * s) " bold"
+    valFont := "s" (_PartyHealth_VAL_PT * s) " norm"
 
     ; AHK cannot destroy individual controls, so a layout change rebuilds the
     ; whole window. That is why the signature exists — this must be rare.
@@ -577,41 +612,41 @@ _PartyHealth_Build(clients) {
     g.MarginY := 0
 
     cellW := metrics.cellW
-    x := _PartyHealth_PAD
-    cellBottom := _PartyHealth_PAD
+    x := pad
+    cellBottom := pad
     for snap in clients {
-        y := _PartyHealth_PAD
-        g.SetFont("s8 bold", "Segoe UI")
+        y := pad
+        g.SetFont(nameFont, "Segoe UI")
         nameCtl := g.Add("Text", Format("x{1} y{2} w{3} h{4} c{5} BackgroundTrans",
-            x, y, cellW, _PartyHealth_NAME_H, _PartyHealth_COL_TEXT), "")
-        y += _PartyHealth_NAME_H + 2
-        g.SetFont("s7 norm", "Segoe UI")
+            x, y, cellW, nameH, _PartyHealth_COL_TEXT), "")
+        y += nameH + 2 * s
+        g.SetFont(valFont, "Segoe UI")
 
         ; Value on its own line, hairline bar directly beneath it.
         hpTxt := g.Add("Text", Format("x{1} y{2} w{3} h{4} c{5} BackgroundTrans",
-            x, y, cellW, _PartyHealth_VAL_H, _PartyHealth_COL_TEXT_MUTED), "")
+            x, y, cellW, valH, _PartyHealth_COL_TEXT_MUTED), "")
         hpBar := g.Add("Progress", Format("x{1} y{2} w{3} h{4} Background{5} c{6} Range0-1000",
-            x, y + _PartyHealth_VAL_H, cellW, _PartyHealth_BAR_H,
+            x, y + valH, cellW, barH,
             _PartyHealth_COL_TROUGH, _PartyHealth_COL_HP_FULL), 0)
-        y += _PartyHealth_ROW_STEP
+        y += rowStep
 
         mpTxt := g.Add("Text", Format("x{1} y{2} w{3} h{4} c{5} BackgroundTrans",
-            x, y, cellW, _PartyHealth_VAL_H, _PartyHealth_COL_TEXT_MUTED), "")
+            x, y, cellW, valH, _PartyHealth_COL_TEXT_MUTED), "")
         mpBar := g.Add("Progress", Format("x{1} y{2} w{3} h{4} Background{5} c{6} Range0-1000",
-            x, y + _PartyHealth_VAL_H, cellW, _PartyHealth_BAR_H,
+            x, y + valH, cellW, barH,
             _PartyHealth_COL_TROUGH, _PartyHealth_COL_MP), 0)
-        y += _PartyHealth_ROW_STEP
+        y += rowStep
 
         petBar := 0, petTxt := 0
         if anyPet {
             ; Built for every cell once any client has a pet, so all cells share
             ; one height; a client without one simply leaves it blank.
             petTxt := g.Add("Text", Format("x{1} y{2} w{3} h{4} c{5} BackgroundTrans",
-                x, y, cellW, _PartyHealth_VAL_H, _PartyHealth_COL_TEXT_DIM), "")
+                x, y, cellW, valH, _PartyHealth_COL_TEXT_DIM), "")
             petBar := g.Add("Progress", Format("x{1} y{2} w{3} h{4} Background{5} c{6} Range0-1000",
-                x, y + _PartyHealth_VAL_H, cellW, _PartyHealth_PET_BAR_H,
+                x, y + valH, cellW, petBarH,
                 _PartyHealth_COL_TROUGH, _PartyHealth_COL_PET), 0)
-            y += _PartyHealth_PET_STEP
+            y += petStep
         }
 
         _PartyHealth_Cells.Push({
@@ -619,11 +654,11 @@ _PartyHealth_Build(clients) {
             hpBar: hpBar, hpTxt: hpTxt, mpBar: mpBar, mpTxt: mpTxt,
             petBar: petBar, petTxt: petTxt
         })
-        x += cellW + _PartyHealth_GAP
+        x += cellW + gap
         cellBottom := y
     }
 
-    height := cellBottom + _PartyHealth_PAD
+    height := cellBottom + pad
     _PartyHealth_Gui := g
     _PartyHealth_Signature := sig
     _PartyHealth_Size := { w: metrics.totalW, h: height }

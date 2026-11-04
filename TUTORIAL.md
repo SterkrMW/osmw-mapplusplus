@@ -709,9 +709,13 @@ falls, so a character sliding into trouble looks different from one that is mere
 numbers are always there, so colour is never the only signal.
 
 **It sits on the window you are playing.** The strip is centred along the bottom edge of the active
-client and follows you when you switch windows, so in a multi-box layout it is always on the client
-you are looking at. It is never wider than that client: cells share the available width and shrink
-as more characters appear.
+client's game picture and follows you when you switch windows, so in a multi-box layout it is always
+on the client you are looking at. It is never wider than that client: cells share the available
+width and shrink as more characters appear.
+
+**It grows with the game.** When the client mods show the game at 2× or 3×, the strip is drawn 2× or
+3× as well, bars and text alike, so it keeps the same size next to the game's own gauges. In a
+Resizable or Borderless window it sits on the picture, above any black bar.
 
 There is no saved position and nothing to drag, deliberately — a fixed coordinate would be wrong
 the moment you alt-tabbed to a window somewhere else on screen.
