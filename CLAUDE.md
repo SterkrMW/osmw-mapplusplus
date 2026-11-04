@@ -103,7 +103,7 @@ Consequences to respect when adding a ring: only one may be on screen at a time 
 
 Because that manifest is parsed by `_JSON_Parse` (`settings.ahk`), the hand-rolled parser now takes input from outside the app. Its object/array loops carry explicit end-of-string bail-outs — without them a truncated body (`{"version":`) spins forever and hangs the whole single-threaded app. Keep those guards if you touch it, and treat any new caller that feeds it non-local data as a reason to re-check them.
 
-The party-health HUD (`addons\party_health.ahk`) is the third overlay shape alongside the minimap and the radial rings. Its two window styles are load-bearing: `WS_EX_TRANSPARENT` (click-through, so a HUD over the game never swallows a click meant for the client) and `WS_EX_NOACTIVATE` plus `SW_SHOWNOACTIVATE` (so appearing mid-fight cannot steal focus). Placement is **derived, never stored** — a strip centred on the bottom edge of `GameClientRect()`, width-capped to that client — because a saved coordinate is wrong as soon as the user alt-tabs to a differently-placed window; that is also why it has no drag. Following the active window runs on its own short timer rather than the 1 Hz snapshot poll (too slow for an alt-tab), which does not break the one-shared-poll rule because it reads no memory. It defaults to a **peek**: the hotkey shows it for a few seconds rather than leaving it up, since a permanent strip just competes with the gauges the game already draws. A peek is pinned to the client it was opened on and ends when focus leaves it — following instead would slide the strip onto the new window and regroup around it mid-glance. It also forces a `UpdateClientSnapshots()` before drawing, because a keypress usually follows a window switch and the 1 Hz poll would otherwise show the new client the fight the old one was in. It rebuilds only when its layout *signature* (clients, pet row, cell width) changes, never on a value update.
+The party-health HUD (`addons\party_health.ahk`) is the third overlay shape alongside the minimap and the radial rings. Its two window styles are load-bearing: `WS_EX_TRANSPARENT` (click-through, so a HUD over the game never swallows a click meant for the client) and `WS_EX_NOACTIVATE` plus `SW_SHOWNOACTIVATE` (so appearing mid-fight cannot steal focus). Placement is **derived, never stored** — a strip centred on the bottom edge of `GameContentRect()` (the picture, not the black bars), width-capped to that client — because a saved coordinate is wrong as soon as the user alt-tabs to a differently-placed window; that is also why it has no drag. Size is derived the same way: every layout constant is a 1× size multiplied by the display module's integer scale (`_PartyHealth_Scale`), and the scale is part of the layout signature so a change rebuilds the strip. Following the active window runs on its own short timer rather than the 1 Hz snapshot poll (too slow for an alt-tab), which does not break the one-shared-poll rule because it reads no memory. It defaults to a **peek**: the hotkey shows it for a few seconds rather than leaving it up, since a permanent strip just competes with the gauges the game already draws. A peek is pinned to the client it was opened on and ends when focus leaves it — following instead would slide the strip onto the new window and regroup around it mid-glance. It also forces a `UpdateClientSnapshots()` before drawing, because a keypress usually follows a window switch and the 1 Hz poll would otherwise show the new client the fight the old one was in. It rebuilds only when its layout *signature* (clients, pet row, cell width, scale) changes, never on a value update.
 
 It is built from native controls rather than a WebView2 panel because it is visible over the game rather than in a panel, and standing up Chromium for a few bars is the wrong trade. That means it cannot read `ui\common\style.css`, so its palette is those **same tokens converted to hex once**, each commented with the token it came from. Converting a token is the only sanctioned way to add a colour there — inventing one is how a shared palette quietly stops being shared, which is exactly what happened on the first version of this file.
 
@@ -149,6 +149,8 @@ The unusual property is that these **block**, parking the caller in a `Sleep` lo
 
 Deferring is not needed for work reached via `PostMessage`/hotkey/timer — the tray menu's `_MakeHmenuCallback` and radial's `onSelect` already leave the callback that way, which is why dialogs work from those.
 
+**Both "leave the callback" mechanisms rely on `_WebMsgDispatch` making the handler's thread `Critical`.** Without it, a handler that ran past AHK's 15 ms uninterruptible window could have the `WM_COMMAND` or `SetTimer(-1)` it had just queued dispatched at its next line, still inside the page's COM call. Inside the handler, the backstop caught that and showed a MsgBox. In the few lines after the handler, where `gWebMsgDepth` is already 0, it got no protection. There, the session's first dialog built its WebView2 inside the COM call, and the creation callbacks could never arrive. The app hung for good, with nothing logged, and the tray page stayed alive but unheard. Map POIs → Export to Game Markers from the tray did exactly that. It was reproduced on demand by giving a second tray handler a 50 ms pause, and the fix was verified against that test. Critical lasts until the callback thread ends, so it covers both windows. Hotkeys, menu items and timers that arrive meanwhile are buffered, not dropped, and messages are still pumped. Keep it, and keep every `WebMessageReceived` registration going through `WebMsgHandler`. A handler must therefore never wait for a timer or hotkey to fire, because neither can run until the handler returns.
+
 Like the tray menu and the radial rings, the window is built once and parked off-screen; unlike them it is not prewarmed, since a session may raise no dialog at all. Because one window serves every dialog, replies carry a **token** and stale ones are dropped, and `_Dlg_ResolveOwner` rejects the dialog's own window along with anything else parked off-screen — without that the second dialog of a session adopts the first as its owner and disables the window it is about to appear in.
 
 The page reports the height it needs and AHK sizes the window to it. It must measure under `body.measuring` (see `ui\dialog\style.css`): the window is still parked at a placeholder height at that moment, so an unmodified measurement returns the squashed layout. For the same family of reasons `[hidden]` is forced with `!important` there — the shared primitives it hides (`.field`, `.btn`, `.dlg-detail-wrap`) all set an explicit `display`, which beats the UA sheet.
@@ -163,6 +165,7 @@ Column-aligned output (signature dumps, debug state, slot tables) belongs in the
 - `layouts.ini` — user-authored window layouts (owned by `addons\window_layout.ahk`), also via `ResolveWritableIniPath()`. An `[Index]` section maps a numeric id to the display name, and one `[Layout.<id>]` section per layout holds a monitor fingerprint, the authoring client window size, and `Slot<N>=fx|fy|charName|flags` records. Slot positions are **fractions of the target monitor's work area**, not pixels, so a layout survives a resolution change; `WinSize` is used only to draw boxes to scale in the editor, since applying a layout never resizes a window. Deliberately *not* in `maps\`, which `build.ps1` copies into `releases\`.
 - `better_hotkeys.ini` — explicit per-character skill profiles owned by `addons\better_hotkeys.ahk`. Dynamic profile chords are transient hidden entries in the central registry, rebuilt through `OnBeforeApplyHotkeys`; they must not be persisted into `config.ini [Hotkeys]` or exposed in the general Settings hotkey list.
 - `signatures.ini` / `offsets_cache.ini` — persisted byte-signatures and per-build resolved RVAs from the signature calibration system above.
+- `map_markers_export.ini` — which marker ids in a game folder's `map-markers.tsv` Maps++ wrote (owned by `addons\map_pois.ahk`), one `[Folder.<fnv64 of the lowercased game dir>]` section per folder with `GameDir=` and `Ids=`. It is what lets a re-export remove markers for deleted POIs and lets "Remove Exported Game Markers" touch nothing else. Losing it costs only those removals: ids are derived from map + position + label, so a re-export still updates in place.
 - `mapsplusplus.log` (+ `.log.1`) — the rolling log, and `mapsplusplus.log.diagnostics.txt` written by **Copy Diagnostics**. Same `ResolveWritableIniPath()` location rule as the inis. Both are output only; nothing reads them back except `LogTail()`.
 
 **Any save path that writes user text to an ini must call `EnsureIniUtf16(path)` before its first `IniWrite`/`IniDelete`** (`functions.ahk`, near `ResolveWritableIniPath`). Windows fixes an ini's encoding from what is already on disk, and AHK only creates a UTF-16 one when `IniWrite` is what creates the file — a store whose first call is `IniDelete` (deleting a section it is about to rewrite, as `_Pois_Save` and `_BH_SaveProfiles` do) instead gets an ANSI file, and from then on every write through it silently replaces characters outside the system codepage with `?`. Character names and POI labels are exactly the affected values.
@@ -221,6 +224,39 @@ last client to change state. Tray -> Debug -> **Client Mods Status...** and
 Result `-15` is "blocked by Windows" (Smart App Control refusing an unsigned
 DLL); a `disabled` login module is normal in any client not launched with
 auto-login consent and is reported as idle, not off.
+
+**The one refusal the mods cannot report is their own.** For a refused
+*feature* the core shows a once-only in-game box (`[Core] BlockedNotice`), so
+Maps++ deliberately says nothing extra. A refused `osmw_core.dll`, though,
+leaves a stock client, no fresh status file and no in-game notice.
+`NativeModsCoreLoadState(proc, pid)` detects it per running client, from three
+facts that are all needed: mod_autoload's `E9 rel32 90 90` at
+`NATIVE_MODS_AUTOLOAD_RVA` (the CRT entry), `osmw_core.dll` beside *that
+process's* `main.exe`, and no such module in its module list. A failed module
+walk returns `unknown` rather than passing for a refusal.
+`_CheckClientModsLoaded` (from `UpdateMapState`, once per focused PID) raises
+`ShowCoreRefusedNotice` once and records it in Maps++'s own `config.ini`
+`[ClientMods] CoreRefusedNoticeShown`, never in `osmw.ini`. A client seen with
+the core loaded clears it. `SmartAppControlState()` decides the wording: SAC is
+only blamed when it is actually on.
+
+**The game's marker file.** Map POIs → Export to Game Markers writes POIs into
+the minimap mod's `map-markers.tsv` (spec: server repo
+`tools/client-dll/map-markers.md` section 4). `NativeModsMarkersReplace` is the
+only writer, and it follows the mod's own rule exactly: take the folder's
+`Global\osmw_map_markers_<dir>` mutex (name derived as `mm_store_mutex_name`
+does), reload, drop only the caller's owned ids, carry every other line over
+byte for byte (Latin-1 in and out), write a temp file, `MoveFileEx`
+replace-with-write-through. A header other than `OSMW-MARKERS<TAB>1` means a
+newer writer and the file is not touched. The mod's limits (64 per map
+counting the player's own, 2048 total) are applied before writing, since the
+mod would drop the excess silently. Marker units are POI raw + 400 / + 300
+(`GAME_COORD_OFFSET_X/Y`); that was confirmed against the mod's own character
+slot position on a live client, not inferred. The output was round-tripped
+through the mod's real `mm_markers_parse`/`mm_markers_serialise` (built MSVC
+x86, as `tests/test_markers.c` does) and came back byte-identical. The layer
+ships off (`[Minimap] MarkerLayer=0`), so the export works but says the markers
+will not show until the player turns it on. Maps++ never turns it on itself.
 
 **Keys the mods take in game** (`NativeModsReservedKeys`: `[Settings] OpenKey`
 F12, `[Fight] CycleKey` F11, Timers' fixed F9, `[Leaderboard] OpenKey`, Chat

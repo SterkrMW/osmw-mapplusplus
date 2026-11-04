@@ -99,6 +99,10 @@ _Pois_OnTrayMenu(trayGroups) {
     ; server repo. Different formats, different audiences, hence both.
     poiMenu.Add("Export POI Pack…", (*) => _Pois_ExportPack())
     poiMenu.Add("Import POI Pack…", (*) => _Pois_ImportPack())
+    poiMenu.Add()
+    ; The third audience: the game itself, through the client mods' markers.
+    poiMenu.Add("Export to Game Markers…", (*) => _Pois_ExportGameMarkers())
+    poiMenu.Add("Remove Exported Game Markers…", (*) => _Pois_RemoveGameMarkers())
     trayGroups["map"].Add("Map POIs", poiMenu)
 }
 
@@ -870,6 +874,226 @@ _Pois_ReadSection(path, mapId) {
             list.Push(poi)
     }
     return list
+}
+
+; ── Game markers ─────────────────────────────────────────────────
+;
+; The client mods' minimap has a marker layer of its own, stored in
+; map-markers.tsv in the game folder (NativeModsMarkersReplace has the file's
+; rules). Exporting puts every POI there, so the game's own minimap shows them
+; without the Maps++ overlay open.
+;
+; Maps++ owns only the markers it exported. Each POI's marker id is derived from
+; its map, position and label, and the ids of the last export are kept per game
+; folder in map_markers_export.ini. Together those let a re-export update its
+; own markers and take out ones for deleted POIs, while a marker the player
+; placed in game is never touched. An export is deliberately not kept in sync on
+; every POI edit: the file is the mods', and they are written to only when the
+; user asks.
+
+; The marker file's kind numbers (map-markers.md section 1). The same five
+; kinds as _Pois_KINDS, but this is the file format's enum, not our order.
+global _Pois_GAME_MARKER_KIND := Map("npc", 0, "shop", 1, "portal", 2, "quest", 3, "note", 4)
+
+; 64-bit FNV-1a as 16 lowercase hex: the marker file's id shape. AHK integers
+; wrap at 64 bits, which is exactly the modulus FNV needs.
+_Pois_Fnv64(text) {
+    h := -3750763034362895579          ; 0xCBF29CE484222325 as a signed int64
+    buf := Buffer(StrPut(text, "UTF-8"))
+    loop StrPut(text, buf, "UTF-8") - 1 {
+        h := h ^ NumGet(buf, A_Index - 1, "UChar")
+        h := h * 1099511628211           ; 0x100000001B3
+    }
+    return Format("{:016x}", h)
+}
+
+; Same identity as a pack import's dedupe (_Pois_DedupeKey), plus the map: a
+; moved or renamed POI is a new marker, and the old one goes on the next export.
+_Pois_GameMarkerId(mapId, poi) {
+    return _Pois_Fnv64("mapspp|" StrUpper(mapId) "|" _Pois_DedupeKey(poi))
+}
+
+_Pois_GameMarkerStatePath() {
+    return ResolveWritableIniPath("map_markers_export.ini")
+}
+
+; One section per game folder, since each folder has its own marker file.
+_Pois_GameMarkerSection() {
+    return "Folder." _Pois_Fnv64(StrLower(ResolveGameDirectory()))
+}
+
+_Pois_LoadExportedIds() {
+    ids := []
+    raw := ""
+    try raw := IniRead(_Pois_GameMarkerStatePath(), _Pois_GameMarkerSection(), "Ids", "")
+    for id in StrSplit(raw, ",") {
+        id := Trim(id)
+        if RegExMatch(id, "^[0-9a-f]{16}$")
+            ids.Push(id)
+    }
+    return ids
+}
+
+_Pois_SaveExportedIds(ids) {
+    path := _Pois_GameMarkerStatePath()
+    section := _Pois_GameMarkerSection()
+    joined := ""
+    for id in ids
+        joined .= (joined = "" ? "" : ",") id
+    try {
+        EnsureIniUtf16(path)
+        IniWrite(ResolveGameDirectory(), path, section, "GameDir")
+        IniWrite(joined, path, section, "Ids")
+    } catch as err {
+        ; The markers are written; only the record of them is lost. A re-export
+        ; still finds them by id, so this costs only the removal of markers
+        ; for POIs deleted before then.
+        LogWarn("MapPois", "Could not record exported marker ids: " err.Message)
+    }
+}
+
+; Every POI as a marker record: {records, maps, invalid}. Raw positions become
+; map units by the same fixed offset as the displayed coordinates, which
+; puts a marker exactly where its POI was captured (checked against the game's
+; own character position on MAP303).
+_Pois_GameMarkerRecords() {
+    global GAME_COORD_OFFSET_X, GAME_COORD_OFFSET_Y, _Pois_GAME_MARKER_KIND
+    out := { records: [], maps: 0, invalid: 0 }
+    for mapId in _Pois_AllMapIds() {
+        list := _Pois_Load(mapId)
+        if (list.Length = 0)
+            continue
+        ; The file keys markers on the base map file number (MAPnnn.MAP).
+        if !(RegExMatch(mapId, "i)^MAP(\d{1,5})$", &m) && Integer(m[1]) <= 0xFFFF) {
+            out.invalid += list.Length
+            continue
+        }
+        mapFile := Integer(m[1])
+        placed := false
+        for poi in list {
+            x := poi.x + GAME_COORD_OFFSET_X
+            y := poi.y + GAME_COORD_OFFSET_Y
+            if (x < 0 || y < 0) {
+                out.invalid++
+                continue
+            }
+            out.records.Push({ id: _Pois_GameMarkerId(mapId, poi), mapFile: mapFile,
+                x: x, y: y, label: poi.label,
+                kind: _Pois_GAME_MARKER_KIND.Has(poi.kind) ? _Pois_GAME_MARKER_KIND[poi.kind] : 0 })
+            placed := true
+        }
+        if placed
+            out.maps++
+    }
+    return out
+}
+
+; Why a write to the marker file did not happen, for the user.
+_Pois_GameMarkerFailure(reason) {
+    switch reason {
+        case "no-game-path":
+            return "No game path is set, so Maps++ cannot find the game folder. Set one under "
+                . "Settings → Launcher."
+        case "not-installed":
+            return "The game's own markers come from the osMW client mods, which are not "
+                . "installed in " ResolveGameDirectory() "."
+        case "locked":
+            return "A game client was saving its markers and did not finish in time. Try again."
+        case "lock-unavailable":
+            return "Maps++ could not share the marker file's lock with the running game "
+                . "clients. Close them and try again."
+        case "unknown-format":
+            return "map-markers.tsv is in a format this Maps++ does not know — probably written "
+                . "by newer client mods — so it was left exactly as it is."
+        case "read-failed":
+            return "Could not read map-markers.tsv in the game folder."
+    }
+    return "Could not write map-markers.tsv in the game folder. mapsplusplus.log has the detail."
+}
+
+_Pois_ExportGameMarkers() {
+    global NATIVE_MODS_MARKERS_PER_MAP, NATIVE_MODS_MARKERS_MAX
+    title := "Map POIs — Export to game markers"
+    if !NativeModsInstalled() {
+        ShowMessage(_Pois_GameMarkerFailure(ResolveGameDirectory() = "" ? "no-game-path"
+            : "not-installed") " Nothing was exported.", title, Map("severity", "info"))
+        return
+    }
+    built := _Pois_GameMarkerRecords()
+    previous := _Pois_LoadExportedIds()
+    if (built.records.Length = 0) {
+        ShowMessage("There are no POIs to export."
+            . (previous.Length ? " To take back the markers an earlier export added, use "
+                . "Remove Exported Game Markers." : ""), title, Map("severity", "info"))
+        return
+    }
+    layerOn := NativeModsMarkerLayerOn()
+    ask := "Export " built.records.Length " POI(s) on " built.maps " map(s) as markers on the "
+        . "game's own minimap?`n`nThey go into map-markers.tsv in the game folder, which every "
+        . "client there shares. Markers you placed in the game are left alone; markers from an "
+        . "earlier Maps++ export are replaced by this one."
+    if !layerOn
+        ask .= "`n`nThe game's marker layer is switched off ([Minimap] MarkerLayer in osmw.ini), "
+            . "so the markers will not show in game until it is turned on."
+    if !ConfirmAction(ask, title)
+        return
+
+    res := NativeModsMarkersReplace(previous, built.records)
+    if !res.ok {
+        ShowMessage(_Pois_GameMarkerFailure(res.reason) " Nothing was changed.", title,
+            Map("severity", "warn"))
+        return
+    }
+    _Pois_SaveExportedIds(res.written)
+
+    writtenSet := Map()
+    for id in res.written
+        writtenSet[id] := true
+    updated := 0, removed := 0
+    for id in res.removedIds {
+        if writtenSet.Has(id)
+            updated++
+        else
+            removed++
+    }
+    msg := "Exported " res.written.Length " marker(s): " (res.written.Length - updated) " new, "
+        . updated " updated" (removed ? ", and " removed " removed for POIs deleted since the "
+        . "last export" : "") "."
+    if res.full
+        msg .= "`n`n" res.full " did not fit. The game holds at most "
+            . NATIVE_MODS_MARKERS_PER_MAP " markers per map, counting the ones you placed "
+            . "yourself, and " NATIVE_MODS_MARKERS_MAX " in all."
+    if built.invalid
+        msg .= "`n`n" built.invalid " POI(s) could not be placed: they belong to a map "
+            . "Maps++ cannot number, or sit outside its edge."
+    if !layerOn
+        msg .= "`n`nThey will appear once the game's marker layer is on ([Minimap] "
+            . "MarkerLayer=1 in osmw.ini)."
+    ShowMessage(msg, title, Map("severity", (res.full || built.invalid) ? "warn" : "success"))
+}
+
+_Pois_RemoveGameMarkers() {
+    title := "Map POIs — Remove exported game markers"
+    previous := _Pois_LoadExportedIds()
+    if (previous.Length = 0) {
+        ShowMessage("Maps++ has not exported any markers to this game folder, so there is "
+            . "nothing to remove.", title, Map("severity", "info"))
+        return
+    }
+    if !ConfirmAction("Remove the " previous.Length " marker(s) Maps++ exported to the game's "
+        . "own minimap?`n`nMarkers you placed in the game are left alone.", title)
+        return
+    res := NativeModsMarkersReplace(previous, [])
+    if !res.ok {
+        ShowMessage(_Pois_GameMarkerFailure(res.reason) " Nothing was changed.", title,
+            Map("severity", "warn"))
+        return
+    }
+    _Pois_SaveExportedIds([])
+    gone := previous.Length - res.removedIds.Length
+    ShowMessage("Removed " res.removedIds.Length " marker(s)."
+        . (gone > 0 ? " " gone " had already been deleted in the game." : ""), title,
+        Map("severity", "success"))
 }
 
 ; ── Drawing ──────────────────────────────────────────────────────

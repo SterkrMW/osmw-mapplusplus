@@ -271,6 +271,13 @@ shared by every client in the folder, so it describes whichever client last star
 Copy Diagnostics includes the same table. Auto-login shows as idle in a client you started by
 hand — it only runs in clients Maps++ launches with auto-login on — and that is normal.
 
+When Windows blocks one or two features, the game tells you itself, once, as it starts. When it
+blocks `osmw_core.dll`, the file that loads all the others, the game cannot: it just runs without
+any mods, after a Windows "Bad Image" box. Maps++ notices this the first time you switch to such a
+client and says so once, including whether Smart App Control is the cause. It does not repeat the
+message until a client has loaded the mods again. Client Mods Status then lists the clients
+running without the mods first, since the report below it can only come from an earlier client.
+
 **Tray → Debug → Client Mod Logging** is off, and should stay off until someone asks for it. The
 client mods can each write a tagged log — `osmw_core.<pid>.log` and one per feature, one set per
 client per launch, in the game folder. That is a handful of files every launch for something only
@@ -709,9 +716,13 @@ falls, so a character sliding into trouble looks different from one that is mere
 numbers are always there, so colour is never the only signal.
 
 **It sits on the window you are playing.** The strip is centred along the bottom edge of the active
-client and follows you when you switch windows, so in a multi-box layout it is always on the client
-you are looking at. It is never wider than that client: cells share the available width and shrink
-as more characters appear.
+client's game picture and follows you when you switch windows, so in a multi-box layout it is always
+on the client you are looking at. It is never wider than that client: cells share the available
+width and shrink as more characters appear.
+
+**It grows with the game.** When the client mods show the game at 2× or 3×, the strip is drawn 2× or
+3× as well, bars and text alike, so it keeps the same size next to the game's own gauges. In a
+Resizable or Borderless window it sits on the picture, above any black bar.
 
 There is no saved position and nothing to drag, deliberately — a fixed coordinate would be wrong
 the moment you alt-tabbed to a window somewhere else on screen.
@@ -842,6 +853,29 @@ standing on the same spot are still treated as two POIs, since the name is part 
 Imported labels go through the same cleaning as ones you type, so a pack from elsewhere cannot
 corrupt your file. Anything unusable is skipped and counted in the summary rather than
 silently dropped.
+
+#### Putting POIs on the game's own minimap
+
+The client mods give the game's minimap a marker layer of its own. **Map POIs → Export to Game
+Markers…** copies every POI you have, across every map, onto it, so they show without the Maps++
+overlay open. They go into `map-markers.tsv` in the game folder, which every client there shares,
+and running clients pick them up within a couple of seconds.
+
+- **Your in-game markers are safe.** Maps++ only ever replaces markers it exported itself.
+  Export again after changing your POIs and its markers are updated, and markers for POIs you
+  deleted are taken out. Anything you placed in the game is left exactly as it was.
+- **Remove Exported Game Markers…** takes all of Maps++'s markers back out. Maps++ remembers
+  which markers are its own in `map_markers_export.ini`, next to its other files.
+- An export is a snapshot. Adding a POI in Maps++ doesn't change the game's markers until you
+  export again. If you edit or delete one of Maps++'s markers in the game, the next export puts it
+  back the way Maps++ has it.
+- **Limits are the game's.** It keeps at most 64 markers per map, counting your own, and 2048 in
+  all. Labels are cut to 31 characters (fewer for letters outside your Windows language).
+  Anything that does not fit is counted in the summary.
+- **The marker layer ships switched off** (`[Minimap] MarkerLayer=0` in `osmw.ini`). Exporting
+  still works, and the export tells you, but the markers only show in game once the layer is on.
+- It needs the client mods installed in your game folder. Without them there is no marker layer,
+  and Maps++ says so instead of writing anything.
 
 ### Party Markers (Full / Battle)
 
@@ -1017,6 +1051,7 @@ format would stop an older already-deployed `osmw_login.dll` from reading it at 
 | `ItemIdOffset` | Override for the inventory item-id address, e.g. `0x2E2028`. Only needed if a game update moves it; blank uses the built-in value (or whatever signature calibration resolves), `0` turns thumbnails off. When set, it wins over signature calibration — which is the point, since the case it exists for is calibration landing on the wrong address |
 | `[Hotkeys]` | One entry per rebindable action, in AutoHotkey chord syntax (`^`=Ctrl, `!`=Alt, `+`=Shift). A blank value means **Not bound**; rebind or unbind from **Settings → Hotkeys** |
 | `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
+| `[ClientMods] CoreRefusedNoticeShown` | `1` once the "client mods did not load" message has appeared; Maps++ sets it back to `0` when it next sees a client with the mods loaded. Clear it to see the message again |
 | `[Debug] ModLogging` | Not in this file. `1` = the client mods write their own per-client `osmw_*.<pid>.log` files into the game folder; `0` (the default) = they write nothing. Like `[Chat]` below, this key belongs to the mods and lives in their own **`osmw.ini` next to `main.exe`**. Toggle it from **Tray → Debug → Client Mod Logging** |
 
 After editing `config.ini`, use **Reload** from the tray menu or **Ctrl+Alt+R**.
@@ -1173,6 +1208,14 @@ A typical setup with the **Full** variant:
 - Confirm you are **not in battle** and not on a loading screen.
 - Check that your current zone has a map file in `maps\` (supported maps ship with the release).
 - If you run **multiple** `main.exe` instances, Maps++ tracks whichever game window you last focused.
+
+### "Client mods did not load"
+
+Windows refused `osmw_core.dll`, so that client is running without any of the client mods. Maps++
+is unaffected. If the message says Smart App Control is on, that is the cause: the mods are not
+code-signed, and Smart App Control refuses unsigned files however they were obtained. Otherwise,
+reinstall the client mods first; on a work or school PC, a security policy may be what blocks
+them. **Copy Diagnostics** shows each running client's state under *Minimap → client mods*.
 
 ### Position marker is wrong or stuck
 
