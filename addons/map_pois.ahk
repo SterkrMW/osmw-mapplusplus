@@ -46,10 +46,14 @@ global _Pois_ManageGui := 0
 
 RegisterAddon(Map(
     "name",             "MapPois",
+    "settingsGroup", "map",
+    "settingsIcon",  "place",
+    "description",   "Mark NPCs, shops and portals on the Maps++ minimap, and share them.",
     "settingsLabel",    "Map POIs",
     "OnInit",           _Pois_OnInit,
     "OnSettingsWeb",     _Pois_OnSettingsWeb,
     "OnSettingsWebSave", _Pois_OnSettingsWebSave,
+    "OnSettingsAction",  _Pois_OnSettingsAction,
     "OnTrayMenu",       _Pois_OnTrayMenu,
     "OnOverlayShow",    _Pois_OnOverlayShow,
     "OnOverlayHover",   _Pois_OnOverlayHover,
@@ -60,24 +64,24 @@ RegisterAddon(Map(
 
 RegisterHotkeyAction(Map(
     "id", "poiAddHere",
-    "label", "Add POI at my position",
-    "category", "Map POIs",
+    "label", "Add POI here",
+    "category", "Minimap",
     "default", "",
     "addon", "MapPois",
     "handler", (*) => _Pois_AddHere()
 ))
 RegisterHotkeyAction(Map(
     "id", "poiToggleLayer",
-    "label", "Show/hide POI layer",
-    "category", "Map POIs",
+    "label", "Show/hide POIs",
+    "category", "Minimap",
     "default", "",
     "addon", "MapPois",
     "handler", (*) => _Pois_ToggleLayer()
 ))
 RegisterHotkeyAction(Map(
     "id", "poiGenerateNpc",
-    "label", "Generate NPC entry at my position",
-    "category", "Map POIs",
+    "label", "Write an NPC entry for here (server format)",
+    "category", "Developer",
     "default", "",
     "addon", "MapPois",
     "handler", (*) => GenerateNpcEntry()
@@ -88,22 +92,20 @@ _Pois_OnInit() {
 }
 
 _Pois_OnTrayMenu(trayGroups) {
-    poiMenu := Menu()
-    poiMenu.Add("Add POI Here`t" GetHotkeyDisplay("poiAddHere"), (*) => _Pois_AddHere())
-    poiMenu.Add("Show/Hide Layer`t" GetHotkeyDisplay("poiToggleLayer"), (*) => _Pois_ToggleLayer())
-    poiMenu.Add("Manage POIs…", (*) => _Pois_ShowManageWindow())
-    poiMenu.Add()
-    poiMenu.Add("Export This Map's POIs", (*) => _Pois_ExportCurrentMap())
-    poiMenu.Add()
-    ; A pack is for sharing with another player; the export above is for the
-    ; server repo. Different formats, different audiences, hence both.
-    poiMenu.Add("Export POI Pack…", (*) => _Pois_ExportPack())
-    poiMenu.Add("Import POI Pack…", (*) => _Pois_ImportPack())
-    poiMenu.Add()
-    ; The third audience: the game itself, through the client mods' markers.
-    poiMenu.Add("Export to Game Markers…", (*) => _Pois_ExportGameMarkers())
-    poiMenu.Add("Remove Exported Game Markers…", (*) => _Pois_RemoveGameMarkers())
-    trayGroups["map"].Add("Map POIs", poiMenu)
+    global _Pois_LayerVisible
+    minimapGroup := trayGroups["minimap"]
+    minimapGroup.Add("Show POIs", (*) => _Pois_ToggleLayer(),
+        Map("section", "pois", "order", 10, "hotkey", "poiToggleLayer",
+            "toggle", _Pois_LayerVisible ? true : false))
+    minimapGroup.Add("Add POI here", (*) => _Pois_AddHere(),
+        Map("section", "pois", "order", 20, "hotkey", "poiAddHere"))
+    minimapGroup.Add("Manage POIs…", (*) => _Pois_ShowManageWindow(),
+        Map("section", "pois", "order", 30))
+    ; Sharing with other players and with the game's own minimap works on every
+    ; map at once, so it is on Settings → Map POIs rather than here. This one
+    ; writes the server repo's NPC format: a contributor's tool.
+    trayGroups["developer"].Add("Export this map's POIs (server format)",
+        (*) => _Pois_ExportCurrentMap(), Map("section", "tools"))
 }
 
 _Pois_OnSettingsWeb() {
@@ -130,9 +132,33 @@ _Pois_OnSettingsWeb() {
             "value", _Pois_KindIndex(_Pois_DefaultKind) - 1,
             "default", _Pois_KindIndex(DefaultRead("MapPois", "DefaultKind", "npc")) - 1),
         Map("type", "info", "text",
-            "Stored in maps\pois.ini. Tray → Map POIs → Manage POIs… edits the`n"
-            . "current map; Export writes them in the server repo's NPC entry format.")
+            "Stored in maps\pois.ini. Tray → Minimap → Manage POIs… edits the`n"
+            . "current map's POIs."),
+        ; Sharing works on every map at once, so it lives here rather than in
+        ; Manage POIs, which only opens on the map the player is standing on.
+        ; These act immediately; they do not wait for Save.
+        Map("type", "info", "text",
+            "Sharing — these act right away, on every map's POIs:"),
+        Map("type", "button", "id", "exportPack", "label", "Export POI pack…",
+            "hint", "Save your POIs to a file another player can import."),
+        Map("type", "button", "id", "importPack", "label", "Import POI pack…",
+            "hint", "Add POIs from a pack file. Existing POIs are kept."),
+        Map("type", "button", "id", "exportGameMarkers", "label", "Export to game markers…",
+            "hint", "Show your POIs on the game's own minimap (needs the client mods)."),
+        Map("type", "button", "id", "removeGameMarkers", "label", "Remove exported game markers…",
+            "hint", "Take back only the markers Maps++ wrote.")
     ]
+}
+
+; The sharing buttons above. settings.ahk runs this outside the WebView message
+; callback, so each may raise its own dialogs and file pickers.
+_Pois_OnSettingsAction(actionId) {
+    switch actionId {
+        case "exportPack":        _Pois_ExportPack()
+        case "importPack":        _Pois_ImportPack()
+        case "exportGameMarkers": _Pois_ExportGameMarkers()
+        case "removeGameMarkers": _Pois_RemoveGameMarkers()
+    }
 }
 
 _Pois_OnSettingsWebSave(values) {
@@ -639,13 +665,13 @@ _Pois_HandleManageAddPoi(mapId) {
         . ',"defaultKind":' _JSON_Str(_Pois_DefaultKind) '}')
 }
 
-_SafePostMsg(gui, json) {
-    if !IsObject(gui)
+_SafePostMsg(targetGui, json) {
+    if !IsObject(targetGui)
         return
     try {
-        gui.PostWebMessageAsJson(json)
+        targetGui.PostWebMessageAsJson(json)
     } catch {
-        try gui.PostWebMessageAsString(json)
+        try targetGui.PostWebMessageAsString(json)
     }
 }
 
@@ -993,7 +1019,7 @@ _Pois_GameMarkerFailure(reason) {
     switch reason {
         case "no-game-path":
             return "No game path is set, so Maps++ cannot find the game folder. Set one under "
-                . "Settings → Launcher."
+                . "Settings → Game & startup."
         case "not-installed":
             return "The game's own markers come from the osMW client mods, which are not "
                 . "installed in " ResolveGameDirectory() "."

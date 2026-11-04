@@ -55,6 +55,11 @@ global _Broadcast_Excluded := []
 
 RegisterAddon(Map(
     "name",                 "Broadcast",
+    "settingsGroup", "multibox",
+    "multibox",      true,
+    "devOnly",       true,
+    "settingsIcon",  "group",
+    "description",   "Repeats chosen keys to your other clients. Experimental.",
     "settingsLabel",        "Broadcast",
     "OnInit",               _Broadcast_OnInit,
     "OnTrayMenu",           _Broadcast_OnTrayMenu,
@@ -67,8 +72,8 @@ RegisterAddon(Map(
 ; Actions ring instead of by opening Settings.
 RegisterHotkeyAction(Map(
     "id", "broadcastToggleTarget",
-    "label", "Broadcast: all or all but focused",
-    "category", "Broadcast",
+    "label", "Broadcast to: all, or all but this one",
+    "category", "Clients",
     "default", "",
     "addon", "Broadcast",
     "handler", (*) => _Broadcast_ToggleTarget()
@@ -332,22 +337,12 @@ _Broadcast_ToggleTarget() {
 ; ── Tray ─────────────────────────────────────────────────────────
 
 _Broadcast_OnTrayMenu(trayGroups) {
-    global _Broadcast_Keys, _Broadcast_Target, _Broadcast_Modifier
-    n := _Broadcast_Keys.Length
-    summary := (n = 0)
-        ? "Broadcast — no keys set"
-        : ("Broadcast — " n " key" (n = 1 ? "" : "s") " - "
-            . (_Broadcast_Target = "all" ? "all" : "all but focused"))
-    bcMenu := Menu()
-    bcMenu.Add(summary, (*) => ShowSettingsWindow())
-    if n {
-        bcMenu.Add("Triggers: " FormatHotkeyDisplay(_Broadcast_Modifier "…")
-            . " + " _Broadcast_Join(_Broadcast_Keys), (*) => ShowSettingsWindow())
-    }
-    bcMenu.Add()
-    bcMenu.Add("Switch target`t" GetHotkeyDisplay("broadcastToggleTarget"),
-        (*) => _Broadcast_ToggleTarget())
-    trayGroups["clients"].Add("Broadcast", bcMenu)
+    global _Broadcast_Target
+    ; The keys and target are configured under Settings → Broadcast; the tray
+    ; carries only the switch worth reaching mid-fight, with where it points now.
+    target := (_Broadcast_Target = "all") ? "all clients" : "all but focused"
+    trayGroups["clients"].Add("Broadcast to: " target, (*) => _Broadcast_ToggleTarget(),
+        Map("section", "broadcast", "hotkey", "broadcastToggleTarget"))
 }
 
 ; ── Settings ─────────────────────────────────────────────────────

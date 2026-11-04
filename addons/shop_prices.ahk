@@ -64,7 +64,10 @@ RegisterAddonOffset("ShopItemIdBase", 0x2E2028)
 
 RegisterAddon(Map(
     "name",              "ShopPrices",
-    "settingsLabel",     "Character Vendor",
+    "settingsLabel", "Character vendor",
+    "settingsGroup", "tools",
+    "settingsIcon",  "storefront",
+    "description",   "Price every slot of your character's vendor at once.",
     "OnInit",            _ShopPrices_OnInit,
     "OnTrayMenu",        _ShopPrices_OnTrayMenu,
     "OnSnapshot",        _ShopPrices_OnSnapshot,
@@ -74,8 +77,8 @@ RegisterAddon(Map(
 
 RegisterHotkeyAction(Map(
     "id", "shopPricesOpen",
-    "label", "Open Character Vendor pricing",
-    "category", "Character Vendor",
+    "label", "Open Character vendor",
+    "category", "Actions",
     "default", "",
     "addon", "ShopPrices",
     "handler", (*) => _ShopPrices_Open(),
@@ -87,11 +90,11 @@ _ShopPrices_OnInit() {
 }
 
 _ShopPrices_OnTrayMenu(trayGroups) {
-    shopMenu := Menu()
-    shopMenu.Add("Pricing Panel…`t" GetHotkeyDisplay("shopPricesOpen"), (*) => _ShopPrices_Open())
-    shopMenu.Add()
-    shopMenu.Add("Verify Slot Mapping…", (*) => _ShopPrices_ShowSlotDump())
-    trayGroups["clients"].Add("Character Vendor", shopMenu)
+    trayGroups["actions"].Add("Character vendor…", (*) => _ShopPrices_Open(),
+        Map("section", "tools", "order", 10, "hotkey", "shopPricesOpen"))
+    ; A memory dump for checking the slot offsets after a game update.
+    trayGroups["developer"].Add("Verify vendor slots…", (*) => _ShopPrices_ShowSlotDump(),
+        Map("section", "tools"))
 }
 
 ; The client dropdown and the live write guard both read gClientSnapshots, and

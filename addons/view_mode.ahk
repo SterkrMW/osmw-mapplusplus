@@ -6,13 +6,16 @@ RegisterAddonOffset("ViewMode", 0x301DD8)
 
 RegisterAddon(Map(
     "name",       "ViewMode",
+    "featureLabel",  "View mode",
+    "settingsGroup", "tools",
+    "description",   "Switches every client's view mode with one key.",
     "OnTrayMenu", _ViewMode_OnTrayMenu
 ))
 
 RegisterHotkeyAction(Map(
     "id", "viewModeCycle",
-    "label", "Cycle view mode (all clients)",
-    "category", "View Mode",
+    "label", "Cycle view mode on every client",
+    "category", "Actions",
     "default", "",
     "addon", "ViewMode",
     "handler", _ViewMode_CycleAll,
@@ -20,8 +23,8 @@ RegisterHotkeyAction(Map(
 ))
 RegisterHotkeyAction(Map(
     "id", "viewModeToggle",
-    "label", "Toggle view mode 0/1 (all clients)",
-    "category", "View Mode",
+    "label", "Toggle view mode on every client",
+    "category", "Actions",
     "default", "",
     "addon", "ViewMode",
     "handler", _ViewMode_ToggleAll,
@@ -29,10 +32,10 @@ RegisterHotkeyAction(Map(
 ))
 
 _ViewMode_OnTrayMenu(trayGroups) {
-    vmMenu := Menu()
-    vmMenu.Add("Cycle (All)`t" GetHotkeyDisplay("viewModeCycle"), (*) => _ViewMode_CycleAll())
-    vmMenu.Add("Toggle 0/1 (All)`t" GetHotkeyDisplay("viewModeToggle"), (*) => _ViewMode_ToggleAll())
-    trayGroups["quickActions"].Add("View Mode", vmMenu)
+    ; The toggle is the one the Action ring offers by default; cycling through
+    ; every mode stays a hotkey and a ring choice.
+    trayGroups["actions"].Add("Toggle view mode", (*) => _ViewMode_ToggleAll(),
+        Map("section", "game", "order", 40, "hotkey", "viewModeToggle"))
 }
 
 _ViewMode_CycleAll() {

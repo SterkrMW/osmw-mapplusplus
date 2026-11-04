@@ -100,6 +100,23 @@
     line-height: var(--leading-none);
 }
 
+/* ── Built-in presets ───────────────────────────────────────── */
+.rail-subtitle {
+    padding: 14px 4px 6px;
+    font-size: var(--text-caption);
+    font-weight: var(--weight-semibold);
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-label);
+}
+.preset-item { cursor: default; }
+.preset-actions {
+    flex: 1 1 100%;
+    display: flex;
+    gap: 6px;
+    margin-top: 2px;
+}
+
 /* ── Toolbar ────────────────────────────────────────────────── */
 .stage-pane {
     display: flex;

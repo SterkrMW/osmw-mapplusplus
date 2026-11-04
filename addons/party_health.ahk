@@ -140,7 +140,11 @@ global _PartyHealth_ShowPets := true
 
 RegisterAddon(Map(
     "name",              "PartyHealth",
-    "settingsLabel",     "Party Health HUD",
+    "settingsLabel", "Party health",
+    "settingsGroup", "multibox",
+    "multibox",      true,
+    "settingsIcon",  "person",
+    "description",   "A strip of your party's health and mana over the game, on a key.",
     "OnInit",            _PartyHealth_OnInit,
     "OnSettingsWeb",     _PartyHealth_OnSettingsWeb,
     "OnSettingsWebSave", _PartyHealth_OnSettingsWebSave,
@@ -150,8 +154,8 @@ RegisterAddon(Map(
 
 RegisterHotkeyAction(Map(
     "id", "partyHealthToggle",
-    "label", "Peek at party health",
-    "category", "Party Health HUD",
+    "label", "Party health",
+    "category", "Clients",
     ; Bound by default, unlike most actions: in the default mode this key is the
     ; only way the HUD ever appears, and an unbound one would make the whole
     ; addon look broken.
@@ -257,9 +261,8 @@ _PartyHealth_OnSettingsWebSave(values) {
 _PartyHealth_OnTrayMenu(trayGroups) {
     ; Not named `menu`: Menu() is a built-in and shadowing one is a load-time
     ; conflict Ahk2Exe refuses to compile.
-    clientsMenu := trayGroups["clients"]
-    clientsMenu.Add("Peek at party health`t" GetHotkeyDisplay("partyHealthToggle"),
-        (*) => _PartyHealth_Peek())
+    trayGroups["clients"].Add("Party health", (*) => _PartyHealth_Peek(),
+        Map("section", "status", "order", 20, "hotkey", "partyHealthToggle"))
 }
 
 ; Show the strip for a few seconds, or take it away again if it is already up.

@@ -7,6 +7,10 @@ RegisterAddonOffset("PetBattleAction", 0x3029C4)
 
 RegisterAddon(Map(
     "name",       "BattleSend",
+    "featureLabel",  "Battle action",
+    "settingsGroup", "multibox",
+    "multibox",      true,
+    "description",   "Confirms the pending battle action on every client that is fighting, with one key.",
     "OnTrayMenu", _BattleSend_OnTrayMenu
 ))
 
@@ -15,8 +19,8 @@ RegisterAddon(Map(
 ; label describes the effect rather than a keystroke that never happens.
 RegisterHotkeyAction(Map(
     "id", "battleSend",
-    "label", "Trigger battle action on fighting clients",
-    "category", "Battle",
+    "label", "Battle action on every fighting client",
+    "category", "Actions",
     "default", "+!q",
     "addon", "BattleSend",
     "handler", _BattleSend_SendToFighting,
@@ -24,7 +28,8 @@ RegisterHotkeyAction(Map(
 ))
 
 _BattleSend_OnTrayMenu(trayGroups) {
-    trayGroups["quickActions"].Add("Battle Action on Fighting`t" GetHotkeyDisplay("battleSend"), (*) => _BattleSend_SendToFighting())
+    trayGroups["actions"].Add("Battle action", (*) => _BattleSend_SendToFighting(),
+        Map("section", "game", "order", 20, "hotkey", "battleSend"))
 }
 
 ; One pass per *process*: a client can contribute more than one top-level hwnd,

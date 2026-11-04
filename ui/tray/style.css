@@ -140,8 +140,13 @@ body {
     background: color-mix(in srgb, var(--accent-text) 10%, transparent);
     border-color: color-mix(in srgb, var(--accent-text) 18%, transparent);
 }
+/* A profile name is user text; the window is a fixed width, so a long label
+   ends in an ellipsis rather than pushing the shortcut out of view. */
 .item-label {
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
     letter-spacing: var(--tracking-tight);
 }
 

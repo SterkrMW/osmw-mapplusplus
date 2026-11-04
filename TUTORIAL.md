@@ -10,15 +10,15 @@ Maps++ runs in the background and appears in your system tray as **osMW Maps++**
 
 | Feature | Description |
 |--------|-------------|
-| **Custom minimap** | A high-resolution map over the game window, with POIs, party markers and waypoints. Where the game has its own minimap, **Tab** opens that one, and Maps++'s is a hotkey away. |
+| **Maps++ minimap** | A high-resolution map over the game window, with POIs, party markers and waypoints. Where the game has its own minimap, **Tab** opens that one, and Maps++'s is a key or a menu item away. |
 | **Live position marker** | A dot on the map tracks your character as you move. |
-| **Game launcher** | Launch new game clients from the tray menu or a hotkey, centered on your chosen monitor. |
+| **Launching** | Start your clients from the tray menu or a hotkey, centred on the display you choose. |
 | **Launch profiles** | Name what a launch does — which accounts, how many clients, which display, which layout — and bind one to each launch hotkey. |
-| **Auto-login** | Fill a roster of accounts and log in automatically, either into a named group or whichever rows are free. |
-| **Better Hotkeys** | Give each character any number of persistent battle-skill shortcuts, including different skills on the same key. |
-| **Multi-box helpers** | Optional addons arrange windows, toggle chat, open inventory, and send battle commands to all fighting characters. |
-| **Radial menus** | **Ctrl+Alt+A** rings your common actions around the cursor; choose **Clients** there to jump between alts. One click each. |
-| **Works with the client mods** | Edits the Chat Mod settings, shows which client mods are running, and keeps its overlays and clicks lined up when the mods scale the game 2× or 3×. |
+| **Auto-login** | Save your accounts once and launched clients log themselves in, as a named group or whichever accounts are free. |
+| **Skill hotkeys** | Give each character any number of persistent battle-skill shortcuts, including different skills on the same key. |
+| **Multi-box helpers** | Arrange windows, toggle chat, open inventory, and confirm battle actions on every fighting client at once. |
+| **Action ring** | **Ctrl+Alt+A** puts your common actions in a ring around the cursor; choose **Clients** there to jump between alts. One click each. |
+| **Works with the client mods** | Edits the Chat mod settings, shows which client mods are running, and keeps its overlays and clicks lined up when the mods scale the game 2× or 3×. |
 
 Maps++ reads information from the running game client (`main.exe`). It never patches `main.exe`, and it never installs, updates or loads the **osMW client mods** (`osmw_core.dll` and its features — chat window, auto-login, the in-game F12 settings panel, display scaling and more). Those are a separate download that the client loads itself. Maps++ works with or without them; when they are there, it reads their status and edits a few of their settings, but only when you ask it to.
 
@@ -29,9 +29,9 @@ Maps++ reads information from the running game client (`main.exe`). It never pat
 ### 1. Install and run
 
 1. Download the release that matches how you play:
-   - **Full** — minimap, launcher, auto-login, window layout, chat, inventory, Better Hotkeys, battle helpers, map POIs, and the multi-client roster and party markers.
-   - **Lite** — minimap, map POIs, launcher, auto-login, and window layout only.
-   - **Battle** — minimap, launcher, auto-login, chat, Better Hotkeys, battle helpers, roster and party markers (no inventory or window layout).
+   - **Full** — everything: minimap, map POIs, launching and auto-login, window layout, chat and inventory keys, skill hotkeys, battle action, the client roster, party health and party markers, the Character vendor and Discord status.
+   - **Lite** — minimap, map POIs, launching and auto-login, window layout, the Action ring and the Chat mod settings.
+   - **Battle** — minimap, launching and auto-login, chat keys, skill hotkeys, battle action, view mode, the client roster, party health and party markers, the Action ring and the Chat mod settings (no inventory, map POIs or window layout).
 2. Extract the folder somewhere convenient (Desktop, a games folder, etc.).
 3. Run **`mapsplusplus.exe`**.
 
@@ -41,44 +41,59 @@ The folder must include:
 - `marker.png` (your position dot on the map)
 - `maps\` (custom map images, one `.jpg` per supported zone)
 
-On first run, Maps++ may ask you to locate **`main.exe`** (the game client). You can also set this later from **Tray → Settings… → Launcher → Browse…** (**Ctrl+Alt+,**).
+### 2. The setup guide
 
-### 2. Optional: place the game next to Maps++
+The first time Maps++ starts, a short setup guide opens. It asks the few things Maps++ cannot work
+out for itself, and leaves everything else at sensible defaults:
 
-If `main.exe` sits in the same folder as Maps++, the app finds it automatically and you will not be prompted.
+| Step | What it asks |
+|------|--------------|
+| **Welcome** | Whether you play **one character** or **several at once**. One character keeps things simple: launching starts a single client, and the multi-boxing features (client roster, party health and markers, window layout, chat toggles, battle action) start switched off. |
+| **Game** | Where `main.exe` is. Maps++ lists any copy it finds beside itself or already running, so usually you just pick one. You can skip it: the minimap works without it, and the first launch asks again. |
+| **Minimap** | What **Tab** should open (see *Tab: the game's minimap or Maps++'s* below), and optionally a key for Maps++'s own minimap. |
+| **Launching** | *Several characters only.* How many clients to start and on which display, an optional second team, the layout to arrange them in, and whether to log them in automatically — with a button to save your accounts there and then. |
+| **Features** | Every feature in your build with a line on what it does. Turn off what you won't use; its menu items and shortcuts go with it. |
+| **Finish** | The keys worth remembering, the look of Maps++, whether it starts with Windows, and an option to launch the game straight away. |
+
+**Skip setup** leaves everything at its defaults. Either way you can run the guide again at any time
+from **Tray → Help → Setup guide…**, and every choice in it is also in **Settings** (**Ctrl+Alt+,**).
+
+> Already using Maps++? Updating does not show the guide: your settings carry over as they were, and
+> a one-time notice points you at **Help → Setup guide** in case you want to walk through it.
 
 ### 3. Launch the game
 
-- From the tray icon: right-click → **Launch (Primary)** or **Launch (Secondary)**
-- Or press **Ctrl+Alt+L** (primary monitor) / **Ctrl+Alt+K** (secondary monitor)
+- Double-click the tray icon, or right-click it → **Launch _profile name_**
+- Or press **Ctrl+Alt+L** (Launch primary) / **Ctrl+Alt+K** (Launch secondary)
 
-Each action runs a **launch profile** — a named bundle of *which accounts, how many clients,
-which display, which layout*, edited under **Settings → Launcher**. Out of the box there are two,
-Primary and Secondary, carrying whatever display and layout you already had. Because both actions
-just run a profile, they stay one click and one hotkey no matter how you configure them.
+Each launch runs a **launch profile** — a named bundle of *which accounts, how many clients, which
+display, which layout*, edited under **Settings → Launching**. The tray shows each launch by the name
+of its profile, so **Launch Main team** says what it does. If you play one character, Launch secondary
+is set to run nothing and leaves the tray menu; give it a profile under **Settings → Launching** if
+you start a second team.
 
 If the client mods' display scaling is on, each new client grows to 2× or 3× a moment after its
 window appears. Maps++ waits for that (a few seconds at most) before centring the clients or
 applying the layout, so they land where you expect at their final size.
 
-If **Launch on startup** is enabled in `config.ini`, Maps++ opens a game client for you when the app starts.
+To have a client start with Maps++, turn on **Settings → Game & startup → Launch the game when Maps++ starts**.
 
-To skip the stock login screen, add accounts under **Tray → Clients & Windows → Auto-login roster…** and leave **Settings → Launcher → Auto-login launched clients** on. Maps++ clicks through the intro, then the client mods' auto-login fills the account (it needs the client mods installed). Passwords stay on this Windows user and are never stored in `config.ini`. Turn that launcher setting off when you want the stock login screen.
+To skip the stock login screen, save your accounts under **Tray → Clients → Accounts…** and leave **Settings → Launching → Log launched clients in automatically** on. Maps++ clicks through the intro, then the client mods' auto-login fills the account (it needs the client mods installed). Passwords stay on this Windows user and are never stored in `config.ini`. Turn that setting off when you want the stock login screen.
 
-If a profile names no accounts, each client claims the next enabled roster row on its own — which
-is fine for one batch, but arbitrary once you run more clients than one batch holds. Give the
-profile a **group** of accounts instead and it launches exactly those characters, every time.
+If a profile names no accounts, each client claims the next enabled account on its own — which is
+fine for one batch, but arbitrary once you run more clients than one batch holds. Give the profile a
+**group** of accounts instead and it launches exactly those characters, every time.
 
 ---
 
-## Using the Custom Minimap
+## Using the Maps++ Minimap
 
 ### Open and close
 
 | Action | How |
 |--------|-----|
 | **Open / toggle minimap** | **Tab** (while the game window is focused) — on a map where the game has no minimap of its own |
-| **Open the Maps++ minimap anywhere** | **Open Maps++ minimap** — unbound until you give it a key under **Settings → Hotkeys**; also **Tray → Map & Overlay → Open Maps++ Minimap** and the **Maps++ map** spoke of the action ring |
+| **Open the Maps++ minimap anywhere** | **Open Maps++ minimap** — unbound until you give it a key (in the setup guide, or under **Settings → Hotkeys**); also **Tray → Minimap → Open Maps++ minimap** and the **Maps++ map** spoke of the Action ring |
 | **Close minimap** | **Tab** again, **Right-click** on the overlay, or switch away from the game |
 
 The overlay is centered on the game window and stays on top. Clicks on the minimap do **not** steal focus from the game, so you can keep playing normally.
@@ -90,7 +105,7 @@ So by default **Tab goes to the game** wherever the game has a minimap, and open
 overlay only where it does not. The first time that happens, Maps++ tells you once how to reach
 its own map instead.
 
-Change it under **Settings → Minimap → Tab key**, or **Tray → Map & Overlay → Tab Minimap**:
+Change it under **Settings → Minimap → Tab key** (the setup guide asks the same question):
 
 | Choice | Tab does |
 |--------|----------|
@@ -167,14 +182,14 @@ If you enter battle, load into an unsupported zone, or the game cannot read the 
 
 ### Adding a zone Maps++ doesn't have
 
-**Tray → Map & Overlay → Calibrate This Map…** walks you through it.
+**Tray → Minimap → Calibrate this map…** walks you through it.
 
 1. Put the zone's image in the `maps\` folder, named after its map file —
    `MAP301.jpg`, `MAP329.jpg` and so on. The name Maps++ is looking for is shown at the top of
    the calibration window while you stand in that zone.
 2. Open the Maps++ minimap and the calibration window, then stand somewhere you can recognise on
    the image — a shop door, a bridge, a corner. (On a map where Tab opens the game's own
-   minimap, open Maps++'s with **Open Maps++ minimap** or **Tray → Map & Overlay**.)
+   minimap, open Maps++'s with **Open Maps++ minimap** or **Tray → Minimap**.)
 3. Move the mouse to that same spot **on the minimap** and press **Ctrl+Alt+1**.
 4. Walk somewhere **diagonally away** and repeat with **Ctrl+Alt+2**.
 5. Press **Apply calibration**.
@@ -197,88 +212,132 @@ When you walk into a different supported map, the overlay image swaps to the new
 
 ## System Tray Menu
 
-Right-click the tray icon for the main menu:
+Right-click the tray icon for the main menu. It is never more than one level deep, and groups
+that have nothing in your build or with your features switched off simply do not appear:
 
-| Item | Purpose |
-|------|---------|
-| **Launch (Primary)** | Run the launch profile bound to Primary — its accounts, client count, display and layout |
-| **Launch (Secondary)** | Run the launch profile bound to Secondary |
-| **Client Launch** | Run any *other* profile, or pick accounts for one launch without changing a setting — see below |
-| **Quick Actions** | Open the action ring and access game controls such as Send Enter, battle send, chat, inventory and view mode |
-| **Clients & Windows** | Open the client roster, edit the auto-login roster, arrange game windows and access character tools available in the current build |
-| **Map & Overlay** | Open the Maps++ minimap, choose what **Tab** opens (**Tab Minimap**), calibrate the current map, add or manage map POIs and toggle map-related overlay features available in the current build |
-| **Interface** | Switch between Native (low memory) and WebView2 (enhanced); Maps++ reloads automatically |
-| **Settings…** | Open the settings window (game path, launcher, monitors, Window Layout, addons). Addon settings show a small **Reset** beside any value you have changed from its default |
-| **Reload** | Restart Maps++ (picks up config changes) |
-| **Debug** | Diagnostics, client mod status and logging, and memory-signature tools — see below |
-| **About Maps++…** | Version, interface mode and how many addons are active |
-| **Exit** | Quit the app |
+```
+Launch Main team                   Ctrl+Alt+L     (double-clicking the icon does this)
+Launch Alts                        Ctrl+Alt+K     (only when Launch secondary runs a profile)
+Launch other                    ▸  your other profiles, and each saved group of accounts
+───────
+Minimap                         ▸  Open Maps++ minimap · Calibrate this map…
+                                   Show POIs · Add POI here · Manage POIs…
+                                   Party markers
+Clients                         ▸  Client roster · Party health
+                                   Arrange windows · Arrange on second display · Undo arrange · Window layouts…
+                                   Toggle chat on other clients · on this client · chat size
+                                   Accounts…
+Actions                         ▸  Action ring
+                                   Send Enter until ready · Battle action · Open inventory · Toggle view mode
+                                   Character vendor… · Skill hotkeys…
+───────
+Settings…                          Ctrl+Alt+,
+Help                            ▸  Setup guide… · Copy diagnostics · Open log folder
+                                   Client mods status… · Client mod logging · About Maps++…
+───────
+Exit                               Ctrl+Alt+Q
+```
 
-All configuration now lives in **Settings…** (or **Ctrl+Alt+,**): game path and arguments,
-**start Maps++ automatically when Windows starts**, launch-a-client-on-startup, clients per
-launch and delay, primary/secondary displays and launch layouts, Window Layout defaults, and enabling/disabling
-addons. The tray keeps only the quick **actions**.
+Switches such as **Show POIs** and **Party markers** show whether they are on: a check mark in the
+low-memory interface, an **ON**/**OFF** label in the enhanced one. Shortcuts are shown beside the
+items that have one.
 
-Under **Settings → Launcher**, each launch target has a **Layout after launch** dropdown:
+**Configuration lives in Settings…** (**Ctrl+Alt+,**). The tray keeps only things you *do*; lists that
+used to hang off it in deep submenus now live in the windows that manage them:
+
+| Looking for… | It is now in |
+|--------------|--------------|
+| Layout presets (Grid 2×2, Center focus…) and your saved layouts | **Clients → Window layouts…** — under *Built-in*, with **Apply** and **Make default** |
+| Launching one particular account, or a batch from one account on | **Clients → Accounts…** — select the account, then **Launch this account** or **Launch from here** |
+| Exporting, importing and game-marker export of POIs | **Settings → Map POIs** — the *Sharing* buttons |
+| What Tab opens | **Settings → Minimap → Tab key** |
+| Enhanced or low-memory interface | **Settings → Appearance → Interface** |
+
+### Settings
+
+The Settings window groups its pages the way the tray does:
+
+| Group | Pages |
+|-------|-------|
+| **General** | **Game & startup** (game path, start with Windows, launch on start, updates) · **Launching** (which profile each launch runs, the profiles themselves, auto-login, delay between clients) · **Appearance** (interface, accent colour, developer tools) · **Hotkeys** |
+| **Map** | **Minimap** · **Map POIs** · **Party markers** |
+| **Multi-boxing** | **Client roster** · **Party health** · **Window layout** |
+| **Tools** | **Action ring** · **Character vendor** · **Chat mod** · **Discord** |
+| | **Features** — every feature in your build, with what it does, to switch on or off |
+
+Pages for features you have switched off are not shown. Turning a feature on or off asks to
+restart Maps++ when you save, since a feature only fully starts or stops on a restart. Settings on
+feature pages show a small **Reset** beside any value you have changed from its default.
+
+Under **Settings → Launching**, each profile has a **Layout after launch**:
 
 - **None — center clients only** — launch the batch without organising it
-- **Default — _layout name_** — follow the current default from **Settings → Window Layout**
-- A named preset or custom layout — pin that target independently, so Primary and Secondary can
-  use different arrangements
+- **Default — _layout name_** — follow the current default from **Settings → Window layout**
+- A named preset or custom layout — pin that profile independently, so your two teams can use
+  different arrangements
 
-**Tray → Interface** selects the GUI used by Maps++. **WebView2 (enhanced)** keeps the polished
-tray and the radial rings prewarmed for immediate response. **Native (low memory)** uses
-standard Windows/AHK controls, does not preload WebView2, opens the client roster as a list and
-Quick Actions as a popup menu. Your selection is remembered in `config.ini`.
+**Settings → Appearance → Interface** selects the look of Maps++. **Enhanced** gives the panels you
+see in Settings and keeps the tray menu and the radial rings ready for an instant response. **Low
+memory** uses standard Windows menus and windows, does not load WebView2, opens the client roster as
+a list and the Action ring as a popup menu. Maps++ restarts when you save a change here.
 
 The enhanced interface needs the **Microsoft Edge WebView2 Runtime**. It comes with Windows 11
 and most up-to-date Windows 10 installs, but some editions and "debloated" or gaming Windows
-builds leave it out or remove it. If it is missing, Maps++ uses the native interface instead and
-tells you once at startup. The **WebView2 (enhanced)** entry under **Tray → Interface** then reads
-*runtime unavailable*. To get the enhanced interface back, install the
-[Evergreen WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703) and click that
-entry, or restart Maps++. Your choice stays saved, so you never need to switch modes by hand.
+builds leave it out or remove it. If it is missing, Maps++ uses the low-memory interface instead and
+tells you once at startup, and **Enhanced** under **Settings → Appearance** says it needs the runtime.
+To get the enhanced interface back, install the
+[Evergreen WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703) and restart Maps++.
+Your choice stays saved, so you never need to switch modes by hand.
 
 Confirmations, name prompts and diagnostic read-outs follow the same choice. In enhanced mode
 they are Maps++'s own dialogs, matching the panel that raised them; in low-memory mode they are
 plain Windows message boxes. Either way **Esc** cancels, **Enter** accepts, and a dialog that
 asks before deleting something starts with the safe answer selected. Read-outs such as **Verify
-Signatures** put their table in a scrollable **Details** panel with a **Copy** button.
+signatures** put their table in a scrollable **Details** panel with a **Copy** button.
 
-> **Run on Windows start-up** is a per-user setting (no admin needed). When enabled, Maps++
+> **Start Maps++ when Windows starts** is a per-user setting (no admin needed). When enabled, Maps++
 > registers itself to launch at login; disabling removes that entry. You can also remove it
 > from **Task Manager → Startup apps** — the checkbox reflects the real state either way.
 
+### Developer tools
+
+The tools for checking Maps++ after a game update — **Debug state**, **Calibrate signatures**,
+**Verify signatures**, **Reload Maps++**, and a few feature-specific checks — are kept out of the
+everyday menu. **Shift+right-click** the tray icon to see them in a **Developer** group for that
+one open, or turn on **Settings → Appearance → Show developer tools in the tray menu** to keep it
+there. Their fixed shortcuts (**Ctrl+Alt+D**, **Ctrl+Alt+S**, **Ctrl+Alt+V**, **Ctrl+Alt+R**) work
+either way.
+
 ### Reporting a problem
 
-**Tray → Debug → Copy Diagnostics** puts everything needed to investigate an issue on your
+**Tray → Help → Copy diagnostics** puts everything needed to investigate an issue on your
 clipboard, ready to paste into a bug report: the version you are running, which memory offsets
-resolved and how, your display layout, which addons are on or off, the clients that were running,
+resolved and how, your display layout, which features are on or off, the clients that were running,
 and the recent log. It also saves a copy next to the log file. Please include it — without the
 version and offset information, most reports cannot be acted on.
 
-**Tray → Debug → Open Log Folder** opens the folder containing `mapsplusplus.log`. Maps++ writes
-one line per event there — startup, errors, and anything an addon reported — so a problem that
+**Tray → Help → Open log folder** opens the folder containing `mapsplusplus.log`. Maps++ writes
+one line per event there — startup, errors, and anything a feature reported — so a problem that
 happened five minutes ago is still recoverable. The log is capped at about 1 MB and the previous
 one is kept as `mapsplusplus.log.1`; nothing else is retained.
 
-**Tray → Debug → Client Mods Status…** shows what the osMW client mods report about themselves:
+**Tray → Help → Client mods status…** shows what the osMW client mods report about themselves:
 which features are running, which are switched off, and which stood down and why — a feature
 whose signature no longer matches after a client update, say, or one **blocked by Windows**
 (Smart App Control refuses unsigned DLLs; they are not damaged). It is the same report as the
 in-game **F12 → Status** page, read from `osmw_status.ini` in the game folder. That one file is
 shared by every client in the folder, so it describes whichever client last started or stopped.
-Copy Diagnostics includes the same table. Auto-login shows as idle in a client you started by
+Copy diagnostics includes the same table. Auto-login shows as idle in a client you started by
 hand — it only runs in clients Maps++ launches with auto-login on — and that is normal.
 
 When Windows blocks one or two features, the game tells you itself, once, as it starts. When it
 blocks `osmw_core.dll`, the file that loads all the others, the game cannot: it just runs without
 any mods, after a Windows "Bad Image" box. Maps++ notices this the first time you switch to such a
 client and says so once, including whether Smart App Control is the cause. It does not repeat the
-message until a client has loaded the mods again. Client Mods Status then lists the clients
+message until a client has loaded the mods again. Client mods status then lists the clients
 running without the mods first, since the report below it can only come from an earlier client.
 
-**Tray → Debug → Client Mod Logging** is off, and should stay off until someone asks for it. The
+**Tray → Help → Client mod logging** is off, and should stay off until someone asks for it. The
 client mods can each write a tagged log — `osmw_core.<pid>.log` and one per feature, one set per
 client per launch, in the game folder. That is a handful of files every launch for something only
 useful while a problem is being chased, so nothing is written unless you turn this on. The switch
@@ -290,21 +349,21 @@ already open are unaffected), reproduce the problem, then send the `osmw_*.log` 
 folder alongside your diagnostics. Switch it back off afterwards. The diagnostics report says which
 state you are in, so an empty game folder is never mistaken for a mod that failed to load.
 
-> **If an addon keeps failing, Maps++ turns it off.** Rather than notifying you once a second
-> forever, a repeatedly-failing addon is disabled for the rest of the session and named in one
+> **If a feature keeps failing, Maps++ turns it off.** Rather than notifying you once a second
+> forever, a repeatedly-failing feature is disabled for the rest of the session and named in one
 > notification. This is not saved — restarting Maps++ gives it another chance. Every failure is in
 > the log regardless of whether you saw a notification.
 
 ### Update notifications
 
-**Settings → Launcher → Check now** checks whenever you ask, and tells you the answer either way —
+**Settings → Game & startup → Check now** checks whenever you ask, and tells you the answer either way —
 up to date, a newer version with a **Get the update** button, or why the check could not be
 completed. It works even with automatic checking switched off.
 
 **Check for a newer Maps++ on startup** (on by default) does the same thing once, a few seconds
 after launch, but only speaks up when there is something to report. If a newer version exists you
-get one notification, the tray menu gains a **Get the update** entry, and **About Maps++…** shows it.
-That tray entry lasts for the session only — after a restart it returns once the next check
+get one notification, the tray menu gains a **Get the update** entry at the top, and **About Maps++…**
+shows it. That tray entry lasts for the session only — after a restart it returns once the next check
 completes, which is what the **Check now** button is for.
 
 It never downloads or installs anything — it reads a version number and tells you. Maps++ makes no
@@ -316,15 +375,15 @@ setting off and it makes no requests at all.
 
 ## Hotkey Reference
 
-Everyday shortcuts can be changed under **Settings → Hotkeys** (click a shortcut, press new keys, then Save). Choose **Unbind** when an action should have no direct shortcut. Changes apply immediately — no Reload needed. The tables below list the **default** bindings.
+Everyday shortcuts can be changed under **Settings → Hotkeys** (click a shortcut, press new keys, then Save). They are grouped the way the tray is — General, Launching, Minimap, Clients, Actions. Choose **Unbind** when an action should have no direct shortcut. Changes apply immediately — no restart needed. The tables below list the **default** bindings.
 
-The default set is intentionally small: core controls and the **Ctrl+Alt+A** Quick Actions ring are bound, and most addon actions start unbound (Chat Toggle and Inventory keep the chords they have always had). This avoids claiming common game and Windows shortcuts just because an addon is installed; use the ring or tray menu, or bind only the addon actions you want.
+The default set is intentionally small: core controls and the **Ctrl+Alt+A** Action ring are bound, and so are Chat toggle, Inventory, Party health and Battle action, which keep the chords they have always had; most other actions start unbound. This avoids claiming common game and Windows shortcuts just because a feature is installed; use the ring or tray menu, or bind only the actions you want.
 
 **Keys the client mods use in game.** With the osMW client mods installed, some keys already do
 something in game: **F12** opens the settings panel, **F11** cycles fight speed, **F9** shows the
-timer panel, plus a leaderboard key and Chat Mod's clear/tab hotkeys if you set them. Maps++ still
+timer panel, plus a leaderboard key and the Chat mod's clear/tab hotkeys if you set them. Maps++ still
 lets you bind those, since you may want both — but it warns you when you pick one, and again when
-you save, so a key that suddenly does two things is never a surprise. **Copy Diagnostics** lists
+you save, so a key that suddenly does two things is never a surprise. **Copy diagnostics** lists
 any overlaps too. (Maps++ reads which keys from the mods' own settings, so a key you moved in the
 F12 panel is the one it checks.)
 
@@ -339,25 +398,26 @@ Global shortcuts work while the game or minimap overlay is focused.
 | **Tab** | Toggle the Maps++ minimap — on a supported map where the game has no minimap of its own (see **Settings → Minimap → Tab key**); otherwise Tab reaches the game |
 | **Not bound** | **Open Maps++ minimap** — the overlay even where the game has a minimap too |
 | **Right-click** | Close minimap (while overlay is open) |
-| **Ctrl+Alt+L** | Launch the configured clients on the primary target |
-| **Ctrl+Alt+K** | Launch the configured clients on the secondary target |
+| **Ctrl+Alt+L** | Launch primary — runs the profile bound to it |
+| **Ctrl+Alt+K** | Launch secondary — runs the profile bound to it, if any |
 | **Ctrl+Alt+E** | Send Enter to clients still at intro/login until each one is ready |
-| **Ctrl+Alt+A** | Open the Quick Actions ring |
+| **Ctrl+Alt+A** | Open the Action ring |
 | **Ctrl+Alt+,** | Open the Settings window |
 | **Ctrl+Alt+R** | Reload Maps++ |
 | **Ctrl+Alt+Q** | Exit Maps++ |
 
 These are fixed and cannot be rebound — Reload and Exit have to work even when something else is
-broken, and the calibration captures read where your mouse is over the minimap:
+broken, and the calibration captures read where your mouse is over the minimap. The last three are
+the developer tools (see *Developer tools* above):
 
 | Hotkey | Action |
 |--------|--------|
 | **Ctrl+Alt+1** / **Ctrl+Alt+2** | Capture calibration point 1 / 2 (mouse over the minimap — see *Adding a zone Maps++ doesn't have*) |
 | **Ctrl+Alt+3** | Apply calibration from the two points |
 | **Ctrl+Alt+4** | Export the current map's calibration |
-| **Ctrl+Alt+D** | Debug State |
-| **Ctrl+Alt+S** | Calibrate Signatures |
-| **Ctrl+Alt+V** | Verify Signatures |
+| **Ctrl+Alt+D** | Debug state |
+| **Ctrl+Alt+S** | Calibrate signatures |
+| **Ctrl+Alt+V** | Verify signatures |
 
 ### Window Layout (Full / Lite)
 
@@ -369,18 +429,19 @@ of 1× and 2× clients does not overlap.
 
 | Hotkey | Action |
 |--------|--------|
-| **Not bound** | Apply your default layout on the **primary** monitor |
-| **Not bound** | Apply your default layout on the **secondary** monitor |
-| **Not bound** | Open the **Window Layouts** window |
-| **Not bound** | **Undo** the last layout you applied |
+| **Not bound** | Arrange windows — apply your default layout on the **primary** display |
+| **Not bound** | Arrange windows on the **second** display |
+| **Not bound** | Open the **Window layouts** window |
+| **Not bound** | **Undo** the last arrangement |
 
-**Tray → Window Layout** offers one-time **Apply Preset** layouts (Reset, Single, Grid2x2,
-Grid3x2, CenterFocus, DiceLeft, DiceRight), an **Apply Custom** list of your own saved layouts,
-**Capture Current As…**, **Layouts…**, and **Undo Last Apply**.
+**Tray → Clients** has **Arrange windows** (and **Arrange on second display** when you have two),
+**Undo arrange** and **Window layouts…**. The window lists your saved layouts and, under
+**Built-in**, the presets — each with **Apply** and **Make default** — so any layout is a click away
+there rather than in a submenu. **Capture** in that window saves where your clients sit right now.
 
-The Window Layout **configuration** lives in **Settings… → Window Layout**:
+The Window layout **configuration** lives in **Settings → Window layout**:
 
-- **Default layout** — which layout the **Apply default layout** actions use. Presets *and* your own custom
+- **Default layout** — which layout **Arrange windows** uses. Presets *and* your own custom
   layouts both appear here
 - **Main character** — which character’s window is centered or brought to front
 - **Target display** — which monitor presets target when you have multiple screens
@@ -389,12 +450,12 @@ The Window Layout **configuration** lives in **Settings… → Window Layout**:
 
 | Preset | Good for |
 |--------|----------|
-| **Grid2x2** | Four clients in a 2×2 grid |
-| **Grid3x2** | Up to six clients in a 3×2 grid |
-| **CenterFocus** | Main character centered; others in corners |
-| **DiceLeft / DiceRight** | Five windows in a dice pattern on one side of the screen |
-| **Single** | One window centered |
-| **Reset** | Move all windows to the top-left of the work area |
+| **Grid 2×2** | Four clients in a 2×2 grid |
+| **Grid 3×2** | Up to six clients in a 3×2 grid |
+| **Center focus** | Main character centered; others in corners |
+| **Dice, left / Dice, right** | Five windows in a dice pattern on one side of the screen |
+| **Centered** | One window centered |
+| **Stack top-left** | Move all windows to the top-left of the work area |
 
 More clients than a preset has slots? The extras no longer land exactly on top of each other —
 they **cascade** a little further down and right on each pass, and Maps++ tells you how many.
@@ -407,9 +468,9 @@ so re-applying it always puts the same client back in the same place.
 
 Two ways to make one, and they work together:
 
-1. **Capture.** Drag your clients wherever you want them, then **Tray → Window Layout →
-   Capture Current As…** and give it a name. This is the fast path, and it is exact.
-2. **Edit.** **Tray → Window Layout → Layouts…** opens the editor (or bind **Open window layouts**): a
+1. **Capture.** Drag your clients wherever you want them, then **Capture** in **Tray → Clients →
+   Window layouts…** and give it a name. This is the fast path, and it is exact.
+2. **Edit.** **Tray → Clients → Window layouts…** opens the editor (or bind **Open Window layouts**): a
    scale drawing of your monitor with a draggable box per client. Use it to line things up
    precisely, or to design a layout for alts that aren’t even launched yet.
 
@@ -424,15 +485,16 @@ In the editor:
 | **Character** | Pin a slot to one character, or leave it as **Any client** |
 | **Focus this window after applying** | The one client that gets activated at the end |
 | **Apply** / **Save** | Try it out, or store it |
-| **Set as default** | Make the primary/secondary **Apply default layout** actions use this layout |
+| **Set as default** | Make **Arrange windows** use this layout |
 
 Drag a box to move it, or select it and use the **arrow keys** (**Shift** for bigger steps).
 **Ctrl+S** saves. Boxes are drawn at the client window size recorded when the layout was
 captured — applying a layout still never resizes anything.
 
-**Native (low memory) mode** gets the same layouts without the canvas: the tray menu opens a
-list with Capture, Apply, Rename, Delete, Set as default and Undo. Capture is the main way to
-author a layout either way; switch to **Tray → Interface → WebView2 (enhanced)** for visual editing.
+**Low-memory mode** gets the same layouts without the canvas: **Window layouts…** opens a list of
+your layouts and the built-in ones, with Capture, Apply, Rename, Delete, Set as default and Undo.
+Capture is the main way to author a layout either way; switch to **Enhanced** under
+**Settings → Appearance** for visual editing.
 
 **How clients are matched to slots when you apply:**
 
@@ -449,7 +511,7 @@ a resolution change. Each one also records the display it was authored on, and M
 same physical monitor again even if Windows renumbers your displays. If it has to rescale or fall
 back to another screen, it tells you.
 
-Made a mess? **Undo Last Apply** puts every window back where the last apply found it.
+Made a mess? **Undo arrange** puts every window back where the last arrangement found it.
 
 ### Chat (Full / Battle)
 
@@ -460,14 +522,14 @@ Made a mess? **Undo Last Apply** puts every window back where the last apply fou
 | **Ctrl+Alt+C** | Toggle **mini chat size** on all clients |
 
 Useful when multi-boxing: hide chat on alts to reduce clutter, or shrink chat globally. These only
-act while a game window is focused. **Ctrl+Shift+C** is also one of the clear-chat keys the Chat
-Mod offers — if you give it to the Chat Mod, rebind or unbind this one, or one of the two will not
-register. With Chat Mod's *Let me resize* on, the chat window's size is the mod's, so the mini-size
-toggle may not stick.
+act while a game window is focused, and are also under **Tray → Clients**. **Ctrl+Shift+C** is also
+one of the clear-chat keys the Chat mod offers — if you give it to the Chat mod, rebind or unbind
+this one, or one of the two will not register. With the Chat mod's *Let me resize* on, the chat
+window's size is the mod's, so the chat-size toggle may not stick.
 
 ### Chat mod (all variants)
 
-Configured from **Settings → Chat Mod**.
+Configured from **Settings → Chat mod**.
 
 `osmw_chat.dll` is one of the osMW client mods, installed with the client rather than by Maps++. This panel is how you configure it, when your game folder has them; when it does not, the panel says so and changes nothing. It improves the game's own chat window rather than drawing a new one:
 
@@ -482,13 +544,13 @@ Changes apply within about two seconds — there is nothing to restart. Settings
 
 Two of its settings are **system-wide hotkeys registered by the mod, not by Maps++**: *Clear chat* and *Cycle tabs*. Leave the matching entries in `[Hotkeys]` alone — binding the same chord in both places means one of them silently fails to register. Maps++ warns you if you try.
 
-Turning the **Chat mod** addon off in Settings → Addons only hides this tab in Maps++. The chat mod itself keeps running; the **Enable the chat mod in game** switch at the top of this tab is what turns it off.
+Turning **Chat mod** off in **Settings → Features** only hides this page in Maps++. The chat mod itself keeps running; the **Enable the chat mod in game** switch at the top of this tab is what turns it off.
 
 ### Inventory (Full only)
 
 | Hotkey | Action |
 |--------|--------|
-| **Alt+E** | Open inventory on the active client (clicks the inventory button) |
+| **Alt+E** | Open inventory on the active client (clicks the inventory button); also **Tray → Actions → Open inventory** |
 | **Alt+Shift+E** | Send **Alt+I** to open inventory |
 
 **Alt+E steps aside where the game does better.** In a fight, Alt+E is the game's own **Skill**
@@ -497,11 +559,11 @@ the bag on Alt+E itself, so Maps++ lets it through there too rather than opening
 closing it again. Rebind the action to another key and it works everywhere, as before. The click
 lands on the bag button even when the client mods show the game at 2× or 3×.
 
-### Character Vendor (Full only)
+### Character vendor (Full only)
 
 | Hotkey | Action |
 |--------|--------|
-| **Not bound** | Open the Character Vendor pricing panel for the active client |
+| **Not bound** | Open the Character vendor pricing panel for the active client; also **Tray → Actions → Character vendor…** |
 
 Setting up a player shop normally means typing a price for each item one at a time, into a
 client box that shows no thousands separators — so `1000000` and `100000` look almost
@@ -552,23 +614,23 @@ follow your focus to another window. Use the **Client** dropdown in the header t
 deliberately. Applying is blocked while that client is in battle, not logged in, or has the
 vendor open.
 
-**Tray → Character Vendor → Verify Slot Mapping…** dumps the raw price and item-id arrays
-next to each other. Use it after a game update to confirm the grid still lines up with your
-real inventory.
+**Verify vendor slots…** (a developer tool — Shift+right-click the tray icon) dumps the raw price and
+item-id arrays next to each other. Use it after a game update to confirm the grid still lines up
+with your real inventory.
 
-### Battle Send (Full / Battle)
+### Battle action (Full / Battle)
 
 | Hotkey | Action |
 |--------|--------|
-| **Not bound** | For every client **currently in battle** with a pending action, set battle action 9 for both character and pet |
+| **Alt+Shift+Q** | For every client **currently in battle** with a pending action, set battle action 9 for both character and pet; also **Tray → Actions → Battle action** |
 
 Use this to confirm or repeat the same battle command across all fighting characters at once.
 Nothing is typed into the clients — the action value is written straight into each one, so it
 works on every fighting client at once regardless of which window has focus.
 
-### Better Hotkeys (Full / Battle)
+### Skill hotkeys (Full / Battle)
 
-Choose **Tray → Quick Actions → Better Hotkeys…** to create character profiles and bind their
+Choose **Tray → Actions → Skill hotkeys…** to create character profiles and bind their
 battle skills. Profiles are created only when you ask, so bank characters and other mules do
 not clutter the editor. A saved profile remains editable while its character is offline.
 
@@ -580,18 +642,18 @@ not clutter the editor. A saved profile remains editable while its character is 
 The same shortcut can mean something different for each character. For example, **F1** can
 select **Stun IV** while one Human is active and **Heal Other IV** while a Centaur is active.
 It never switches clients: the character's own `main.exe` window must already be active, and
-the shortcut only acts while that client is in battle. Pressing another Better Hotkey before
+the shortcut only acts while that client is in battle. Pressing another skill hotkey before
 the turn resolves replaces the previously selected action.
 
 Player skills are supported now. Pet skill/action offsets are reserved in the addon for future
 support, but pet bindings are not shown until Maps++ can reliably identify a pet's four skills.
 
-### View Mode (Full / Lite / Battle)
+### View mode (Full / Battle)
 
 | Hotkey | Action |
 |--------|--------|
 | **Not bound** | Cycle view mode on **all** clients (0→3, wrap) |
-| **Not bound** | Toggle view mode 0/1 on **all** clients (0→1; 1/2/3→0) |
+| **Not bound** | Toggle view mode 0/1 on **all** clients (0→1; 1/2/3→0); also **Tray → Actions → Toggle view mode** |
 
 Echoes the in-game **F2** view-mode cycle across every open client without focusing each window.
 
@@ -599,41 +661,46 @@ Echoes the in-game **F2** view-mode cycle across every open client without focus
 
 | Hotkey | Action |
 |--------|--------|
-| **Not bound** | Open the auto-login roster editor |
+| **Not bound** | Open **Accounts** |
 
-This is **not** the Client Roster (live HP of running windows). The auto-login roster is the list of *accounts to log in as*.
+**Accounts** is the list of *accounts to log in as* — not the Client roster, which shows the
+clients already running.
 
-Choose **Tray → Clients & Windows → Auto-login roster…**. Add a row per character: account name, password, character (`#1`–`#5` for the slot on that account, or the numeric display ID), and an optional **group**. Up to 16 rows.
+Choose **Tray → Clients → Accounts…**. Add a row per character: account name, password, character (`#1`–`#5` for the slot on that account, or the numeric display ID), and an optional **group**. Up to 16 rows.
 
 **Duplicate** is the fast way to add the other characters on one account: select a row, click it, and you get a new row with the same account, the same group, the stored password already carried across, and the character slot advanced by one. You never retype a password you cannot read back — which is what made a typo in five identical rows so easy before.
 
-**Groups** tag the rows that launch together (`Main`, `Alts`, whatever you like). A launch profile or **Client Launch** can then run a whole group, so eleven characters split cleanly across two teams instead of depending on which client happens to finish loading first.
+**Groups** tag the rows that launch together (`Main`, `Alts`, whatever you like). A launch profile or **Tray → Launch other** can then run a whole group, so eleven characters split cleanly across two teams instead of depending on which client happens to finish loading first.
+
+**Launch this account** starts one client logged in as the selected row, and **Launch from here**
+starts a batch beginning with it, as many as Launch primary's profile starts. The dropdown beside
+them picks whose display they borrow. Both use the saved accounts, so save new rows first.
 
 Passwords are write-only. After save the field is empty and the hint says the password is stored. They are encrypted for **this Windows user** in `login_roster.dat` next to `main.exe`. Another Windows account on the same PC cannot read them, and they never appear in `config.ini`, `mapsplusplus.log`, or the roster page after save. Group names are *not* in that file — they live in Maps++'s own `config.ini`, so the roster file's format is unchanged.
 
-**Settings → Launcher → Auto-login launched clients** is what the launch shortcuts honour. On (the default) clicks through the intro on the new windows only and lets each client claim the next roster row. Off leaves the stock login — already-playing clients are not sent Enter. An empty roster (or every row disabled) also leaves the stock login. **Settings → Addons → Auto-login** only hides the roster editor and the account menus in Maps++; the launcher setting above is what turns auto-login off. Auto-login itself is a client mod (`osmw_login.dll`), so it needs the client mods installed.
+**Settings → Launching → Log launched clients in automatically** is what the launch shortcuts honour. On (the default) clicks through the intro on the new windows only and lets each client claim the next roster row. Off leaves the stock login — already-playing clients are not sent Enter. An empty roster (or every row disabled) also leaves the stock login. Turning **Auto-login** off in **Settings → Features** only hides Accounts and the group launches in Maps++; the Launching setting above is what turns auto-login off. Auto-login itself is a client mod (`osmw_login.dll`), so it needs the client mods installed.
 
-**Auto-login only ever applies to clients Maps++ itself launched.** Consent travels to the mod in an environment variable that exists only for the moment Maps++ spawns the clients, so a client you start yourself — running `main.exe` from Explorer, say — always gets the stock login screen, whatever your Maps++ settings say. That is also why **Client Mods Status** lists auto-login as idle in such a client. With **Tray → Debug → Client Mod Logging** on, the tagged `osmw_core.<pid>.log` in the game folder names which gate stopped the managed login feature, if either did.
+**Auto-login only ever applies to clients Maps++ itself launched.** Consent travels to the mod in an environment variable that exists only for the moment Maps++ spawns the clients, so a client you start yourself — running `main.exe` from Explorer, say — always gets the stock login screen, whatever your Maps++ settings say. That is also why **Client Mods Status** lists auto-login as idle in such a client. With **Tray → Help → Client mod logging** on, the tagged `osmw_core.<pid>.log` in the game folder names which gate stopped the managed login feature, if either did.
 
 Use a distinct account per window. If the client says the account is already logged in, that is a server rule — Maps++ will not work around it. For the same reason, **an account you pick explicitly is never swapped for another**: if a live client already holds it, the new window simply stays at the stock login screen — and says `requested row … unavailable` in its `osmw_login.<pid>.log`, if client mod logging is on.
 
-The osMW client mods are installed and updated separately -- Maps++ neither ships nor deploys them, and everything except the Chat Mod tab works the same on a client without them. Browse in Settings points at `main.exe` (or at a launcher, if your client needs one to load the mods); overlay attach is still `main.exe`. **Tray -> Debug -> Copy Diagnostics** says whether the mods are present in your game folder.
+The osMW client mods are installed and updated separately -- Maps++ neither ships nor deploys them, and everything except the Chat mod page works the same on a client without them. Browse in **Settings → Game & startup** points at `main.exe` (or at a launcher, if your client needs one to load the mods); overlay attach is still `main.exe`. The line under the path, and **Tray → Help → Copy diagnostics**, say whether the mods are present in your game folder.
 
 ---
 
-### Launch profiles and Client Launch (all variants)
+### Launch profiles and Launch other (all variants)
 
 A **launch profile** answers everything about one launch:
 
 | Field | Meaning |
 |-------|---------|
-| **Name** | What it is called in Settings and in the Client Launch menu |
+| **Name** | What it is called in Settings and in the tray (**Launch _name_**) |
 | **Accounts** | *Next free roster row* (the old behaviour), a **group**, a batch **starting at** one account, or exactly **one** account |
-| **Clients** | How many windows. Blank or `0` uses **Clients per launch**; a group always launches exactly as many clients as it has rows |
+| **Clients** | How many windows. A group always launches exactly as many clients as it has rows, and one account exactly one, so the field is fixed for those |
 | **Display** | Which monitor the new windows are centered on |
 | **Layout** | Layout applied after the batch (Full / Lite — needs Window Layout) |
 
-Edit them under **Settings → Launcher**, where two dropdowns say which profile **Launch (Primary)** and **Launch (Secondary)** run. A typical eleven-character setup is one profile per team:
+Edit them under **Settings → Launching**, where two dropdowns say which profile **Launch primary** and **Launch secondary** run (secondary can run **None**). A typical eleven-character setup is one profile per team:
 
 | Profile | Accounts | Display | Bound to |
 |---------|----------|---------|----------|
@@ -641,38 +708,40 @@ Edit them under **Settings → Launcher**, where two dropdowns say which profile
 | Alt team | Group: Alts (5) | 2 | Secondary — **Ctrl+Alt+K** |
 | Mule | Only: Kilo (#3) | 1 | — |
 
-Anything **not** bound to a hotkey is still one click away under **Tray → Client Launch**:
+Anything **not** bound to a hotkey is still one click away under **Tray → Launch other**:
 
 ```
-Client Launch                 ▸
-   Profile: Mule (1)
+Launch other                  ▸
+   Mule — 1 client
    ──────────────────
-   Primary                    ▸   Group: Main (5)
-                                  Group: Alts (5)
-                                  ──────────────
-                                  Start at: Alpha (1-5)
-                                  ──────────────
-                                  Only: Alpha (#1)
-   Secondary                  ▸   (the same, onto the secondary display)
+   Group: Main — 5 accounts
+   Group: Alts — 5 accounts
 ```
 
-Main team and Alt team are absent from that list on purpose — they already have their own tray item and hotkey two lines above it.
+Main team and Alt team are absent from that list on purpose — they already have their own tray
+items and hotkeys just above it. A group launched from here uses Launch primary's display.
 
-The **Primary** and **Secondary** submenus are for one-off launches: they use that target's display and layout but the accounts you pick, and change no setting. Client Launch does not appear at all when there is nothing to put in it — an empty roster and no unbound profiles, which is what a fresh install looks like.
+To launch one particular account, or a batch starting from one, use **Launch this account** and
+**Launch from here** in **Tray → Clients → Accounts…** — those change no setting. Launch other does
+not appear at all when there is nothing to put in it — no saved groups and no unbound profiles,
+which is what a fresh install looks like.
 
-### Client Roster (Full / Battle)
+### Client roster (Full / Battle)
 
 | Hotkey | Action |
 |--------|--------|
 | **Not bound** | Show / hide the client roster |
 
-A small always-on-top window listing every running client with its character, current zone and
-status (**Playing**, **In battle**, **Loading**, **Not ready**). **Double-click a row** to bring
-that client to the front.
+By default the roster is a **ring of your running clients around the cursor** — click one to bring
+it to the front. **Settings → Client roster** can open it as a list instead: a small always-on-top
+window listing every running client with its character, current zone and status (**Playing**,
+**In battle**, **Loading**, **Not ready**), where **double-clicking a row** brings that client to
+the front. The low-memory interface always uses the list.
 
-It only appears when you ask for it — choose **Clients** in Quick Actions, bind the action, or use the tray menu. If you would
-rather it opened itself whenever two or more clients are running, tick that in
-**Settings → Client Roster**; closing it by hand still keeps it closed for that session.
+It only appears when you ask for it — choose **Clients** in the Action ring, bind the action, or use
+**Tray → Clients → Client roster**. If you would rather the list opened itself whenever two or more
+clients are running, tick that in **Settings → Client roster**; closing it by hand still keeps it
+closed for that session.
 
 Use it with **Ctrl+Alt+E** (*Send Enter Until Ready*): the roster is what shows you which alt is
 still sitting at a login prompt.
@@ -692,17 +761,17 @@ out which combatant you are — two party members built identically enough to be
 Showing nothing is deliberate there: the alternative is a bar that might belong to somebody else,
 and a health bar you cannot trust is worse than no health bar.
 
-### Party Health HUD (Full, Battle)
+### Party health (Full / Battle)
 
 A strip along the bottom of the client you are playing, with one cell per character, for checking
 on your alts without switching to them.
 
 | Hotkey | Action |
 |--------|--------|
-| **Ctrl+Alt+H** | Peek at party health — shows the strip for a few seconds |
+| **Ctrl+Alt+H** | Peek at party health — shows the strip for a few seconds; also **Tray → Clients → Party health** |
 
 By default it is **not** on screen permanently. Press the key, read it, and it takes itself away
-after five seconds; press again to dismiss it sooner.
+after three seconds; press again to dismiss it sooner.
 
 **Clicking another window also dismisses it.** A peek belongs to the client you opened it on — it is
 answering a question about *that* character's fight — so switching away ends it rather than dragging
@@ -731,7 +800,7 @@ the moment you alt-tabbed to a window somewhere else on screen.
 the game underneath as though it were not there. It also never takes focus, so it can appear in the
 middle of a fight without pulling you out of the game.
 
-**Settings → Party Health HUD** changes when it appears:
+**Settings → Party health** changes when it appears:
 
 | Setting | Meaning |
 |---------|---------|
@@ -754,17 +823,17 @@ from where you are looking.
 Cells show **—** for a client with no character loaded, or in the rare case where two party members
 are built identically enough that Maps++ cannot tell which combatant you are.
 
-To turn the HUD off entirely, switch the addon off in **Settings → Addons**.
+To turn the strip off entirely, switch **Party health** off in **Settings → Features**.
 
-### Quick Actions (all variants)
+### Action ring (all variants)
 
 | Hotkey | Action |
 |--------|--------|
-| **Ctrl+Alt+A** | Open / close the Quick Actions ring |
+| **Ctrl+Alt+A** | Open / close the Action ring; also **Tray → Actions → Action ring** |
 
-The same ring as the client picker, but the spokes are shortcuts instead of characters: view
-mode, battle send, inventory, chat, window layout (primary or secondary display), POIs, the
-Character Vendor pricing panel, and settings. Press the hotkey and the ring
+The same ring as the client roster, but the spokes are shortcuts instead of characters: view
+mode, battle action, inventory, chat, window layout (primary or second display), POIs, the
+Character vendor pricing panel, and settings. Press the hotkey and the ring
 appears **at your cursor** — move onto a spoke and left-click to fire it. Right-click, **Esc**,
 a click in the gaps, or the hotkey again all dismiss it, and a click in the gaps does *not* also
 reach the game.
@@ -774,14 +843,15 @@ client" use whichever client you were last in, and Maps++ brings that window bac
 before firing. If no client is running at all you get a tray notification rather than a
 misfire.
 
-Spokes for **Minimap**, **POIs** and **Party Markers** carry a small dot showing whether that
+Spokes for **Minimap**, **POIs** and **Party markers** carry a small dot showing whether that
 layer is currently on. View mode and chat size have no dot — their state lives in the game's
 memory, and reading it on every open would make the ring feel slow.
 
-**Settings → Quick Actions** chooses which shortcuts appear and in what order (up to ten), using
-checkboxes and the ↑/↓ buttons. Only actions from addons you actually have are listed, so the
-ring is always correct for your build — the Lite variant, for instance, offers the minimap,
-layout, POI and launcher entries. The centre of the ring opens that settings page.
+**Settings → Action ring** chooses which shortcuts appear and in what order (up to ten), using
+checkboxes and the ↑/↓ buttons. Only actions from features you actually have are listed, and a
+spoke for a feature you switch off drops out, so the ring is always correct for your build — the
+Lite variant, for instance, starts with Arrange windows, POIs and Settings. The centre of the ring
+opens that settings page.
 
 ### Map POIs (Full / Lite)
 
@@ -793,8 +863,8 @@ Marks NPCs, shops, portals, quest spots and notes on the minimap.
 | **Not bound** | Show / hide the POI layer (remembered between sessions) |
 | **Not bound** | Append an NPC entry for your position to `npc_generated.txt` |
 
-Adding one works the way mapping already worked: **stand where the thing is and run Add POI at
-my position** from Quick Actions, or assign it a shortcut. The position is read from game memory, so it lands exactly where you stood — no
+Adding one works the way mapping already worked: **stand where the thing is and choose Add POI
+here** in **Tray → Minimap** or the Action ring, or assign it a shortcut. The position is read from game memory, so it lands exactly where you stood — no
 clicking on the map, no eyeballing. You give it a label and a type, and it appears on the
 minimap in that type's colour.
 
@@ -823,10 +893,11 @@ A map with more than **120** POIs draws only the first 120, and says so once whe
 each one is a control on the overlay window, and there is a point past which the overlay pays
 for markers nobody can pick out anyway.
 
-**Tray → Map POIs** has the rest: **Manage POIs…** (list, delete for the current map) and
-**Export This Map's POIs**, which writes every POI in the server repo's NPC entry format —
-the same shape the **Generate NPC entry** action produces for a single position — into `npc_generated.txt` and
-onto the clipboard:
+**Tray → Minimap** has **Show POIs**, **Add POI here** and **Manage POIs…** (list and delete for the
+current map). Contributors to the server repo have one more, among the developer tools
+(Shift+right-click the tray icon): **Export this map's POIs (server format)** writes every POI in
+the server repo's NPC entry format — the same shape the **Write an NPC entry for here** action
+produces for a single position — into `npc_generated.txt` and onto the clipboard:
 
 ```ts
 	{
@@ -842,10 +913,11 @@ onto the clipboard:
 #### Sharing POIs with other players
 
 That export is for the **server repo**. To share with another *player*, use
-**Export POI Pack…** — it writes every POI you have, across every map, as an ordinary
-`pois.ini`-shaped file you can send to someone.
+**Export POI pack…** under **Settings → Map POIs** — it writes every POI you have, across every
+map, as an ordinary `pois.ini`-shaped file you can send to someone. The sharing buttons act at
+once; they do not wait for Save.
 
-**Import POI Pack…** reads one back. It **merges**: your own POIs are never removed, and
+**Import POI pack…** reads one back. It **merges**: your own POIs are never removed, and
 anything already present — same map, same spot, same name — is left alone rather than
 duplicated, so importing the same pack twice does nothing the second time. Two different NPCs
 standing on the same spot are still treated as two POIs, since the name is part of the match.
@@ -856,15 +928,15 @@ silently dropped.
 
 #### Putting POIs on the game's own minimap
 
-The client mods give the game's minimap a marker layer of its own. **Map POIs → Export to Game
-Markers…** copies every POI you have, across every map, onto it, so they show without the Maps++
+The client mods give the game's minimap a marker layer of its own. **Settings → Map POIs →
+Export to game markers…** copies every POI you have, across every map, onto it, so they show without the Maps++
 overlay open. They go into `map-markers.tsv` in the game folder, which every client there shares,
 and running clients pick them up within a couple of seconds.
 
 - **Your in-game markers are safe.** Maps++ only ever replaces markers it exported itself.
   Export again after changing your POIs and its markers are updated, and markers for POIs you
   deleted are taken out. Anything you placed in the game is left exactly as it was.
-- **Remove Exported Game Markers…** takes all of Maps++'s markers back out. Maps++ remembers
+- **Remove exported game markers…** takes all of Maps++'s markers back out. Maps++ remembers
   which markers are its own in `map_markers_export.ini`, next to its other files.
 - An export is a snapshot. Adding a POI in Maps++ doesn't change the game's markers until you
   export again. If you edit or delete one of Maps++'s markers in the game, the next export puts it
@@ -877,11 +949,11 @@ and running clients pick them up within a couple of seconds.
 - It needs the client mods installed in your game folder. Without them there is no marker layer,
   and Maps++ says so instead of writing anything.
 
-### Party Markers (Full / Battle)
+### Party markers (Full / Battle)
 
 | Hotkey | Action |
 |--------|--------|
-| **Not bound** | Show / hide the party marker layer (remembered between sessions) |
+| **Not bound** | Show / hide the party marker layer (remembered between sessions); also **Tray → Minimap → Party markers** |
 
 Every *other* client running on the same map as you appears
 as a coloured dot, labelled with the character name, alongside your own standard marker. Alts
@@ -893,8 +965,16 @@ is which. An alt zoning out or dropping into a battle does not renumber the othe
 is only released once that client closes.
 
 Name labels are shown while you play and **hide while the mouse is over the minimap**, so the
-map underneath stays readable when you look at it directly. **Settings → Party Markers → Show
+map underneath stays readable when you look at it directly. **Settings → Party markers → Show
 names** switches this to *Always* or *Never*.
+
+### Discord (Full only)
+
+Shows the map you are on as your Discord status ("Rich Presence"), for friends who want to know
+where to find you, with your character's name underneath (or *In battle* during a fight). It is
+**off** until you turn on **Settings → Discord → Enable Rich Presence**, and it needs the Discord
+desktop app running on the same PC: Maps++ talks to that app on your own machine, and sends nothing
+over the network itself.
 
 ---
 
@@ -912,7 +992,7 @@ GamePath=C:\Path\To\Your\main.exe
 GameArgs=
 LaunchOnStartup=0
 LaunchAutoLogin=1
-MultiClientCount=5
+MultiClientCount=1
 MultiClientDelay=0
 PrimaryMonitor=0
 SecondaryMonitor=0
@@ -927,13 +1007,13 @@ SecondaryProfile=2
 
 [LaunchProfile.1]
 Accounts=group:Main
-Count=0
+Count=5
 Monitor=1
 Layout=__default__
 
 [LaunchProfile.2]
 Accounts=group:Alts
-Count=0
+Count=5
 Monitor=2
 Layout=__default__
 
@@ -973,7 +1053,7 @@ IconBase=0
 
 [PartyHealth]
 Mode=peek
-PeekSeconds=5
+PeekSeconds=3
 ShowPets=1
 
 [QuickActions]
@@ -1001,9 +1081,9 @@ ChatMod=1
 | `GameArgs` | Extra command-line arguments passed when launching the game |
 | `LaunchOnStartup` | `1` = launch a game client when Maps++ starts |
 | `LaunchAutoLogin` | `1` = launch shortcuts skip the intro and log in from the roster; `0` = stock login |
-| `MultiClientCount` | Default client count, used by any profile whose own `Count` is `0` |
+| `MultiClientCount` | Client count for a profile saved before profiles carried their own (`Count=0`). New profiles always store a count; installs from before this version keep the `5` they had |
 | `MultiClientDelay` | Milliseconds between each client in a launch batch |
-| `PrimaryProfile` / `SecondaryProfile` | Which `[LaunchProfile.<id>]` **Ctrl+Alt+L** / **Ctrl+Alt+K** runs |
+| `PrimaryProfile` / `SecondaryProfile` | Which `[LaunchProfile.<id>]` **Ctrl+Alt+L** / **Ctrl+Alt+K** runs. `SecondaryProfile=none` = Launch secondary runs nothing and is left out of the tray |
 | `PrimaryMonitor` / `SecondaryMonitor` | Mirror of the bound profiles' `Monitor`, kept for the startup single-client launch. `0` = OS primary (or first non-primary for secondary) |
 | `PrimaryLaunchLayout` / `SecondaryLaunchLayout` | Mirror of the bound profiles' `Layout` |
 
@@ -1015,14 +1095,14 @@ from your existing `Primary*` / `Secondary*` keys, so nothing about your launche
 | Profile key | Meaning |
 |-------------|---------|
 | `Accounts` | Blank = next free enabled roster row. `group:<name>` = every row in that group. `start:<rowId>` = `Count` rows from that one onward. `only:<rowId>` = exactly that row |
-| `Count` | Clients to launch. `0` = use `MultiClientCount`; a `group:` always launches its own row count |
+| `Count` | Clients to launch. `0` (older profiles only) = use `MultiClientCount`; a `group:` always launches its own row count |
 | `Monitor` | `0` = the target's default display; `1`, `2`, … = a specific one |
 | `Layout` | Blank = center only, `__default__` = follow `DefaultLayout`, or a preset/custom layout name |
 
 `[AutoLoginGroups]` maps a roster row id to its group name. It lives here rather than in
 `login_roster.dat` because the auto-login mod has no use for group names, and changing that file's
 format would stop an older already-deployed `osmw_login.dll` from reading it at all.
-| `Source` | What **Tab** opens: `game` (the game's own minimap where it has one, Maps++ elsewhere — the default), `mapspp` (Maps++ wherever it has a map) or `off` (Tab always reaches the game). Set from **Settings → Minimap → Tab key** or **Tray → Map & Overlay → Tab Minimap** |
+| `Source` | What **Tab** opens: `game` (the game's own minimap where it has one, Maps++ elsewhere — the default), `mapspp` (Maps++ wherever it has a map) or `off` (Tab always reaches the game). Set from **Settings → Minimap → Tab key** or the setup guide |
 | `SourceNoticeShown` | `1` once the one-time "Tab now opens the game's own minimap" notice has appeared. Clear it to see it again |
 | `Scale` | Minimap size, 50–200 % of the standard 400×300 |
 | `FollowGameScale` | `1` (the default) = multiply `Scale` by the game's own display scale when the client mods show it at 2× or 3×; `0` = always exactly `Scale` |
@@ -1034,12 +1114,12 @@ format would stop an older already-deployed `osmw_login.dll` from reading it at 
 | `LabelMode` | When marker labels are drawn: `autohide` (shown, except while the mouse is over the minimap), `always`, or `never`. Applies to both POI labels and party marker names |
 | `LayerVisible` | `0` = that layer stays hidden. Set by the POI/party **Show/hide layer** actions, so a layer you switch off stays off next session |
 | `DefaultKind` | Type pre-selected when adding a POI: `npc`, `shop`, `portal`, `quest`, `note` |
-| `Actions` | Quick Actions ring contents: hotkey action ids, comma-separated, in ring order (first at 12 o'clock, then clockwise). Ids for addons this build doesn't have are ignored, so one file works across variants. Set from **Settings → Quick Actions** |
-| `Prewarm` | `1` = load the Quick Actions ring at startup so the first press is instant; `0` = build it on first use, saving memory |
+| `Actions` | Action ring contents: hotkey action ids, comma-separated, in ring order (first at 12 o'clock, then clockwise). Ids for features this build doesn't have, or that are switched off, are ignored, so one file works across variants. Set from **Settings → Action ring** |
+| `Prewarm` | `1` = load the Action ring at startup so the first press is instant; `0` = build it on first use, saving memory |
 | `Mode` | When the party health HUD appears: `peek` (only while its hotkey holds it up), `combat` (while a client is fighting, listing just those clients), or `always` |
 | `PeekSeconds` | How long a peek lasts, 1–60 |
 | `ShowPets` | `1` = include a pet health bar in each cell during a fight |
-| `DefaultLayout` | Layout used by the primary/secondary **Apply default layout** actions — a preset name, or the name of one of your custom layouts |
+| `DefaultLayout` | Layout **Arrange windows** uses — a preset key (`Grid2x2`, `Grid3x2`, `CenterFocus`, `DiceLeft`, `DiceRight`, `Single`, `Reset`), or the name of one of your custom layouts |
 | `MainCharacter` | Character name for center-focus layouts |
 | `TargetMonitor` | `0` = primary; `1`, `2`, … = specific display |
 | `MainCharacterAsked` | `1` once the first-run "which is your main character?" prompt has been shown. Set whether you answered or dismissed it, so it is only ever asked once — clear it to be asked again |
@@ -1047,18 +1127,20 @@ format would stop an older already-deployed `osmw_login.dll` from reading it at 
 | `ConfirmHigh` | `1` = ask for confirmation before applying a large vendor price. Off by default; the panel already colours prices by magnitude and never opens your vendor for you |
 | `WarnAbove` | The price at which that confirmation kicks in, once `ConfirmHigh` is on |
 | `PresetClears` | `1` = loading a shop preset also clears prices on slots the preset doesn’t mention. Off by default, so presets only add |
-| `IconBase` | Whether the client’s item id is `0`- or `1`-based, which decides how thumbnails are matched. Set it from **Settings → Character Vendor** after comparing one known item |
+| `IconBase` | Whether the client’s item id is `0`- or `1`-based, which decides how thumbnails are matched. Set it from **Settings → Character vendor** after comparing one known item |
 | `ItemIdOffset` | Override for the inventory item-id address, e.g. `0x2E2028`. Only needed if a game update moves it; blank uses the built-in value (or whatever signature calibration resolves), `0` turns thumbnails off. When set, it wins over signature calibration — which is the point, since the case it exists for is calibration landing on the wrong address |
 | `[Hotkeys]` | One entry per rebindable action, in AutoHotkey chord syntax (`^`=Ctrl, `!`=Alt, `+`=Shift). A blank value means **Not bound**; rebind or unbind from **Settings → Hotkeys** |
-| `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
+| `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Features**) |
+| `[UI] DeveloperTools` | `1` = always show the tray's **Developer** group; `0` (the default) = only on Shift+right-click |
+| `[Setup] Completed` | How this install met the setup guide: `1` finished, `skipped`, or `upgrade` (an install from before the guide, never shown it). Delete it to see the guide at the next start; **Help → Setup guide…** runs it any time |
 | `[ClientMods] CoreRefusedNoticeShown` | `1` once the "client mods did not load" message has appeared; Maps++ sets it back to `0` when it next sees a client with the mods loaded. Clear it to see the message again |
-| `[Debug] ModLogging` | Not in this file. `1` = the client mods write their own per-client `osmw_*.<pid>.log` files into the game folder; `0` (the default) = they write nothing. Like `[Chat]` below, this key belongs to the mods and lives in their own **`osmw.ini` next to `main.exe`**. Toggle it from **Tray → Debug → Client Mod Logging** |
+| `[Debug] ModLogging` | Not in this file. `1` = the client mods write their own per-client `osmw_*.<pid>.log` files into the game folder; `0` (the default) = they write nothing. Like `[Chat]` below, this key belongs to the mods and lives in their own **`osmw.ini` next to `main.exe`**. Toggle it from **Tray → Help → Client mod logging** |
 
-After editing `config.ini`, use **Reload** from the tray menu or **Ctrl+Alt+R**.
+After editing `config.ini`, restart Maps++ — **Ctrl+Alt+R** reloads it.
 
 ### Chat mod settings (`[Chat]`)
 
-These belong to `osmw_chat.dll`, not to Maps++, and live in the client mods' own **`osmw.ini` next to `main.exe`** — never in Maps++'s `config.ini`, even when the two files sit side by side. Set them from **Settings → Chat Mod** or the in-game **F12** panel; the mod re-reads the file about every two seconds and applies changes live, so there is nothing to reload or restart. Maps++ writes only the keys you change, one at a time, and never on its own.
+These belong to `osmw_chat.dll`, not to Maps++, and live in the client mods' own **`osmw.ini` next to `main.exe`** — never in Maps++'s `config.ini`, even when the two files sit side by side. Set them from **Settings → Chat mod** or the in-game **F12** panel; the mod re-reads the file about every two seconds and applies changes live, so there is nothing to reload or restart. Maps++ writes only the keys you change, one at a time, and never on its own.
 
 | Setting | Meaning |
 |---------|---------|
@@ -1089,9 +1171,9 @@ These belong to `osmw_chat.dll`, not to Maps++, and live in the client mods' own
 
 `WinX`/`WinY` are the older absolute position pair. The mod still reads them, converts them to a `WinRelX`/`WinRelY` offset the first time it restores the window, and then removes them — so upgrading keeps your chat window where it was, and nothing needs redoing by hand.
 
-### Better Hotkeys profiles (`better_hotkeys.ini`)
+### Skill hotkey profiles (`better_hotkeys.ini`)
 
-The Better Hotkeys editor owns this file and stores it beside `config.ini` (or in the same
+The Skill hotkeys editor owns this file and stores it beside `config.ini` (or in the same
 writable AppData fallback). Profiles use numbered sections so character names never need to
 be used as INI keys:
 
@@ -1116,15 +1198,15 @@ Binding2Skill=11
 uses AutoHotkey syntax. Edit through the visual editor where possible so class restrictions and
 conflicts with Maps++ shortcuts are checked before saving.
 
-### Auto-login roster (`login_roster.dat`)
+### Accounts (`login_roster.dat`)
 
-Owned by the Auto-login editor, stored **next to `main.exe`** (not beside Maps++ and not in AppData). Binary, DPAPI-bound to the current Windows user — do not copy this file between machines or Windows accounts. Edit it from **Tray → Clients & Windows → Auto-login roster…**. Passwords are never written to `config.ini`. Whether launch shortcuts use the roster is **Settings → Launcher → Auto-login launched clients** (`LaunchAutoLogin` in Maps++ `config.ini`), not this file.
+Owned by the Auto-login editor, stored **next to `main.exe`** (not beside Maps++ and not in AppData). Binary, DPAPI-bound to the current Windows user — do not copy this file between machines or Windows accounts. Edit it from **Tray → Clients → Accounts…**. Passwords are never written to `config.ini`. Whether launch shortcuts use it is **Settings → Launching → Log launched clients in automatically** (`LaunchAutoLogin` in Maps++ `config.ini`), not this file.
 
 Row **groups** are the one part of a row that is *not* here — they are in Maps++'s `config.ini` under `[AutoLoginGroups]`, keyed by row id. Copying the roster to another Windows account would not work anyway (DPAPI), and keeping this file's format fixed means an older `osmw_login.dll` already deployed in a game folder can still read it.
 
 ### Shop presets (`shop_presets.ini`)
 
-Character Vendor presets live beside `config.ini` in the same way. The editor writes this for
+Character vendor presets live beside `config.ini` in the same way. The editor writes this for
 you, but the format is plain text:
 
 ```ini
@@ -1182,16 +1264,18 @@ A malformed `Slot` line is skipped rather than breaking the layout.
 
 A typical setup with the **Full** variant:
 
-1. Start **Maps++** (tray icon appears).
-2. **Ctrl+Alt+L** — launch main character on primary monitor.
-3. **Ctrl+Alt+K** — launch alts on secondary monitor (if you have two displays).
-4. **Settings → Window Layout → Main character** — choose your main.
-5. Choose **Layout** in Quick Actions to snap everyone into your default grid. Once you have your windows exactly
-   where you like them, **Tray → Window Layout → Capture Current As…** saves that arrangement,
-   and **Set as default** makes the Layout action restore it every session.
-6. In game on a supported map, press **Tab** on your main window for the custom minimap.
-7. Choose **Chat (others)** in Quick Actions to hide chat on alts during farming.
-8. In battle, choose **Battle send** to send commands to all fighting clients.
+1. Start **Maps++** (tray icon appears). The first time, the setup guide asks how you play —
+   choose **Several characters at once** and set your client count, displays and accounts there.
+2. **Ctrl+Alt+L** — Launch primary starts your main team.
+3. **Ctrl+Alt+K** — Launch secondary starts your second team on the other display (if you set one up).
+4. **Settings → Window layout → Main character** — choose your main.
+5. Choose **Layout** in the Action ring (or **Tray → Clients → Arrange windows**) to snap everyone
+   into your default grid. Once you have your windows exactly where you like them, **Capture** in
+   **Tray → Clients → Window layouts…** saves that arrangement, and **Set as default** makes
+   Arrange windows restore it every session.
+6. In game on a supported map, press **Tab** on your main window for the minimap.
+7. Choose **Chat (others)** in the Action ring to hide chat on alts during farming.
+8. In battle, choose **Battle action** to confirm the same action on every fighting client.
 
 ---
 
@@ -1201,9 +1285,9 @@ A typical setup with the **Full** variant:
 
 - **Tab may be opening the game's own minimap instead.** On a map where the game has a minimap,
   Tab goes to the game by default. Use **Open Maps++ minimap** (bind it under Settings → Hotkeys,
-  or Tray → Map & Overlay), or set **Settings → Minimap → Tab key** to *Maps++ wherever it has a
-  map*. **Tray → Debug → Debug State** shows the *Tab source* line, saying where Tab goes right now
-  and why.
+  or Tray → Minimap), or set **Settings → Minimap → Tab key** to *Maps++ wherever it has a
+  map*. **Debug state** (**Ctrl+Alt+D**) shows the *Tab source* line, saying where Tab goes right
+  now and why.
 - Make sure the **game window is focused** (click it first).
 - Confirm you are **not in battle** and not on a loading screen.
 - Check that your current zone has a map file in `maps\` (supported maps ship with the release).
@@ -1222,9 +1306,11 @@ them. **Copy Diagnostics** shows each running client's state under *Minimap → 
 - Maps are calibrated per zone. If a map was recently added or updated, report it to the Maps++ / osMW community.
 - Ensure `marker.png` is present and Maps++ was not blocked by antivirus from reading game memory.
 
-### “Game path not configured”
+### Maps++ asks where the game is when I launch
 
-Open **Settings → Launcher → Browse…** (**Ctrl+Alt+,**) and select your osMW `main.exe`.
+It does not know where `main.exe` is yet (the setup guide was skipped, or the game moved). Choose
+**Choose main.exe…** in that message, or set it under **Settings → Game & startup → Browse…**
+(**Ctrl+Alt+,**). It is remembered from then on.
 
 ### “Map folder missing” notification
 
@@ -1233,25 +1319,25 @@ The `maps\` folder must sit next to `mapsplusplus.exe`. Re-extract the full rele
 ### Hotkeys do nothing
 
 - Another program may be using the same shortcuts.
-- Check **Settings → Addons** — the feature may be disabled.
-- Check **Settings → Hotkeys** — the shortcut may have been rebound.
-- Reload Maps++ after config changes.
+- Check **Settings → Features** — the feature may be switched off.
+- Check **Settings → Hotkeys** — the shortcut may have been rebound or unbound.
+- Restart Maps++ after editing `config.ini` by hand.
 
 ### Only one monitor / secondary launch centers on primary
 
-With a single display, **Ctrl+Alt+K** still launches a client but centers it on the only monitor available.
+With a single display, **Ctrl+Alt+K** still launches a client but centers it on the only monitor available. If **Ctrl+Alt+K** only says *Launch secondary isn't set up*, choose a profile for it under **Settings → Launching**.
 
 ### More than two monitors / wrong displays used
 
-By default **Ctrl+Alt+L** uses your OS primary display and **Ctrl+Alt+K** uses the first non-primary one. If you have three or more screens and want different ones, set `PrimaryMonitor` and `SecondaryMonitor` in `config.ini` to the 1-based display index you want (e.g. `SecondaryMonitor=3`), then **Reload**. An index that isn't currently connected falls back to the default behaviour.
+By default **Ctrl+Alt+L** uses your OS primary display and **Ctrl+Alt+K** uses the first non-primary one. If you have three or more screens and want different ones, pick the **Display** of each launch profile under **Settings → Launching**. A display that isn't currently connected falls back to the default behaviour.
 
 ---
 
 ## Tips
 
 - The minimap closes if you **Alt+Tab** to another application, so it stays out of the way when you are not playing (**Settings → Minimap** can keep it open instead).
-- You can **disable addons** you do not use from **Settings → Addons** to avoid accidental hotkey triggers.
-- **Lite** is ideal if you only want the minimap and window layout without combat or inventory shortcuts.
+- You can **switch off features** you do not use from **Settings → Features**: their menu items and hotkeys go with them.
+- **Lite** is ideal if you only want the minimap, launching and window layout without combat or inventory shortcuts.
 - **Battle** is a smaller build focused on combat multi-boxing and chat control.
 
 ---

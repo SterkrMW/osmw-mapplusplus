@@ -71,7 +71,9 @@ RegisterAddonOffset("BetterHotkeysPetSkill", 0x3029D0)
 
 RegisterAddon(Map(
     "name", "BetterHotkeys",
-    "settingsLabel", "Better Hotkeys",
+    "settingsLabel", "Skill hotkeys",
+    "settingsGroup", "tools",
+    "description",   "Per-character keys that cast a chosen skill in battle.",
     "OnInit", _BH_OnInit,
     "OnBeforeApplyHotkeys", _BH_OnBeforeApplyHotkeys,
     "OnTrayMenu", _BH_OnTrayMenu,
@@ -90,7 +92,8 @@ _BH_OnBeforeApplyHotkeys() {
 }
 
 _BH_OnTrayMenu(trayGroups) {
-    trayGroups["quickActions"].Add("Better Hotkeys…", (*) => _BH_OpenEditor())
+    trayGroups["actions"].Add("Skill hotkeys…", (*) => _BH_OpenEditor(),
+        Map("section", "tools", "order", 20))
 }
 
 _BH_Path() {

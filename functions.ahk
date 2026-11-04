@@ -1119,11 +1119,11 @@ MeasureControlText(ctrl, text) {
 
 ; Adds a marker label control to the overlay Gui: opaque background, bold
 ; high-contrast text, unthemed (themed statics ignore background colours).
-AddMarkerLabelControl(gui) {
+AddMarkerLabelControl(hostGui) {
     global MARKER_LABEL_TEXT_COLOR
-    gui.SetFont("s8 Bold")
-    ctrl := gui.AddText("x0 y0 w10 h10 Hidden Center Background000000 c" MARKER_LABEL_TEXT_COLOR, "")
-    gui.SetFont()
+    hostGui.SetFont("s8 Bold")
+    ctrl := hostGui.AddText("x0 y0 w10 h10 Hidden Center Background000000 c" MARKER_LABEL_TEXT_COLOR, "")
+    hostGui.SetFont()
     DllCall("uxtheme\SetWindowTheme", "Ptr", ctrl.Hwnd, "WStr", "", "WStr", "")
     return ctrl
 }
@@ -1608,12 +1608,12 @@ EnsureMarkerControl() {
 ; ── Launcher ─────────────────────────────────────────────────────
 
 ; Resolves the game executable path.
-; Priority: A_ScriptDir\main.exe → config.ini GamePath → file picker prompt.
+; Priority: A_ScriptDir\main.exe → config.ini GamePath. None is not an error.
 LoadLauncherConfig() {
     global gGamePath, gGameArgs, gLaunchOnStartup, gLaunchAutoLogin, gMultiClientCount, gMultiClientDelay, CONFIG_INI, PROCESS_EXE
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout, LAUNCH_LAYOUT_DEFAULT
-    global gInterfaceMode, gAccentScheme, gVersionCheckEnabled
+    global gInterfaceMode, gAccentScheme, gVersionCheckEnabled, gDeveloperTools
 
     ; 1. Check for main.exe next to the script (same directory install).
     localExe := A_ScriptDir "\" PROCESS_EXE
@@ -1638,7 +1638,7 @@ LoadLauncherConfig() {
         gLaunchOnStartup := (startupVal = "1")
     }
     gLaunchAutoLogin := (Trim(ConfigRead("Launcher", "LaunchAutoLogin", "1")) != "0")
-    cnt := Trim(ConfigRead("Launcher", "MultiClientCount", "5"))
+    cnt := Trim(ConfigRead("Launcher", "MultiClientCount", "1"))
     if (IsInteger(cnt) && Integer(cnt) >= 1)
         gMultiClientCount := Integer(cnt)
     dly := Trim(ConfigRead("Launcher", "MultiClientDelay", "0"))
@@ -1664,12 +1664,14 @@ LoadLauncherConfig() {
 
     uiMode := StrLower(Trim(ConfigRead("UI", "Mode", "webview")))
     gInterfaceMode := (uiMode = "native") ? "native" : "webview"
+    gDeveloperTools := (Trim(ConfigRead("UI", "DeveloperTools", "0")) = "1")
     SetAccentScheme(ConfigRead("UI", "AccentScheme", "amber"), false)
 
-    ; 4. Still no path — ask the user to locate it.
-    if (gGamePath = "") {
-        PromptForGamePath()
-    }
+    ; 4. Still no path: nothing is asked here any more. A blocking file picker
+    ; before the app had even started was a new user's first sight of Maps++,
+    ; and it came back on every start until answered. The setup guide asks on
+    ; a fresh install, and a launch without a path offers the picker then
+    ; (EnsureGamePathForLaunch).
 }
 
 NormalizeAccentScheme(value) {
@@ -1822,19 +1824,45 @@ InterfaceModeLabel() {
 
 ; Changing frontend affects startup message handlers and prewarmed windows, so
 ; apply it with a reload rather than trying to replace live controllers.
-SetInterfaceMode(mode, *) {
+;
+; restartNow := false records the choice and returns whether a reload is
+; needed, for a caller that has more to write first (the setup guide) and
+; reloads itself. (Not named `reload`: AHK names are case-insensitive, so a
+; parameter by that name turns the Reload() calls below into "Integer has no
+; method named Call".)
+SetInterfaceMode(mode, restartNow := true, *) {
     global gInterfaceMode, gWebViewRuntimeState, CONFIG_INI
     mode := (StrLower(mode) = "native") ? "native" : "webview"
     if (mode = gInterfaceMode) {
         ; Re-choosing enhanced while the runtime is missing is how a user who
         ; has just installed it asks to try again; the probe runs on reload.
-        if (mode = "webview" && gWebViewRuntimeState != "ok")
+        retry := (mode = "webview" && gWebViewRuntimeState != "ok")
+        if (retry && restartNow)
             Reload()
-        return
+        return retry
     }
     IniWrite(mode, CONFIG_INI, "UI", "Mode")
     gInterfaceMode := mode
-    Reload()
+    if restartNow
+        Reload()
+    return true
+}
+
+; A launch with no usable game path used to end in a TrayTip naming a Settings
+; path; nothing asks for the path at startup any more (the setup guide does, and
+; can be skipped), so ask here — and let the launch carry on if one is picked.
+; Every caller is a hotkey, tray item, timer or deferred page action, never a
+; WebView2 message handler, so the dialog is safe.
+EnsureGamePathForLaunch() {
+    global gGamePath
+    problem := (gGamePath = "")
+        ? "Maps++ doesn't know where the game is yet."
+        : "The game path no longer points at a file:`n" gGamePath
+    if !ConfirmAction(problem "`n`nChoose main.exe now? It is saved for next time.",
+        "Launch", Map("severity", "ask", "okLabel", "Choose main.exe…", "cancelLabel", "Not now"))
+        return false
+    PromptForGamePath()
+    return (gGamePath != "" && FileExist(gGamePath)) ? true : false
 }
 
 ; Opens a file-picker dialog for the user to locate the game executable.
@@ -1896,6 +1924,8 @@ SetRunOnStartup(enabled) {
 ; Persists the game executable path into config.ini.
 SaveGamePathToConfig(path) {
     global CONFIG_INI
+    ; Often the first write a fresh install makes, and a path is user text.
+    EnsureIniUtf16(CONFIG_INI)
     IniWrite(path, CONFIG_INI, "Launcher", "GamePath")
 }
 
@@ -2103,12 +2133,8 @@ BuildGameLaunchCommand(&workDir) {
 LaunchGameInstance(monitorWhich := "primary") {
     global gGamePath
 
-    if (gGamePath = "" || !FileExist(gGamePath)) {
-        settingsShortcut := GetHotkeyDisplay("openSettings")
-        settingsHint := (settingsShortcut != "") ? "Settings (" settingsShortcut ")" : "Settings from the tray menu"
-        TrayTip("Game path not configured or file missing.`nOpen " settingsHint " → Launcher → Browse…", "Maps++", "Iconx")
+    if ((gGamePath = "" || !FileExist(gGamePath)) && !EnsureGamePathForLaunch())
         return
-    }
 
     before := GetTopLevelGameWindows()
     workDir := ""
@@ -2142,7 +2168,7 @@ LaunchGameInstance(monitorWhich := "primary") {
     CenterWindowOnMonitor(hwnd, monIdx)
     if WaitForGameWindowsSettled([hwnd])
         RecentreLaunchedWindow(hwnd, monIdx)
-    TrayTip("Game instance launched.", "Maps++", "Iconi")
+    TrayTip("Client launched.", "Maps++", "Iconi")
     MaybeSendEnterAfterLaunch([hwnd])
 }
 
@@ -2304,6 +2330,11 @@ LoadLaunchProfiles() {
 
     gPrimaryProfileId := Trim(ConfigRead("Launcher", "PrimaryProfile", ""))
     gSecondaryProfileId := Trim(ConfigRead("Launcher", "SecondaryProfile", ""))
+    ; "none" is a choice — Launch secondary runs nothing, and the tray hides
+    ; it — and must not be mistaken for a missing key, which falls back below.
+    secondaryUnbound := (gSecondaryProfileId = "none")
+    if secondaryUnbound
+        gSecondaryProfileId := ""
 
     ; Nothing stored yet: this is the first run after the upgrade. Seed two
     ; profiles from the Primary/Secondary keys already in config.ini, so the
@@ -2321,7 +2352,7 @@ LoadLaunchProfiles() {
     ids := LaunchProfileIds()
     if (!gLaunchProfiles.Has(gPrimaryProfileId) && ids.Length)
         gPrimaryProfileId := ids[1]
-    if (!gLaunchProfiles.Has(gSecondaryProfileId) && ids.Length)
+    if (!secondaryUnbound && !gLaunchProfiles.Has(gSecondaryProfileId) && ids.Length)
         gSecondaryProfileId := ids[ids.Length >= 2 ? 2 : 1]
     SyncLaunchGlobalsFromProfiles()
 }
@@ -2349,7 +2380,7 @@ SaveLaunchProfiles() {
         IniWrite(prof["layout"], CONFIG_INI, sect, "Layout")
     }
     IniWrite(gPrimaryProfileId, CONFIG_INI, "Launcher", "PrimaryProfile")
-    IniWrite(gSecondaryProfileId, CONFIG_INI, "Launcher", "SecondaryProfile")
+    IniWrite((gSecondaryProfileId = "") ? "none" : gSecondaryProfileId, CONFIG_INI, "Launcher", "SecondaryProfile")
     SyncLaunchGlobalsFromProfiles()
 }
 
@@ -2409,6 +2440,15 @@ ResolveAccountPlan(accountsSpec, count) {
 ; count defaults to the bound profile's count and is exposed for internal
 ; one-off callers; plan, when given, pins one roster row per client.
 LaunchConfiguredClients(monitorWhich := "primary", count := 0, plan := "") {
+    global gSecondaryProfileId
+    ; Secondary set to run nothing. A pinned plan (an account launched from the
+    ; Accounts editor "with Launch secondary's display") still goes ahead: it
+    ; only borrows the display.
+    if (monitorWhich = "secondary" && gSecondaryProfileId = "" && !(IsObject(plan) && plan.Length)) {
+        TrayTip("Launch secondary isn't set up. Choose a profile for it under"
+            . " Settings → Launching.", "Maps++", "Iconi")
+        return
+    }
     return LaunchWithProfile(ResolveLaunchProfile(monitorWhich), monitorWhich, count, plan)
 }
 
@@ -2430,12 +2470,8 @@ LaunchWithProfile(profile, monitorWhich := "primary", count := 0, plan := "") {
     if (IsObject(plan) && plan.Length)
         count := plan.Length
 
-    if (gGamePath = "" || !FileExist(gGamePath)) {
-        settingsShortcut := GetHotkeyDisplay("openSettings")
-        settingsHint := (settingsShortcut != "") ? "Settings (" settingsShortcut ")" : "Settings from the tray menu"
-        TrayTip("Game path not configured or file missing.`nOpen " settingsHint " → Launcher → Browse…", "Maps++", "Iconx")
+    if ((gGamePath = "" || !FileExist(gGamePath)) && !EnsureGamePathForLaunch())
         return
-    }
 
     workDir := ""
     launchCmd := BuildGameLaunchCommand(&workDir)
@@ -3697,6 +3733,9 @@ BuildDiagnosticsReport() {
         . "Interface : " InterfaceModeLabel() "`n"
         . "Script dir: " A_ScriptDir "`n"
         . "Log       : " LogPath() "`n"
+        ; How this install met the setup guide: 1 finished, skipped, upgrade
+        ; (an existing install, never shown it), or blank (not answered yet).
+        . "Setup     : " _Setup_DiagnosticsLabel() "`n"
     ; The native mods are a separate product, updated on their own schedule.
     ; Maps++ neither ships nor versions them, so all it can honestly report is
     ; whether this game folder has them -- which still answers "why is the chat
@@ -3709,9 +3748,9 @@ BuildDiagnosticsReport() {
     ; round trip that would otherwise ask for logs that were never written.
     out .= "Mod logs  : " (ModLoggingEnabled()
         ? "on — osmw_core.<pid>.log and friends in the game folder"
-        : "off (Tray → Debug → Client Mod Logging, then relaunch the clients)") "`n"
+        : "off (Tray → Help → Client mod logging, then relaunch the clients)") "`n"
 
-    ; The core's own startup report — the same table Tray → Debug → Client Mods
+    ; The core's own startup report — the same table Tray → Help → Client mods
     ; Status shows, so the dialog and the report cannot disagree.
     modStatus := NativeModsReadStatus()
     out .= "`nClient mod status`n-----------------`n"
@@ -3860,7 +3899,7 @@ _DoVersionCheck() {
     SetTimer(RebuildTrayMenu, -1)
     TrayTip("Maps++ " res.version " is available — you have " APP_VERSION "."
         . (res.notes != "" ? "`n" res.notes : "")
-        . "`nSettings → Launcher → Check now, or the tray menu",
+        . "`nGet it from the tray menu, or Settings → Game & startup → Check now.",
         "Update available", "Iconi")
 }
 
@@ -4082,10 +4121,19 @@ _VersionNoBuild(v) {
 ; moment the file was created.
 ;
 ; Call this before the first mutation in any save path. It is a no-op once the
-; file exists, so it costs one FileExist on the paths that were already fine.
+; file has content, so it costs one FileExist on the paths that were already fine.
+;
+; An empty file counts as absent. IsPathWritable probes with FileOpen(path, "a"),
+; which creates a missing file with zero bytes, so ResolveWritableIniPath leaves
+; a fresh install's config.ini already on disk — and an empty file is read as
+; ANSI by the profile API exactly like one IniDelete created.
 EnsureIniUtf16(path) {
-    if FileExist(path)
-        return
+    if FileExist(path) {
+        size := 0
+        try size := FileGetSize(path)
+        if (size > 0)
+            return
+    }
     try {
         f := FileOpen(path, "w", "UTF-16")   ; writes the BOM
         f.Close()

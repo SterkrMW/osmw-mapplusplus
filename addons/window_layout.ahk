@@ -12,6 +12,20 @@ global _WindowLayout_MainCharacterAsked := false
 ; are resolved by name too, so a custom layout may not reuse one of these names.
 global _WindowLayout_PRESETS := ["Reset", "Single", "Grid2x2", "Grid3x2", "CenterFocus", "DiceLeft", "DiceRight"]
 
+; What the presets are called on screen. The keys stay what config.ini, the
+; Action ring catalog and layouts store; only the display changes.
+_WindowLayout_PresetLabel(key) {
+    static labels := Map(
+        "Reset", "Stack top-left",
+        "Single", "Centered",
+        "Grid2x2", "Grid 2×2",
+        "Grid3x2", "Grid 3×2",
+        "CenterFocus", "Center focus",
+        "DiceLeft", "Dice, left",
+        "DiceRight", "Dice, right")
+    return labels.Has(key) ? labels[key] : key
+}
+
 ; Clients that don't fit the slot list are offset by this much per extra pass, so
 ; they cascade behind the others instead of hiding exactly underneath them.
 global _WindowLayout_CASCADE_STEP := 28
@@ -47,7 +61,11 @@ global _WindowLayout_PromptNamesJson := "[]"
 
 RegisterAddon(Map(
     "name",              "WindowLayout",
-    "settingsLabel",     "Window Layout",
+    "settingsLabel", "Window layout",
+    "settingsGroup", "multibox",
+    "multibox",      true,
+    "settingsIcon",  "grid_view",
+    "description",   "Arranges your clients across your displays with one key.",
     "OnTrayMenu",        _WindowLayout_OnTrayMenu,
     "OnSettingsWeb",     _WindowLayout_OnSettingsWeb,
     "OnSettingsWebSave", _WindowLayout_OnSettingsWebSave,
@@ -56,8 +74,8 @@ RegisterAddon(Map(
 
 RegisterHotkeyAction(Map(
     "id", "windowLayoutPrimary",
-    "label", "Apply default layout (primary monitor)",
-    "category", "Window Layout",
+    "label", "Arrange windows",
+    "category", "Clients",
     "default", "",
     "addon", "WindowLayout",
     "handler", (*) => _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary()),
@@ -65,8 +83,8 @@ RegisterHotkeyAction(Map(
 ))
 RegisterHotkeyAction(Map(
     "id", "windowLayoutSecondary",
-    "label", "Apply default layout (secondary monitor)",
-    "category", "Window Layout",
+    "label", "Arrange windows on the second display",
+    "category", "Clients",
     "default", "",
     "addon", "WindowLayout",
     "handler", (*) => _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex()),
@@ -74,16 +92,16 @@ RegisterHotkeyAction(Map(
 ))
 RegisterHotkeyAction(Map(
     "id", "windowLayoutManage",
-    "label", "Open window layouts",
-    "category", "Window Layout",
+    "label", "Open Window layouts",
+    "category", "Clients",
     "default", "",
     "addon", "WindowLayout",
     "handler", (*) => _WindowLayout_ShowManager()
 ))
 RegisterHotkeyAction(Map(
     "id", "windowLayoutUndo",
-    "label", "Undo last layout apply",
-    "category", "Window Layout",
+    "label", "Undo arrange",
+    "category", "Clients",
     "default", "",
     "addon", "WindowLayout",
     "handler", (*) => _WindowLayout_UndoLastApply()
@@ -100,42 +118,34 @@ _WindowLayout_OnInit() {
 ; off between the OnInit and this timer firing must not bring it back either.
 _WindowLayout_PromptMainCharacterIfUnset() {
     global _WindowLayout_MainCharacter, _WindowLayout_MainCharacterAsked, gDisabledAddons
+    global gSetupActive
     if (gDisabledAddons.Has("WindowLayout") && gDisabledAddons["WindowLayout"])
         return
+    ; Never on top of the setup guide: two first-run questions at once, from
+    ; two windows, is how neither gets read. Asked once it has closed.
+    if gSetupActive {
+        SetTimer(_WindowLayout_PromptMainCharacterIfUnset, -5000)
+        return
+    }
     if (_WindowLayout_MainCharacter = "" && !_WindowLayout_MainCharacterAsked)
         _WindowLayout_PromptMainCharacter()
 }
 
 _WindowLayout_OnTrayMenu(trayGroups) {
-    ; Action items only — configuration (default layout, main character, target
-    ; display) lives in the Settings window's Window Layout tab.
-    layoutMenu := Menu()
-    layoutMenu.Add("Apply (Primary)`t" GetHotkeyDisplay("windowLayoutPrimary"), (*) => _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary()))
-    layoutMenu.Add("Apply (Secondary)`t" GetHotkeyDisplay("windowLayoutSecondary"), (*) => _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex()))
-
-    applyMenu := Menu()
-    for name in _WindowLayout_PRESETS
-        applyMenu.Add(name, _WindowLayout_ApplyPreset.Bind(name))
-    layoutMenu.Add("Apply Preset", applyMenu)
-
-    ; Rebuilt on every right-click, so saved layouts stay in step for free.
-    saved := _WLayouts_LoadIndex()
-    if saved.Length {
-        customMenu := Menu()
-        for i, entry in saved {
-            if (i > 20)
-                break
-            customMenu.Add(entry.name, _WindowLayout_ApplyNamed.Bind(entry.name, 0))
-        }
-        layoutMenu.Add("Apply Custom", customMenu)
-    }
-
-    layoutMenu.Add()
-    layoutMenu.Add("Capture Current As…", (*) => _WindowLayout_CaptureAsPrompt())
-    layoutMenu.Add("Layouts…`t" GetHotkeyDisplay("windowLayoutManage"), (*) => _WindowLayout_ShowManager())
-    layoutMenu.Add("Undo Last Apply`t" GetHotkeyDisplay("windowLayoutUndo"), (*) => _WindowLayout_UndoLastApply())
-
-    trayGroups["clients"].Add("Window Layout", layoutMenu)
+    ; Actions only. Applying another layout, a built-in preset, or capturing
+    ; the current positions happens in Window layouts…; configuration (default
+    ; layout, main character, target display) is Settings → Window layout.
+    clientsGroup := trayGroups["clients"]
+    clientsGroup.Add("Arrange windows", (*) => _WindowLayout_ApplyDefaultLayout(MonitorGetPrimary()),
+        Map("section", "layout", "order", 10, "hotkey", "windowLayoutPrimary"))
+    if (MonitorGetCount() > 1)
+        clientsGroup.Add("Arrange on second display",
+            (*) => _WindowLayout_ApplyDefaultLayout(GetSecondaryMonitorIndex()),
+            Map("section", "layout", "order", 20, "hotkey", "windowLayoutSecondary"))
+    clientsGroup.Add("Undo arrange", (*) => _WindowLayout_UndoLastApply(),
+        Map("section", "layout", "order", 30, "hotkey", "windowLayoutUndo"))
+    clientsGroup.Add("Window layouts…", (*) => _WindowLayout_ShowManager(),
+        Map("section", "layout", "order", 40, "hotkey", "windowLayoutManage"))
 }
 
 _WindowLayout_OnSettingsWeb() {
@@ -169,9 +179,14 @@ _WindowLayout_OnSettingsWeb() {
         defaultMon := Integer(rawDefaultMon)
     defaultMonIdx := (defaultMon >= 1 && defaultMon <= MonitorGetCount()) ? defaultMon : 0
 
+    ; Shown by display name; the index still points into presets.
+    presetLabels := []
+    for n in presets
+        presetLabels.Push(_WindowLayout_PresetLabel(n))
+
     return [
         Map("type", "dropdown", "id", "layoutIdx", "label", "Default layout:",
-            "options", presets, "value", layoutIdx, "default", defaultLayoutIdx),
+            "options", presetLabels, "value", layoutIdx, "default", defaultLayoutIdx),
         Map("type", "combo", "id", "mainChar", "label", "Main character:",
             "options", names, "value", _WindowLayout_MainCharacter,
             "default", DefaultRead("WindowLayout", "MainCharacter", "")),
@@ -1348,8 +1363,9 @@ _WindowLayout_ShowManagerNative() {
 
     g.SetFont("s8")
     g.Add("Text", "xm y+10 w560 cGray",
-        "Drag your clients into place, then Capture. Visual editing needs the "
-        . "WebView2 interface (Tray → Interface).")
+        "Drag your clients into place, then Capture. Built-in layouts can be applied "
+        . "or made default but not edited. Visual editing needs the Enhanced interface "
+        . "(Settings → Appearance).")
     g.SetFont("s9")
 
     g.OnEvent("Close", (*) => _WindowLayout_MgrClose())
@@ -1393,15 +1409,26 @@ _WindowLayout_MgrRefresh(selectId := 0) {
             selectRow := row
     }
 
-    if (_WindowLayout_MgrRows.Length = 0)
+    if (_WindowLayout_MgrRows.Length = 0) {
         lv.Add(, "No saved layouts yet — use Capture current…", "", "", "")
+        _WindowLayout_MgrRows.Push(0)
+    }
+    ; The built-in presets, below the saved ones. They used to be a tray
+    ; submenu; rows carry "preset:<key>" so the buttons can tell them apart.
+    for key in _WindowLayout_PRESETS {
+        row := lv.Add(, _WindowLayout_PresetLabel(key), "", "Built-in",
+            (key = _WindowLayout_DefaultLayout) ? "●" : "")
+        _WindowLayout_MgrRows.Push("preset:" key)
+        if (selectId = "preset:" key)
+            selectRow := row
+    }
     Loop 4
         lv.ModifyCol(A_Index, "AutoHdr")
     if selectRow
         lv.Modify(selectRow, "Select Focus")
 }
 
-; The layout id under the selection, or 0.
+; The layout id under the selection, "preset:<key>" for a built-in, or 0.
 _WindowLayout_MgrSelectedId() {
     global _WindowLayout_MgrList, _WindowLayout_MgrRows
     if !IsObject(_WindowLayout_MgrList)
@@ -1417,10 +1444,19 @@ _WindowLayout_MgrCapture() {
         _WindowLayout_MgrRefresh(id)
 }
 
+; A built-in row's preset key, or "" for a saved layout or no selection.
+_WindowLayout_MgrPresetKey(id) {
+    return (id is String && SubStr(id, 1, 7) = "preset:") ? SubStr(id, 8) : ""
+}
+
 _WindowLayout_MgrApply() {
     id := _WindowLayout_MgrSelectedId()
     if !id
         return
+    if ((key := _WindowLayout_MgrPresetKey(id)) != "") {
+        _WindowLayout_ApplyPreset(key)
+        return
+    }
     layout := _WLayouts_Load(id)
     if IsObject(layout)
         _WindowLayout_ApplyCustom(layout)
@@ -1429,7 +1465,7 @@ _WindowLayout_MgrApply() {
 _WindowLayout_MgrRename() {
     global _WindowLayout_MgrGui
     id := _WindowLayout_MgrSelectedId()
-    if !id
+    if (!id || _WindowLayout_MgrPresetKey(id) != "")
         return
     layout := _WLayouts_Load(id)
     if !IsObject(layout)
@@ -1462,7 +1498,7 @@ _WindowLayout_MgrRenamedDefault(oldName, newName) {
 _WindowLayout_MgrDelete() {
     global _WindowLayout_DefaultLayout
     id := _WindowLayout_MgrSelectedId()
-    if !id
+    if (!id || _WindowLayout_MgrPresetKey(id) != "")
         return
     layout := _WLayouts_Load(id)
     if !IsObject(layout)
@@ -1484,15 +1520,21 @@ _WindowLayout_MgrSetDefault() {
     id := _WindowLayout_MgrSelectedId()
     if !id
         return
-    layout := _WLayouts_Load(id)
-    if !IsObject(layout)
-        return
-    _WindowLayout_DefaultLayout := layout.name
-    _WindowLayout_SaveConfig()
+    if ((key := _WindowLayout_MgrPresetKey(id)) != "") {
+        _WindowLayout_SetDefaultPreset(key)
+        name := _WindowLayout_PresetLabel(key)
+    } else {
+        layout := _WLayouts_Load(id)
+        if !IsObject(layout)
+            return
+        _WindowLayout_DefaultLayout := layout.name
+        _WindowLayout_SaveConfig()
+        name := layout.name
+    }
     _WindowLayout_MgrRefresh(id)
     shortcut := GetHotkeyDisplay("windowLayoutPrimary")
-    access := (shortcut != "") ? shortcut : "the primary layout action"
-    TrayTip("“" layout.name "” is now applied by " access ".",
+    access := (shortcut != "") ? shortcut : "Arrange windows"
+    TrayTip("“" name "” is now applied by " access ".",
         "Window Layout", "Iconi")
 }
 
@@ -1591,11 +1633,16 @@ _WindowLayout_SendState() {
             . '}'
     }
 
+    ; Reset is listed (it is the one way to stack everything back in a corner)
+    ; but cannot seed a new layout, which needs real slots.
     presetsJson := ""
     for p in _WindowLayout_PRESETS {
-        if (p = "Reset")
-            continue
-        presetsJson .= (presetsJson = "" ? "" : ",") _JSON_Str(p)
+        presetsJson .= (presetsJson = "" ? "" : ",")
+            . '{"key":' _JSON_Str(p)
+            . ',"label":' _JSON_Str(_WindowLayout_PresetLabel(p))
+            . ',"isDefault":' ((p = _WindowLayout_DefaultLayout) ? "true" : "false")
+            . ',"seedable":' ((p = "Reset") ? "false" : "true")
+            . '}'
     }
 
     _WindowLayout_WebPost('{"type":"layouts-state"'
@@ -1720,6 +1767,13 @@ _WindowLayout_OnManagerWebMsg(wv, args) {
 
         case "apply-layout":
             _WindowLayout_WebApply(msg)
+
+        case "apply-preset":
+            _WindowLayout_WebApplyPreset(msg)
+
+        case "set-default-preset":
+            _WindowLayout_SetDefaultPreset(msg.Has("key") ? msg["key"] : "")
+            _WindowLayout_SendState()
 
         case "undo-apply":
             _WindowLayout_UndoLastApply()
@@ -1919,6 +1973,34 @@ _WindowLayout_WebApply(msg) {
         text .= " " res.overflow " cascaded past the last slot."
     _WindowLayout_WebPost('{"type":"apply-result","ok":' (res.moved ? "true" : "false")
         . ',"moved":' res.moved ',"overflow":' res.overflow ',"message":' _JSON_Str(text) '}')
+}
+
+_WindowLayout_WebApplyPreset(msg) {
+    key := msg.Has("key") ? String(msg["key"]) : ""
+    if !_WindowLayout_IsPreset(key)
+        return
+    monIdx := _WindowLayout_MsgInt(msg, "monitorIndex", 0)
+    if (monIdx < 1 || monIdx > MonitorGetCount())
+        monIdx := _WindowLayout_ConfiguredMonitor()
+    count := FilterWindowsOnMonitor(_WindowLayout_ArrangeableWindows(), monIdx).Length
+    _WindowLayout_ApplyPreset(key, monIdx)
+    text := count
+        ? ("Arranged " count " client" (count = 1 ? "" : "s") " as " _WindowLayout_PresetLabel(key)
+            . " on " _WindowLayout_DisplayLabel(monIdx) ".")
+        : ("No clients to arrange on " _WindowLayout_DisplayLabel(monIdx) ".")
+    _WindowLayout_WebPost('{"type":"apply-result","ok":' (count ? "true" : "false")
+        . ',"message":' _JSON_Str(text) '}')
+}
+
+; A built-in preset as the layout the primary action applies. Shared by both
+; managers; Settings → Window layout offers the same choice.
+_WindowLayout_SetDefaultPreset(key) {
+    global _WindowLayout_DefaultLayout
+    if !_WindowLayout_IsPreset(key)
+        return false
+    _WindowLayout_DefaultLayout := key
+    _WindowLayout_SaveConfig()
+    return true
 }
 
 _WindowLayout_WebSetDefault(id) {

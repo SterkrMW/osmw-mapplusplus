@@ -42,6 +42,23 @@
     overflow-y: auto;
 }
 
+/* Group headings in the sidebar (General, Map, Multi-boxing, Tools). Not
+   focusable and not tabs: arrow keys walk straight past them. */
+.nav-group-title {
+    font-size: var(--text-caption);
+    font-weight: var(--weight-bold);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-label);
+    color: var(--text-dim);
+    padding: 12px 12px 4px;
+}
+.nav-group-title:first-child { padding-top: 2px; }
+.nav-group-rule {
+    height: 1px;
+    margin: 8px 6px;
+    background: var(--border);
+}
+
 .tab-btn {
     display: flex;
     align-items: center;
@@ -337,6 +354,19 @@
 }
 .browse-row .input { flex: 1; }
 
+/* The line under the game path: found / mods present / not set. */
+.game-status[data-tone="ok"]   { color: var(--success); }
+.game-status[data-tone="warn"] { color: var(--warning); }
+
+/* A launch action's current shortcut beside its name. */
+.kbd-inline {
+    margin-left: 6px;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
+    color: var(--text-muted);
+}
+
 .launch-targets {
     gap: 16px;
 }
@@ -427,6 +457,17 @@
     border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
     box-shadow: inset 0 0 0 5px color-mix(in srgb, var(--bg) 25%, transparent);
 }
+
+/* The interface choice reuses the accent cards, with a glyph for the swatch. */
+.scheme-glyph {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    font-size: 1.25rem;
+    color: var(--text-muted);
+}
+.scheme-option:has(input:checked) .scheme-glyph { color: var(--accent); }
 
 .scheme-amber .scheme-swatch { color: #e5b83b; background: #e5b83b; }
 .scheme-blue .scheme-swatch  { color: oklch(72% 0.13 250); background: oklch(72% 0.13 250); }
@@ -538,19 +579,7 @@
     color: var(--text-dim);
 }
 
-/* ── Custom Keycaps (<kbd>) ──────────────────────────────────── */
-.kbd {
-    display: inline-block;
-    padding: 2px 6px;
-    font-family: var(--font-mono);
-    font-size: var(--text-caption);
-    font-weight: var(--weight-semibold);
-    color: var(--text);
-    background: var(--surface-alt);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    box-shadow: 0 1px 0 rgba(0,0,0,0.4);
-}
+/* Keycaps (.kbd) live in ../common/style.css. */
 
 .panel-hint {
     max-width: 65ch;
@@ -610,47 +639,7 @@
     transform: scale(1.15);
 }
 
-/* ── Toggle Switch ──────────────────────────────────────────── */
-.toggle {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 36px;
-    height: 20px;
-    background: var(--surface-alt);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    position: relative;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: background var(--transition), border-color var(--transition);
-}
-.toggle::after {
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 14px;
-    height: 14px;
-    background: var(--text-dim);
-    border-radius: 50%;
-    transition: transform var(--transition), background var(--transition);
-}
-.toggle:checked {
-    background: var(--accent);
-    border-color: var(--accent);
-}
-.toggle:checked::after {
-    transform: translateX(16px);
-    background: var(--accent-text);
-}
-.toggle:active::after { transform: scale(0.84); }
-.toggle:checked:active::after { transform: translateX(16px) scale(0.84); }
-.toggle.just-toggled { animation: toggle-settle 260ms cubic-bezier(0.16, 1, 0.3, 1); }
-@keyframes toggle-settle {
-    0% { box-shadow: 0 0 0 0 var(--accent-glow); }
-    55% { box-shadow: 0 0 0 4px var(--accent-glow); }
-    100% { box-shadow: 0 0 0 0 transparent; }
-}
+/* The toggle switch lives in ../common/style.css (the setup guide uses it too). */
 
 /* ── Hotkeys Editor ─────────────────────────────────────────── */
 .hotkeys-container {
@@ -791,8 +780,28 @@
     font-size: var(--text-ui);
     font-weight: var(--weight-medium);
     color: var(--text);
-    flex: 1;
 }
+.addon-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+.addon-desc {
+    font-size: var(--text-secondary);
+    color: var(--text-muted);
+    line-height: var(--leading-copy);
+}
+.feature-group-title {
+    font-size: var(--text-caption);
+    font-weight: var(--weight-bold);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-label);
+    color: var(--text-dim);
+    margin: 8px 0 0;
+}
+.feature-group-title:first-child { margin-top: 0; }
 
 /* ── Toast ──────────────────────────────────────────────────── */
 .footer-left,

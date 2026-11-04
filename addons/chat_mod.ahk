@@ -150,7 +150,10 @@ global _CHATMOD_RESET_WAIT_MS := 6500
 
 RegisterAddon(Map(
     "name",              "ChatMod",
-    "settingsLabel",     "Chat Mod",
+    "settingsLabel", "Chat mod",
+    "settingsGroup", "tools",
+    "settingsIcon",  "chat",
+    "description",   "The client mods' in-game chat window: font, tabs, timestamps, blocked names.",
     ; These settings are the mods' own (osmw.ini). Settings hands this addon
     ; only the keys the user changed and Reset to Defaults skips it, so a save
     ; elsewhere in the window can never undo an edit made in the game's F12
@@ -472,7 +475,7 @@ _ChatMod_OnSettingsWeb() {
 
     if (_ChatMod_IniPath() = "") {
         fields.Push(Map("type", "info", "text",
-            "Set the game path under Launcher first. These settings live in the "
+            "Set the game path under Game & startup first. These settings live in the "
             . "osmw.ini next to main.exe, which is the file the chat mod reads, "
             . "so there is nowhere to save them until Maps++ knows where the game is."))
         return fields
@@ -677,7 +680,7 @@ _ChatMod_OnSettingsWeb() {
         "label", "Reset chat window position",
         "hint", "Forgets where the chat window was put and docks it against "
               . "its own client again. It acts on the client at the game path "
-              . "set under Launcher, does not wait for Save, and reports back "
+              . "set under Game & startup, does not wait for Save, and reports back "
               . "once a running client has done it."))
     fields.Push(Map("type", "info", "text",
         "The position is remembered relative to the game window, so each "
@@ -746,7 +749,7 @@ _ChatMod_EditTabs() {
 
     cfgPath := _ChatMod_IniPath()
     if (cfgPath = "") {
-        TrayTip("Set the game path under Launcher first.", "Chat Mod", "Iconx")
+        TrayTip("Set the game path under Settings → Game & startup first.", "Chat mod", "Iconx")
         return ""
     }
 
@@ -1168,7 +1171,7 @@ _ChatMod_NamesFromMsg(msg) {
 _ChatMod_WriteBlocked(names) {
     cfgPath := _ChatMod_IniPath()
     if (cfgPath = "") {
-        TrayTip("Set the game path under Launcher first.", "Chat Mod", "Iconx")
+        TrayTip("Set the game path under Settings → Game & startup first.", "Chat mod", "Iconx")
         return false
     }
     problem := _ChatMod_ValidateBlocked(names)
@@ -1194,7 +1197,7 @@ _ChatMod_EditBlock() {
 
     cfgPath := _ChatMod_IniPath()
     if (cfgPath = "") {
-        TrayTip("Set the game path under Launcher first.", "Chat Mod", "Iconx")
+        TrayTip("Set the game path under Settings → Game & startup first.", "Chat mod", "Iconx")
         return
     }
 
@@ -1407,7 +1410,7 @@ _ChatMod_RequestPositionReset() {
 
     cfgPath := _ChatMod_IniPath()
     if (cfgPath = "") {
-        TrayTip("Set the game path under Launcher first.", "Chat Mod", "Iconx")
+        TrayTip("Set the game path under Settings → Game & startup first.", "Chat mod", "Iconx")
         return false
     }
     if !NativeModsWrite("Chat", "ResetPosition", "1") {
@@ -1472,7 +1475,7 @@ _ChatMod_ResetUnheardText() {
             . "picked up if they are installed later."
     }
     return "No running client picked this up — check the game path under "
-        . "Launcher points at the client you are looking at, and that its "
+        . "Game & startup points at the client you are looking at, and that its "
         . "client mods are up to date. The request is saved, so the next "
         . "client you start will do it."
 }

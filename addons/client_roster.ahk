@@ -37,7 +37,11 @@ global CLIENT_RADIAL_RING := "clients"
 
 RegisterAddon(Map(
     "name",          "ClientRoster",
-    "settingsLabel", "Client Roster",
+    "settingsLabel", "Client roster",
+    "settingsGroup", "multibox",
+    "multibox",      true,
+    "settingsIcon",  "groups",
+    "description",   "Your running clients in a ring at the cursor, to switch between them.",
     "OnInit",        _ClientRoster_OnInit,
     "OnSettingsWeb",     _ClientRoster_OnSettingsWeb,
     "OnSettingsWebSave", _ClientRoster_OnSettingsWebSave,
@@ -47,8 +51,8 @@ RegisterAddon(Map(
 
 RegisterHotkeyAction(Map(
     "id", "clientRosterToggle",
-    "label", "Show/hide client roster",
-    "category", "Client Roster",
+    "label", "Client roster",
+    "category", "Clients",
     "default", "",
     "addon", "ClientRoster",
     "handler", (*) => _ClientRoster_Toggle()
@@ -79,10 +83,9 @@ _ClientRoster_OnExit(*) {
 }
 
 _ClientRoster_OnTrayMenu(trayGroups) {
-    clientsMenu := trayGroups["clients"]
-    clientsMenu.Add("Client Roster`t" GetHotkeyDisplay("clientRosterToggle"), (*) => _ClientRoster_Toggle())
-    ; The list stays one click away whichever view the hotkey is set to.
-    clientsMenu.Add("Client Roster (list)", (*) => _ClientRoster_ToggleList())
+    ; Opens whichever view Settings → Client roster picks (ring or list).
+    trayGroups["clients"].Add("Client roster", (*) => _ClientRoster_Toggle(),
+        Map("section", "status", "order", 10, "hotkey", "clientRosterToggle"))
 }
 
 _ClientRoster_OnSettingsWeb() {
@@ -90,7 +93,7 @@ _ClientRoster_OnSettingsWeb() {
     shortcut := GetHotkeyDisplay("clientRosterToggle")
     openHint := (shortcut != "")
         ? "Open it with " shortcut " or from the tray menu."
-        : "Open it from Quick Actions or the tray menu."
+        : "Open it from the Action ring or the tray menu."
     return [
         Map("type", "info", "text",
             "Shows every running client so you can jump straight to an alt.`n"

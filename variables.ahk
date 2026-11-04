@@ -351,7 +351,7 @@ global gLaunchAutoLogin := true  ; Launch shortcuts skip intros and log in from 
 ; Task Manager Startup tab.
 global STARTUP_RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 global STARTUP_RUN_NAME := "osMW Maps++"
-global gMultiClientCount := 5    ; How many clients the multi-client launch task starts.
+global gMultiClientCount := 1    ; How many clients the multi-client launch task starts.
 global gMultiClientDelay := 0    ; Delay (ms) between each client launch in that task.
 ; Per-display layout applied after the Primary/Secondary launch actions finish.
 ; Empty means center the new clients only; the sentinel follows Window Layout's
@@ -388,6 +388,22 @@ global gWebViewFallbackNotified := false
 ; Accent scheme ([UI] AccentScheme). Dark surfaces and semantic status colours
 ; remain fixed; this only selects the shared highlight palette.
 global gAccentScheme := "amber"
+; [UI] DeveloperTools: show the tray's Developer group (signature tools, debug
+; state, reload). Off by default; Shift+right-click reveals it for one open.
+global gDeveloperTools := false
+; ── Tray menu ──
+; Declared here rather than beside the tray code in main.ahk because
+; RebuildTrayMenu first runs from main.ahk's auto-execute section, above that
+; code's own global lines.
+;
+; Per-row metadata for the enhanced tray, keyed "<hMenu>|<0-based position>":
+; the icon, an On/Off state, a radio choice, "this is Exit". A native menu can
+; carry none of these, and recovering them by parsing labels made every rename
+; a silent icon or toggle regression. Rebuilt with the menu, because destroyed
+; menus' handles are reused.
+global gTrayMeta := Map()
+; Shift was held as the tray icon was right-clicked: show Developer this time.
+global gTrayDevReveal := false
 ; Settings window handle, for the single-instance guard.
 global gSettingsGui := 0
 ; Set by _Settings_BuildNative to a closure over its addon field controls, so

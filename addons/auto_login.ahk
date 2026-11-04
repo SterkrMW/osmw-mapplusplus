@@ -41,28 +41,31 @@ global _AutoLogin_NativeGroup := 0
 global _AutoLogin_NativeEnabled := 0
 global _AutoLogin_NativeStatus := 0
 global _AutoLogin_NativeHint := 0
+global _AutoLogin_NativeLaunchWhich := 0
 global _AutoLogin_Draft := []
 global _AutoLogin_Selected := 0
 global _AutoLogin_Refreshing := false
 
 RegisterAddon(Map(
     "name",          "AutoLogin",
-    "settingsLabel", "Auto-login",
+    "featureLabel",  "Auto-login",
+    "settingsGroup", "tools",
+    "description",   "Logs launched clients in for you, using the accounts saved under Clients → Accounts.",
     "OnTrayMenu",    _AutoLogin_OnTrayMenu
 ))
 
 RegisterHotkeyAction(Map(
     "id", "autoLoginRoster",
-    "label", "Open auto-login roster",
-    "category", "Auto-login",
+    "label", "Open Accounts",
+    "category", "Launching",
     "default", "",
     "addon", "AutoLogin",
     "handler", (*) => _AutoLogin_OpenEditor()
 ))
 
 _AutoLogin_OnTrayMenu(trayGroups) {
-    trayGroups["clients"].Add("Auto-login roster…`t" GetHotkeyDisplay("autoLoginRoster"),
-        (*) => _AutoLogin_OpenEditor())
+    trayGroups["clients"].Add("Accounts…", (*) => _AutoLogin_OpenEditor(),
+        Map("section", "accounts", "hotkey", "autoLoginRoster"))
 }
 
 ; Per-launch consent, carried to the DLL in the environment rather than in the
@@ -274,70 +277,11 @@ _AutoLogin_LaunchChoices() {
     return out
 }
 
-; ── Client Launch menu ──────────────────────────────────────────
+; ── Launching from the roster ──────────────────────────────────
 
-; Menu.Add treats a repeated label as "modify that item", so two identical
-; labels would silently collapse into one entry. Two rows on one account with
-; the same character is a user mistake rather than a normal state, but it must
-; not quietly lose a menu item.
-_AutoLogin_UniqueLabel(used, label) {
-    if !used.Has(label) {
-        used[label] := 1
-        return label
-    }
-    used[label] += 1
-    return label " (" used[label] ")"
-}
-
-; The Primary/Secondary half of Client Launch: groups, then batches starting at
-; a chosen account, then single accounts. Returns "" when there is nothing to
-; offer, so the caller can leave the whole item out rather than show an empty
-; submenu.
-_AutoLogin_BuildAccountMenu(monitorWhich) {
-    global gMultiClientCount
-    loaded := _AutoLogin_ReadFile()
-    if (!loaded.ok || !loaded.rows.Length)
-        return ""
-    rows := loaded.rows
-    m := Menu()
-    used := Map()
-
-    groups := _AutoLogin_GroupNames(rows)
-    for name in groups {
-        n := 0
-        for row in rows {
-            if (row["group"] = name)
-                n++
-        }
-        m.Add(_AutoLogin_UniqueLabel(used, "Group: " name " (" n ")"),
-            _AutoLogin_LaunchSpec.Bind(monitorWhich, "group:" name))
-    }
-    if groups.Length
-        m.Add()
-
-    ; How far a "start at" batch reaches, so the label can say so rather than
-    ; leaving the user to count rows in the editor.
-    profile := ResolveLaunchProfile(monitorWhich)
-    span := (profile["count"] >= 1) ? profile["count"] : gMultiClientCount
-    for i, row in rows {
-        last := i + span - 1
-        if (last > rows.Length)
-            last := rows.Length
-        m.Add(_AutoLogin_UniqueLabel(used,
-            "Start at: " row["account"] " (" i (last > i ? "-" last : "") ")"),
-            _AutoLogin_LaunchSpec.Bind(monitorWhich, "start:" row["id"]))
-    }
-    m.Add()
-
-    for row in rows {
-        m.Add(_AutoLogin_UniqueLabel(used, "Only: " row["account"] " (" row["character"] ")"),
-            _AutoLogin_LaunchSpec.Bind(monitorWhich, "only:" row["id"]))
-    }
-    return m
-}
-
-; Reached from the tray menu, which arrives via PostMessage rather than a
-; WebView2 message, so raising a dialog here needs no DeferFromWebMessage.
+; Reached from the tray (Launch other → a group) and from the Accounts editor.
+; The tray arrives via PostMessage and the editor defers its call, so neither is
+; inside a WebView2 message and a dialog here is safe.
 _AutoLogin_LaunchSpec(monitorWhich, spec, *) {
     global gMultiClientCount
     profile := ResolveLaunchProfile(monitorWhich)
@@ -345,11 +289,36 @@ _AutoLogin_LaunchSpec(monitorWhich, spec, *) {
     plan := _AutoLogin_ResolvePlan(spec, span)
     if !plan.Length {
         ShowMessage("Nothing in the roster matches that choice any more."
-            . " Open Clients & Windows → Auto-login roster… and check the accounts and groups.",
-            "Client Launch", Map("severity", "warn"))
+            . " Open Clients → Accounts… and check the accounts and groups.",
+            "Launch", Map("severity", "warn"))
         return
     }
     LaunchConfiguredClients(monitorWhich, 0, plan)
+}
+
+; The editor's Launch buttons — what the tray's per-account "Start at" and
+; "Only" lists used to do, one row at a time, beside the rows themselves. A
+; launch names roster ids, so the row has to be saved: one that exists only in
+; the editor's draft has no id on disk yet and would match nothing.
+_AutoLogin_LaunchRow(which, mode, id, *) {
+    global LAUNCH_ACCOUNTS_START, LAUNCH_ACCOUNTS_ONLY
+    which := (which = "secondary") ? "secondary" : "primary"
+    loaded := _AutoLogin_ReadFile()
+    found := false
+    if loaded.ok {
+        for row in loaded.rows {
+            if (row["id"] = id) {
+                found := true
+                break
+            }
+        }
+    }
+    if !found {
+        ShowMessage("Save first — that row isn't in the saved roster yet.",
+            "Accounts", _AutoLogin_DialogOpts("info"))
+        return
+    }
+    _AutoLogin_LaunchSpec(which, ((mode = "start") ? LAUNCH_ACCOUNTS_START : LAUNCH_ACCOUNTS_ONLY) id)
 }
 
 ; ── DPAPI / file ────────────────────────────────────────────────
@@ -532,7 +501,7 @@ _AutoLogin_SaveIncoming(incoming) {
 
     path := _AutoLogin_RosterPath()
     if (path = "")
-        return {ok: false, reason: "Set the game path in Settings → Launcher first. The roster is stored next to main.exe."}
+        return {ok: false, reason: "Set the game path in Settings → Game & startup first. The accounts file is stored next to main.exe."}
 
     existing := _AutoLogin_ReadFile()
     if !existing.ok {
@@ -667,7 +636,7 @@ _AutoLogin_SaveIncoming(incoming) {
     ; groups pointing at rows that were never saved.
     _AutoLogin_SaveGroups(outRows)
     LogInfo("AutoLogin", "Saved " outRows.Length " roster row(s)")
-    ; Client Launch lists these accounts and groups, so it has to be rebuilt.
+    ; Launch other lists the groups, so the tray has to be rebuilt.
     ; Deferred, because this can be reached from a WebView2 message handler.
     SetTimer(RebuildTrayMenu, -1)
     return {ok: true, reason: ""}
@@ -698,8 +667,8 @@ _AutoLogin_OpenEditor() {
     global _AutoLogin_PanelMode, _AutoLogin_WebGui, _AutoLogin_NativeGui
     if (ResolveGameDirectory() = "") {
         ShowMessage(
-            "Set the game path in Settings → Launcher first. The roster file is stored next to main.exe.",
-            "Auto-login")
+            "Set the game path in Settings → Game & startup first. The accounts file is stored next to main.exe.",
+            "Accounts")
         return
     }
     if (_AutoLogin_PanelMode = "web" && IsObject(_AutoLogin_WebGui) && _AutoLogin_WebGui.Hwnd) {
@@ -738,7 +707,7 @@ _AutoLogin_ShowWeb() {
     dllDir := (A_PtrSize = 8) ? "64bit" : "32bit"
     settings := {DllPath: A_ScriptDir "\Lib\" dllDir "\WebView2Loader.dll",
         DefaultWidth: 560, DefaultHeight: 780}
-    g := WebViewGui("-Caption +AlwaysOnTop +Resize", "Maps++ — Auto-login", , settings)
+    g := WebViewGui("-Caption +AlwaysOnTop +Resize", "Maps++ — Accounts", , settings)
     g.OnEvent("Close", (*) => _AutoLogin_WebRequestClose())
     g.WebMessageReceived(WebMsgHandler(_AutoLogin_OnWebMessage))
     g.DOMContentLoaded((*) => SetTimer(_AutoLogin_SendWebState, -50))
@@ -779,6 +748,13 @@ _AutoLogin_OnWebMessage(wv, args) {
             _AutoLogin_SendWebState()
         case "login-roster-save":
             _AutoLogin_WebSave(msg)
+        case "launch":
+            ; A launch waits on clients for many seconds and may raise a
+            ; dialog — neither can happen inside this message call.
+            DeferFromWebMessage(_AutoLogin_LaunchRow,
+                msg.Has("which") ? String(msg["which"]) : "primary",
+                msg.Has("mode") ? String(msg["mode"]) : "only",
+                msg.Has("id") ? String(msg["id"]) : "")
         case "close":
             DeferFromWebMessage(_AutoLogin_WebRequestClose)
     }
@@ -829,11 +805,11 @@ _AutoLogin_NativeEnsureGui() {
     global _AutoLogin_NativeGui, _AutoLogin_NativeList
     global _AutoLogin_NativeAccount, _AutoLogin_NativePassword
     global _AutoLogin_NativeCharacter, _AutoLogin_NativeGroup, _AutoLogin_NativeEnabled
-    global _AutoLogin_NativeStatus, _AutoLogin_NativeHint
+    global _AutoLogin_NativeStatus, _AutoLogin_NativeHint, _AutoLogin_NativeLaunchWhich
     if (IsObject(_AutoLogin_NativeGui) && _AutoLogin_NativeGui.Hwnd)
         return
 
-    g := Gui("+AlwaysOnTop -MaximizeBox", "Maps++ — Auto-login")
+    g := Gui("+AlwaysOnTop -MaximizeBox", "Maps++ — Accounts")
     g.MarginX := 12
     g.MarginY := 12
     g.SetFont("s9", "Segoe UI")
@@ -841,7 +817,7 @@ _AutoLogin_NativeEnsureGui() {
     g.OnEvent("Escape", (*) => _AutoLogin_NativeClose())
 
     g.Add("Text", "x12 y12 w496",
-        "Each launched client claims the next enabled row, unless a launch profile or Client Launch names the accounts. Passwords stay on this Windows user. Turn auto-login off under Settings → Launcher for the stock login.")
+        "Each launched client claims the next enabled row, unless a launch profile or Launch other names the accounts. Passwords stay on this Windows user. Turn auto-login off under Settings → Launching for the stock login.")
     _AutoLogin_NativeList := g.Add("ListView", "x12 y+10 w496 r10 Grid -Multi NoSortHdr",
         ["Account", "Character", "Group", "On"])
     _AutoLogin_NativeList.OnEvent("ItemSelect", _AutoLogin_NativeOnSelect)
@@ -849,6 +825,10 @@ _AutoLogin_NativeEnsureGui() {
     g.Add("Button", "x+8 yp w72", "Down").OnEvent("Click", (*) => _AutoLogin_NativeMove(1))
     g.Add("Button", "x+8 yp w88", "Duplicate").OnEvent("Click", (*) => _AutoLogin_NativeDuplicate())
     g.Add("Button", "x+8 yp w72", "Remove").OnEvent("Click", (*) => _AutoLogin_NativeRemove())
+    g.Add("Button", "x12 y+8 w132", "Launch this account").OnEvent("Click", (*) => _AutoLogin_NativeLaunch("only"))
+    g.Add("Button", "x+8 yp w116", "Launch from here").OnEvent("Click", (*) => _AutoLogin_NativeLaunch("start"))
+    _AutoLogin_NativeLaunchWhich := g.Add("DropDownList", "x+8 yp+1 w232 Choose1",
+        ["with Launch primary's display", "with Launch secondary's display"])
 
     g.Add("Text", "x12 y+16 w80", "Account")
     _AutoLogin_NativeAccount := g.Add("Edit", "x100 yp-3 w408 Limit31")
@@ -861,7 +841,7 @@ _AutoLogin_NativeEnsureGui() {
     g.Add("Text", "x12 y+10 w80", "Group")
     _AutoLogin_NativeGroup := g.Add("Edit", "x100 yp-3 w408 Limit31")
     g.Add("Text", "x100 y+4 w408 c666666",
-        "Optional. Launch a whole group from Client Launch or a launch profile.")
+        "Optional. Launch a whole group from Launch other or a launch profile.")
     _AutoLogin_NativeEnabled := g.Add("CheckBox", "x100 y+10 w408 Checked",
         "Enabled — claim this row on launch")
 
@@ -874,6 +854,17 @@ _AutoLogin_NativeEnsureGui() {
     g.Add("Button", "x+8 yp w120 Default", "Save").OnEvent("Click", (*) => _AutoLogin_NativeSave())
 
     _AutoLogin_NativeGui := g
+}
+
+_AutoLogin_NativeLaunch(mode) {
+    global _AutoLogin_Draft, _AutoLogin_Selected, _AutoLogin_NativeLaunchWhich
+    if (_AutoLogin_Selected < 1 || _AutoLogin_Selected > _AutoLogin_Draft.Length) {
+        _AutoLogin_NativeSetStatus("Select a row to launch.")
+        return
+    }
+    which := (IsObject(_AutoLogin_NativeLaunchWhich) && _AutoLogin_NativeLaunchWhich.Value = 2)
+        ? "secondary" : "primary"
+    _AutoLogin_LaunchRow(which, mode, _AutoLogin_Draft[_AutoLogin_Selected]["id"])
 }
 
 _AutoLogin_NativeRefreshList() {
