@@ -3717,6 +3717,9 @@ BuildDiagnosticsReport() {
     out .= "`nClient mod status`n-----------------`n"
     out .= modStatus.ok ? NativeModsStatusTable(modStatus)
         : "  " NativeModsStatusSummary(modStatus).text "`n"
+    sac := SmartAppControlState()
+    out .= "  Smart App Control: " (sac = "" ? "unknown" : sac)
+        . "  (per-client load state is under Minimap below)`n"
 
     ; The addon set is what actually distinguishes one variant from another, and
     ; it says more than a variant name would — it also shows what is switched off.
@@ -3802,6 +3805,8 @@ BuildDiagnosticsReport() {
         who := CharacterNameFromWindow(hwnd)
         out .= "  " Format("{:-16}", who = "" ? "PID " pid : who) " " line "`n"
             . "  " Format("{:-16}", "") " display: " GameDisplaySummary(GameContentRect(hwnd)) "`n"
+            . "  " Format("{:-16}", "") " client mods: "
+                . (proc.ok ? NativeModsCoreLoadState(proc, pid) : "process not readable") "`n"
     }
     if (seenPids.Count = 0)
         out .= "  (no game clients running)`n"

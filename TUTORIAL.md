@@ -271,6 +271,13 @@ shared by every client in the folder, so it describes whichever client last star
 Copy Diagnostics includes the same table. Auto-login shows as idle in a client you started by
 hand — it only runs in clients Maps++ launches with auto-login on — and that is normal.
 
+When Windows blocks one or two features, the game tells you itself, once, as it starts. When it
+blocks `osmw_core.dll`, the file that loads all the others, the game cannot: it just runs without
+any mods, after a Windows "Bad Image" box. Maps++ notices this the first time you switch to such a
+client and says so once, including whether Smart App Control is the cause. It does not repeat the
+message until a client has loaded the mods again. Client Mods Status then lists the clients
+running without the mods first, since the report below it can only come from an earlier client.
+
 **Tray → Debug → Client Mod Logging** is off, and should stay off until someone asks for it. The
 client mods can each write a tagged log — `osmw_core.<pid>.log` and one per feature, one set per
 client per launch, in the game folder. That is a handful of files every launch for something only
@@ -1021,6 +1028,7 @@ format would stop an older already-deployed `osmw_login.dll` from reading it at 
 | `ItemIdOffset` | Override for the inventory item-id address, e.g. `0x2E2028`. Only needed if a game update moves it; blank uses the built-in value (or whatever signature calibration resolves), `0` turns thumbnails off. When set, it wins over signature calibration — which is the point, since the case it exists for is calibration landing on the wrong address |
 | `[Hotkeys]` | One entry per rebindable action, in AutoHotkey chord syntax (`^`=Ctrl, `!`=Alt, `+`=Shift). A blank value means **Not bound**; rebind or unbind from **Settings → Hotkeys** |
 | `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
+| `[ClientMods] CoreRefusedNoticeShown` | `1` once the "client mods did not load" message has appeared; Maps++ sets it back to `0` when it next sees a client with the mods loaded. Clear it to see the message again |
 | `[Debug] ModLogging` | Not in this file. `1` = the client mods write their own per-client `osmw_*.<pid>.log` files into the game folder; `0` (the default) = they write nothing. Like `[Chat]` below, this key belongs to the mods and lives in their own **`osmw.ini` next to `main.exe`**. Toggle it from **Tray → Debug → Client Mod Logging** |
 
 After editing `config.ini`, use **Reload** from the tray menu or **Ctrl+Alt+R**.
@@ -1177,6 +1185,14 @@ A typical setup with the **Full** variant:
 - Confirm you are **not in battle** and not on a loading screen.
 - Check that your current zone has a map file in `maps\` (supported maps ship with the release).
 - If you run **multiple** `main.exe` instances, Maps++ tracks whichever game window you last focused.
+
+### "Client mods did not load"
+
+Windows refused `osmw_core.dll`, so that client is running without any of the client mods. Maps++
+is unaffected. If the message says Smart App Control is on, that is the cause: the mods are not
+code-signed, and Smart App Control refuses unsigned files however they were obtained. Otherwise,
+reinstall the client mods first; on a work or school PC, a security policy may be what blocks
+them. **Copy Diagnostics** shows each running client's state under *Minimap → client mods*.
 
 ### Position marker is wrong or stuck
 

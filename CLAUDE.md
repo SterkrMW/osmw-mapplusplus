@@ -222,6 +222,21 @@ Result `-15` is "blocked by Windows" (Smart App Control refusing an unsigned
 DLL); a `disabled` login module is normal in any client not launched with
 auto-login consent and is reported as idle, not off.
 
+**The one refusal the mods cannot report is their own.** For a refused
+*feature* the core shows a once-only in-game box (`[Core] BlockedNotice`), so
+Maps++ deliberately says nothing extra. A refused `osmw_core.dll`, though,
+leaves a stock client, no fresh status file and no in-game notice.
+`NativeModsCoreLoadState(proc, pid)` detects it per running client, from three
+facts that are all needed: mod_autoload's `E9 rel32 90 90` at
+`NATIVE_MODS_AUTOLOAD_RVA` (the CRT entry), `osmw_core.dll` beside *that
+process's* `main.exe`, and no such module in its module list. A failed module
+walk returns `unknown` rather than passing for a refusal.
+`_CheckClientModsLoaded` (from `UpdateMapState`, once per focused PID) raises
+`ShowCoreRefusedNotice` once and records it in Maps++'s own `config.ini`
+`[ClientMods] CoreRefusedNoticeShown`, never in `osmw.ini`. A client seen with
+the core loaded clears it. `SmartAppControlState()` decides the wording: SAC is
+only blamed when it is actually on.
+
 **Keys the mods take in game** (`NativeModsReservedKeys`: `[Settings] OpenKey`
 F12, `[Fight] CycleKey` F11, Timers' fixed F9, `[Leaderboard] OpenKey`, Chat
 Mod's system-wide `ClearHotkey`/`TabHotkey`, each only while its `[Addons]`

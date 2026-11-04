@@ -50,6 +50,17 @@ global NATIVE_MODS_RESULT_NAMES := Map(
     -15, "blocked by Windows (Smart App Control)")
 ; Module states that mean the feature is not doing its job.
 global NATIVE_MODS_BAD_STATES := ["missing", "legacy", "incompatible", "failed", "unsafe-to-unload"]
+; mod_autoload's hook (server repo, tools/client-patch/mod_autoload.py): the
+; client's 7-byte CRT entry prologue at VA 0x4CD360, stock `6A 74 68 A0 73 5B 00`,
+; becomes `E9 rel32 90 90` — a jmp to the stub that LoadLibraryA's
+; osmw_core.dll. Read only to tell "the client tried to load the mods" from
+; "it never would have"; a build where neither form is there reads as the
+; latter, so a moved prologue costs a notice, never a false one.
+global NATIVE_MODS_AUTOLOAD_RVA := 0xCD360
+global NATIVE_MODS_CORE_DLL := "osmw_core.dll"
+; Maps++'s own record (config.ini [ClientMods]) that the "mods did not load"
+; notice has been shown, so an unchanged situation is not reported twice.
+global gCoreRefusedNoticeShown := false
 ; A launch waits this long at most for osmw_display.dll to finish resizing a new
 ; client before centring it or applying a layout, and calls the size settled
 ; once it has held still for LAUNCH_SETTLE_STABLE_MS.

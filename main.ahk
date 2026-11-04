@@ -792,6 +792,72 @@ _MaybeShowMinimapSourceNotice(st, mapPath) {
         . ", or Tray → Map & Overlay.", "Maps++", "Iconi")
 }
 
+; Once per client, the first time it is focused: did the client mods load in
+; it? Only a refused core is worth saying anything about — see
+; NativeModsCoreLoadState for why the client cannot say it itself.
+;
+; Shown once, and not again while the situation is unchanged; a client seen
+; with the mods loaded clears that, so a later refusal is news again. That is
+; the same rule the core applies to its own notice ([Core] BlockedNotice), kept
+; in Maps++'s config.ini because osmw.ini is not Maps++'s to write.
+_CheckClientModsLoaded() {
+    global gCoreRefusedNoticeShown, CONFIG_INI
+    static loaded := false, checkedPid := 0, triedPid := 0, unknownTries := 0
+    static shownThisSession := false
+    if !loaded {
+        loaded := true
+        gCoreRefusedNoticeShown := (Trim(IniRead(CONFIG_INI, "ClientMods", "CoreRefusedNoticeShown", "0")) = "1")
+    }
+    proc := GetCachedProcessHandleAndBase()
+    if (!proc.ok || proc.pid = checkedPid)
+        return
+    if (proc.pid != triedPid) {
+        triedPid := proc.pid
+        unknownTries := 0
+    }
+    state := NativeModsCoreLoadState(proc, proc.pid)
+    ; A read that fails now usually works a tick later. One that never does
+    ; must not cost a module walk five times a second for the client's life.
+    if (state = "unknown" && ++unknownTries < 10)
+        return
+    checkedPid := proc.pid
+    if (state = "loaded" && gCoreRefusedNoticeShown) {
+        gCoreRefusedNoticeShown := false
+        try IniWrite("0", CONFIG_INI, "ClientMods", "CoreRefusedNoticeShown")
+        return
+    }
+    ; shownThisSession: two clients from different folders, one loading the
+    ; mods and one not, would otherwise clear and re-raise this on every switch.
+    if (state != "refused" || gCoreRefusedNoticeShown || shownThisSession)
+        return
+    gCoreRefusedNoticeShown := true
+    shownThisSession := true
+    try IniWrite("1", CONFIG_INI, "ClientMods", "CoreRefusedNoticeShown")
+    ; Off this timer thread: the dialog waits for the user.
+    SetTimer(ShowCoreRefusedNotice, -1)
+}
+
+ShowCoreRefusedNotice() {
+    sac := SmartAppControlState()
+    text := "This game client is running without the osMW client mods. Windows refused "
+        . "to load osmw_core.dll, so none of them started — no improved chat, auto-login, "
+        . "F12 settings panel or display scaling.`n`n"
+    if (sac = "on") {
+        text .= "Smart App Control is on, and it refuses files that are not code-signed. "
+            . "The mods are not signed, but they are not damaged. They can only load with "
+            . "Smart App Control turned off (Windows Security → App & browser control → "
+            . "Smart App Control settings)."
+    } else {
+        text .= "Smart App Control is not what stopped it here. On a work or school PC a "
+            . "security policy may block it; otherwise antivirus or a damaged "
+            . "osmw_core.dll is likely, and reinstalling the client mods is the first "
+            . "thing to try."
+    }
+    text .= "`n`nMaps++ works the same either way. This message is not shown again until "
+        . "a client has loaded the mods successfully."
+    ShowMessage(text, "Maps++ — Client mods did not load", Map("severity", "warn"))
+}
+
 CloseOverlay() {
     global gOverlayVisible, gGui, gOverlayHover
     if gOverlayVisible && IsObject(gGui) {
@@ -845,6 +911,7 @@ UpdateMapState() {
     }
 
     gTrackedGameHwnd := activeHwnd
+    _CheckClientModsLoaded()
     ; Here rather than at open time: a change drops the overlay Gui, and doing
     ; that from inside ShowOrToggleOverlay would re-enter it mid-toggle.
     RefreshGameContentScale(activeHwnd)
@@ -1010,7 +1077,39 @@ ShowClientModsStatus() {
     table := NativeModsStatusTable(st)
     if (st.ok && table != "")
         opts["detail"] := table
-    ShowMessage(summary.text, "Maps++ — Client Mods Status", opts)
+    text := summary.text
+    ; A client whose core was refused wrote no report, so the file can only
+    ; describe some earlier client. Say that first, or the report reads as
+    ; "all fine" about a client running stock.
+    refused := RunningClientsWithoutMods()
+    if refused.Length {
+        text := "Running without the mods: " _NativeModsJoin(refused) ". Windows refused "
+            . "osmw_core.dll in " (refused.Length = 1 ? "that client" : "those clients")
+            . ", so the report below is from an earlier one."
+            . (SmartAppControlState() = "on" ? " Smart App Control is on." : "")
+            . "`n`n" text
+        opts["severity"] := "danger"
+    }
+    ShowMessage(text, "Maps++ — Client Mods Status", opts)
+}
+
+; Every running client whose core was refused, by character name or PID.
+RunningClientsWithoutMods() {
+    out := []
+    seen := Map()
+    for hwnd in GetTopLevelGameWindows() {
+        pid := 0
+        try pid := WinGetPID("ahk_id " hwnd)
+        if (!pid || seen.Has(pid))
+            continue
+        seen[pid] := true
+        proc := GetClientProcess(pid)
+        if (proc.ok && NativeModsCoreLoadState(proc, pid) = "refused") {
+            who := CharacterNameFromWindow(hwnd)
+            out.Push(who = "" ? "PID " pid : who)
+        }
+    }
+    return out
 }
 
 ShowDebugState() {

@@ -114,6 +114,85 @@ NativeDisplayModuleExpected() {
     return StrLower(Trim(NativeModsRead("Display", "Mode", "Windowed"))) != "stock"
 }
 
+; ── Whether a running client loaded the mods at all ──────────────
+;
+; osmw_core.dll reports everything about the mods except its own refusal. The
+; client loads it from mod_autoload's stub at the CRT entry, and a core that
+; fails to load is deliberately ignored: the game carries on stock, behind
+; Windows' own "Bad Image" box when Smart App Control refused the file. Nothing
+; else follows. No status report is written (the one on disk is whatever the
+; last good client left), and the in-game notice the core raises for refused
+; FEATURES cannot appear, because the core is what raises it. Maps++ is the one
+; thing left that can tell the player — which is also why it does not repeat
+; that in-game notice for features: the core shows it once already.
+;
+; "refused" needs all three: the autoload patch in this process's code, the
+; core DLL beside this process's own main.exe, and no osmw_core.dll among its
+; modules. The core is loaded before CRT startup reaches WinMain, so once a
+; client has a window the answer is final.
+;
+; Returns "loaded" | "refused" | "stock" (nothing in this client tried to load
+; the mods) | "unknown" (could not tell; ask again later).
+NativeModsCoreLoadState(proc, pid) {
+    static cache := Map()
+    key := pid ":" proc.modBase
+    if cache.Has(key)
+        return cache[key]
+    result := _NativeModsProbeCore(proc, pid)
+    if (result = "unknown")
+        return result
+    if (result = "refused")
+        LogWarn("ClientMods", "osmw_core.dll is beside main.exe and the client is patched "
+            . "to load it, but PID " pid " has no osmw_core.dll loaded — Windows refused "
+            . "it, so that client runs without the mods. Smart App Control: "
+            . (SmartAppControlState() = "" ? "unknown" : SmartAppControlState()))
+    ; PIDs are recycled; see _NativeMinimapCapacity.
+    if (cache.Count >= 32)
+        cache := Map()
+    cache[key] := result
+    return result
+}
+
+_NativeModsProbeCore(proc, pid) {
+    global NATIVE_MODS_AUTOLOAD_RVA, NATIVE_MODS_CORE_DLL, PROCESS_EXE
+    if GetModuleBaseAddress(proc.handle, NATIVE_MODS_CORE_DLL)
+        return "loaded"
+    ; Not found can also mean the module list could not be read at all, which
+    ; must not pass for a refusal. The exe itself is always in a readable list.
+    if !GetModuleBaseAddress(proc.handle, PROCESS_EXE)
+        return "unknown"
+    code := ReadClientBuffer(proc, NATIVE_MODS_AUTOLOAD_RVA, 7)
+    if !code
+        return "unknown"
+    if !(NumGet(code, 0, "UChar") = 0xE9 && NumGet(code, 5, "UChar") = 0x90
+        && NumGet(code, 6, "UChar") = 0x90)
+        return "stock"
+    exePath := ""
+    try exePath := ProcessGetPath(pid)
+    if (exePath = "")
+        return "unknown"
+    SplitPath(exePath, , &exeDir)
+    ; A patched client with no core beside it is a client without the mods
+    ; installed, which runs stock by design.
+    return FileExist(exeDir "\" NATIVE_MODS_CORE_DLL) ? "refused" : "stock"
+}
+
+; Smart App Control's state: "on", "evaluation", "off", or "" when the value
+; cannot be read (older Windows, or no such policy). Only "on" blocks; in
+; evaluation it watches without refusing anything.
+SmartAppControlState() {
+    v := ""
+    try v := RegRead("HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy",
+        "VerifiedAndReputablePolicyState")
+    if (v = 1)
+        return "on"
+    if (v = 2)
+        return "evaluation"
+    if (v = 0)
+        return "off"
+    return ""
+}
+
 ; ── The mods' startup report ─────────────────────────────────────
 ;
 ; osmw_core.dll writes osmw_status.ini beside main.exe at each lifecycle point
