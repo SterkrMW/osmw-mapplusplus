@@ -12,8 +12,17 @@ RegisterHotkeyAction(Map(
     "default", "!e",
     "addon", "InventoryToggle",
     "handler", _InventoryToggle_OpenInventory,
-    "hotIfWinActive", true
+    "hotIfFn", _InventoryToggle_HotIfClick
 ))
+
+; The client patch inventory_hotkey.py makes Alt+E open the bag natively. It
+; rewrites one jcc in the Alt+E handler, at this RVA, from "leave unless in a
+; fight" to "open the inventory unless in a fight". Code bytes, so a client
+; update moves them; anything that is neither form reads as "unknown" and the
+; Maps++ remap stays on.
+global _InventoryToggle_ALTE_JCC_RVA := 0x47DA5
+global _InventoryToggle_ALTE_STOCK := "0F85B4030000"
+global _InventoryToggle_ALTE_PATCHED := "0F8547FFFFFF"
 RegisterHotkeyAction(Map(
     "id", "inventoryOpenSend",
     "label", "Open inventory (send Alt+I)",
@@ -31,7 +40,65 @@ _InventoryToggle_OnTrayMenu(trayGroups) {
     trayGroups["quickActions"].Add("Inventory", invMenu)
 }
 
-; The click coordinates are client-area pixels for the fixed-size osMW client.
+; When the click hotkey fires. It stands down — letting the keystroke through to
+; the game — wherever the game now does better itself, but only while the chord
+; IS Alt+E, the one key it can collide with:
+;   - in a fight, where Alt+E is the game's own Skill command and the remap used
+;     to swallow it;
+;   - on a client carrying inventory_hotkey.py, which opens the bag on Alt+E
+;     natively. A click on top would open it and shut it again, and the patch's
+;     notes ask for exactly this: remove the remap once it is applied.
+; Rebound to anything else, it never collided with the game and works as before.
+; The tray and Quick Actions entries call the handler directly and are unaffected.
+_InventoryToggle_HotIfClick(*) {
+    if !WinActive(GAME_WIN_FILTER)
+        return false
+    if (CanonicalHotkeyChord(GetHotkeyChord("inventoryOpenClick")) != "!e")
+        return true
+    if _InventoryToggle_InBattle()
+        return false
+    return _InventoryToggle_NativeAltE() != "patched"
+}
+
+_InventoryToggle_InBattle() {
+    cached := GetCachedProcessHandleAndBase()
+    if !cached.ok
+        return false
+    buf := ReadClientBuffer(cached, GetResolvedOffset("BATTLE_STATE_OFFSET"), 4)
+    return buf ? (NumGet(buf, 0, "Int") != 0) : false
+}
+
+; "patched" | "stock" | "unknown" for the focused client. Fixed for a process's
+; lifetime, so it is read once per pid; the hotkey's HotIf asks on every press.
+_InventoryToggle_NativeAltE() {
+    global _InventoryToggle_ALTE_JCC_RVA, _InventoryToggle_ALTE_STOCK, _InventoryToggle_ALTE_PATCHED
+    static cache := Map()
+    cached := GetCachedProcessHandleAndBase()
+    if !cached.ok
+        return "unknown"
+    key := cached.pid ":" cached.modBase
+    if cache.Has(key)
+        return cache[key]
+    verdict := "unknown"
+    if (buf := ReadClientBuffer(cached, _InventoryToggle_ALTE_JCC_RVA, 6)) {
+        hex := ""
+        loop 6
+            hex .= Format("{:02X}", NumGet(buf, A_Index - 1, "UChar"))
+        verdict := (hex = _InventoryToggle_ALTE_PATCHED) ? "patched"
+            : (hex = _InventoryToggle_ALTE_STOCK) ? "stock" : "unknown"
+    }
+    if (cache.Count >= 32)
+        cache := Map()
+    cache[key] := verdict
+    if (verdict = "patched")
+        LogInfo("InventoryToggle", "Client " cached.pid " opens the inventory on Alt+E itself"
+            . " — the Maps++ remap stands down for it")
+    return verdict
+}
+
+; The bag button sits at (425, 569) on the game's 800×600 surface. Converted to
+; real client pixels on the game's own window, so it still lands on the button
+; when the client mods scale the game 2×/3× or letterbox it.
 ;
 ; BlockInput must be released on every path. ControlClick throws when the target
 ; window dies mid-call, and without the finally that leaves the user's mouse
@@ -42,9 +109,10 @@ _InventoryToggle_OpenInventory() {
         return
     key := _InventoryToggle_TriggerKey("inventoryOpenClick")
     _InventoryToggle_AwaitRelease(key)
+    target := LogicalToClient(activeHwnd, 425, 569)
     BlockInput("Mouse")
     try {
-        ControlClick("x425 y569", "ahk_id " activeHwnd, , "Left", 1, "NA")
+        ControlClick("x" target.x " y" target.y, "ahk_id " target.hwnd, , "Left", 1, "NA")
     } catch {
         ; The client went away between the focus check and the click.
     } finally {

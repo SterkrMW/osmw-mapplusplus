@@ -63,7 +63,7 @@ _ChatToggle_ToggleAllExceptActive() {
         if (!pid || pid = activePid || seen.Has(pid))
             continue
         seen[pid] := true
-        try ControlClick("x30 y550", "ahk_id " hwnd, , "Left", 1, "NA")
+        _ChatToggle_ClickChatButton(hwnd)
     }
 }
 
@@ -71,7 +71,20 @@ _ChatToggle_ToggleActiveChat() {
     activeHwnd := WinActive(GAME_WIN_FILTER)
     if !activeHwnd
         return
-    try ControlClick("x30 y550", "ahk_id " activeHwnd, , "Left", 1, "NA")
+    _ChatToggle_ClickChatButton(activeHwnd)
+}
+
+; The chat button sits at (30, 550) on the game's 800×600 surface. Converted to
+; real client pixels on the game's own window, so it still lands on the button
+; when the client mods scale the game 2×/3× or letterbox it — and so a focused
+; chat window resolves to the game window it belongs to, rather than being
+; clicked itself.
+;
+; With Chat Mod's "Let me resize" (UnlockSize) on, the chat window's size is the
+; mod's, so the mini-size toggle below may not stick; this button still works.
+_ChatToggle_ClickChatButton(hwnd) {
+    target := LogicalToClient(hwnd, 30, 550)
+    try ControlClick("x" target.x " y" target.y, "ahk_id " target.hwnd, , "Left", 1, "NA")
 }
 
 _ChatToggle_ToggleSize() {

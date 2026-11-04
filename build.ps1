@@ -34,8 +34,7 @@ param(
     [string] $Variant,
     [string] $Ahk2ExePath,
     [string] $Base,
-    [switch] $Clean,
-    [switch] $SkipMods
+    [switch] $Clean
 )
 
 $ErrorActionPreference = 'Stop'
@@ -73,23 +72,6 @@ $MapDir        = Join-Path $RepoRoot 'maps'
 $UiDir         = Join-Path $RepoRoot 'ui'
 $LibDir        = Join-Path $RepoRoot 'Lib'
 $AvatarDir     = Join-Path $RepoRoot 'avatars'
-$ManagedModulesCsv = 'osmw_chat.dll,osmw_login.dll,osmw_minimap.dll,osmw_fightspeed.dll,osmw_weather.dll,osmw_settings.dll,osmw_timers.dll,osmw_inventory.dll,osmw_fishing.dll'
-$NativePayloadFiles = @(
-    'osmw_core.dll',
-    'osmw_core_api.ini',
-    'osmw_chat.dll',
-    'osmw_login.dll',
-    'osmw_minimap.dll',
-    'osmw_fightspeed.dll',
-    'osmw_weather.dll',
-    'osmw_settings.dll',
-    'osmw_timers.dll',
-    'osmw_inventory.dll',
-    'osmw_fishing.dll',
-    'osmw_chat_launch.exe',
-    'osmw_login_launch.exe'
-)
-
 # The version lives in variables.ahk; main.ahk carries a matching
 # ;@Ahk2Exe-SetVersion literal so the compiled exe's file properties agree.
 # Ahk2Exe cannot read the constant, so the two are checked against each other
@@ -344,22 +326,10 @@ function Build-Variant {
             Copy-Item -LiteralPath $LibDir -Destination $outDir -Recurse -Force
         }
 
-        # Both compatibility launchers look for main.exe beside themselves.
-        # Hoist both to the release root; their normal launch paths inject only
-        # osmw_core.dll and the login-named one retains its --roster UI.
-        foreach ($launcherName in @('osmw_chat_launch.exe', 'osmw_login_launch.exe')) {
-            $launcherSrc = Join-Path (Join-Path $outDir 'Lib') $launcherName
-            Move-Item -LiteralPath $launcherSrc `
-                      -Destination (Join-Path $outDir $launcherName) `
-                      -Force
-        }
-
         # Drop a small README naming the variant + its addons.
         $readme = @()
         $readme += "mapsplusplus.exe -- variant: $Name"
         $readme += "Version: $Version"
-        $readme += "Managed core ABI: 1.0"
-        $readme += "Managed modules: $ManagedModulesCsv"
         $readme += "Built: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
         $readme += ""
         $readme += "Bundled addons:"
@@ -398,69 +368,6 @@ if (Test-Path -LiteralPath $shadowCheck) {
     if ($LASTEXITCODE -ne 0) {
         throw "A local variable shadows an AutoHotkey built-in (listed above). Rename it and build again."
     }
-}
-
-# The native mods under patches\ compile to the DLLs in Lib\, which every
-# release copies and which Maps++ deploys into a game folder. Their
-# sources live here now, so a release must not be cut from Lib\ binaries that
-# predate them -- that drift is exactly what moving the sources in was meant to
-# end. modhash.py compares recorded source hashes rather than mtimes, because
-# git does not preserve mtimes and a fresh clone would trip any newer-than test.
-#
-# Rebuilding needs Python and the MSVC x86 build tools. Maps++ itself needs
-# neither, so their absence is a warning and not a failure: you can still build
-# the AHK side from a checkout on a machine that cannot compile C.
-if (-not $SkipMods) {
-    $modHash = Join-Path $RepoRoot 'patches\common\modhash.py'
-    $python  = Get-Command python -ErrorAction SilentlyContinue
-    if (-not (Test-Path -LiteralPath $modHash)) {
-        # patches\ is optional; a checkout without it just ships Lib\ as-is.
-    } elseif (-not $python) {
-        Write-Warning "Python not found -- cannot verify Lib\osmw_*.dll match patches\*\src. Shipping Lib\ as-is."
-    } else {
-        & $python.Source $modHash --check | Write-Host
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Rebuilding the native mods..." -ForegroundColor Cyan
-            foreach ($mod in @('core', 'chatmod', 'login', 'minimap', 'fightspeed', 'weather', 'settings', 'timers', 'inventory')) {
-                $modBuild = Join-Path $RepoRoot "patches\$mod\tools\build.py"
-                if (-not (Test-Path -LiteralPath $modBuild)) { continue }
-                & $python.Source $modBuild --no-deploy | Write-Host
-                if ($LASTEXITCODE -ne 0) {
-                    throw "Building the $mod DLL failed (above). Fix it, or pass -SkipMods to ship the existing Lib\ binaries."
-                }
-            }
-            & $python.Source $modHash --check | Write-Host
-            if ($LASTEXITCODE -ne 0) {
-                throw "The native mods still look stale after a rebuild. Something is wrong with patches\common\modhash.py."
-            }
-        }
-    }
-}
-
-# A release is never allowed to consume a partial native set, including when
-# -SkipMods deliberately bypasses source-hash rebuilding. The runtime deployer
-# stages this same list transactionally before launch.
-$missingPayload = @()
-foreach ($payloadName in $NativePayloadFiles) {
-    $payloadPath = Join-Path $LibDir $payloadName
-    if (-not (Test-Path -LiteralPath $payloadPath -PathType Leaf)) {
-        $missingPayload += $payloadName
-    }
-}
-if ($missingPayload.Count -gt 0) {
-    throw "Managed native payload is incomplete in Lib\: $($missingPayload -join ', ')"
-}
-
-$apiMetadataPath = Join-Path $LibDir 'osmw_core_api.ini'
-$apiMetadataText = Get-Content -LiteralPath $apiMetadataPath -Raw
-if ($apiMetadataText -notmatch '(?m)^Format=1\s*$' -or
-    $apiMetadataText -notmatch '(?m)^Abi=1\.0\s*$' -or
-    $apiMetadataText -notmatch ('(?m)^Modules=' + [regex]::Escape($ManagedModulesCsv) + '\s*$')) {
-    throw "Lib\osmw_core_api.ini does not describe core ABI 1.0 and the complete managed-module list."
-}
-$defaultsText = Get-Content -LiteralPath $DefaultsIni -Raw
-if ($defaultsText -notmatch ('(?m)^Modules=' + [regex]::Escape($ManagedModulesCsv) + '\s*$')) {
-    throw "defaults.ini [Core] Modules does not match the packaged managed-module list."
 }
 
 $compiler = Resolve-Ahk2Exe -Override $Ahk2ExePath

@@ -2,8 +2,11 @@
 
 ; Auto-login roster editor and the per-launch consent the DLL checks.
 ;
-; The DLL (osmw_login.dll, injected by osmw_chat_launch.exe) does the in-process
-; fill/submit/character-select. This addon never types into the client. Each
+; The DLL (osmw_login.dll, loaded by osmw_core.dll, which a patched main.exe
+; loads itself) does the in-process fill/submit/character-select. It is one of
+; the osMW client mods, a separate product in the server repo
+; (tools/client-mods/login); Maps++ neither ships nor deploys it, and this file
+; only follows its roster format. This addon never types into the client. Each
 ; launched process claims the next enabled row itself; Maps++ does not assign
 ; accounts. Passwords are Windows-user DPAPI blobs in login_roster.dat beside
 ; main.exe — never config.ini, never mapsplusplus.log, never a load message.
@@ -17,9 +20,9 @@ global _AUTOLOGIN_MAGIC := "OSMWROS1"
 global _AUTOLOGIN_DPAPI_DESC := "osmw_login"
 global _AUTOLOGIN_UI_FORBIDDEN := 1
 global _AUTOLOGIN_BLOB_MAX := 65536
-; Must match LG_CONSENT_VAR in patches\login\src\dllmain.c.
+; Must match LG_CONSENT_VAR in the server repo's tools/client-mods/login/src/dllmain.c.
 global _AUTOLOGIN_CONSENT_VAR := "OSMW_AUTOLOGIN"
-; Must match LG_ROW_VAR in patches\login\src\dllmain.c.
+; Must match LG_ROW_VAR in the same file.
 global _AUTOLOGIN_ROW_VAR := "OSMW_LOGIN_ROW"
 ; Row groups are a Maps++ launcher concept — the DLL has no use for them — so
 ; they live here rather than in login_roster.dat. Changing that file's format
@@ -67,15 +70,15 @@ _AutoLogin_OnTrayMenu(trayGroups) {
 ;
 ; This used to write [Addons] AutoLogin. That key is persistent, so the value
 ; Maps++ wrote for its own launch was still there for a client the player
-; started by hand afterwards — running osmw_chat_launch.exe on its own would log
-; itself in, using whatever Maps++ last decided. The key could not simply be
+; started by hand afterwards — running main.exe on its own would log itself
+; in, using whatever Maps++ last decided. The key could not simply be
 ; parked at 0 between launches either, because it doubles as this addon's own
 ; enable flag in Maps++'s [Addons] list.
 ;
 ; An environment variable answers the question the ini could not: not "is
-; auto-login enabled" but "did the user ask for it for THIS process". Both
-; launchers pass NULL for lpEnvironment in CreateProcess, so main.exe inherits
-; it through the injection chain and no launcher change was needed. A client
+; auto-login enabled" but "did the user ask for it for THIS process". main.exe
+; inherits it from Run(), and so does a client started through one of the mods'
+; compatibility launchers, which pass NULL for lpEnvironment. A client
 ; started from Explorer inherits Explorer's environment, has no such variable,
 ; and logs in normally.
 ;
@@ -604,8 +607,13 @@ _AutoLogin_SaveIncoming(incoming) {
         ))
     }
 
+    ; Written beside the real file and swapped in only once complete. Writing in
+    ; place meant a failure part-way — a full disk, an antivirus lock — left a
+    ; truncated roster, which the DLL rejects outright: every client would then
+    ; sit at the login screen until the roster was re-entered by hand.
+    tmpPath := path ".tmp"
     f := ""
-    try f := FileOpen(path, "w")
+    try f := FileOpen(tmpPath, "w")
     catch as err
         return {ok: false, reason: "Could not write the roster file. " err.Message}
     if !IsObject(f)
@@ -633,9 +641,28 @@ _AutoLogin_SaveIncoming(incoming) {
         }
     } catch as err {
         f.Close()
+        try FileDelete(tmpPath)
         return {ok: false, reason: "Could not write the roster file. " err.Message}
     }
     f.Close()
+    ; A starting client reads the roster for a moment; retry briefly rather
+    ; than fail a save over it.
+    moved := false
+    moveErr := ""
+    loop 3 {
+        try {
+            FileMove(tmpPath, path, 1)
+            moved := true
+            break
+        } catch as err {
+            moveErr := err.Message
+            Sleep 100
+        }
+    }
+    if !moved {
+        try FileDelete(tmpPath)
+        return {ok: false, reason: "Could not replace the roster file. " moveErr}
+    }
     ; Only after the roster itself is on disk, so a failed write cannot leave
     ; groups pointing at rows that were never saved.
     _AutoLogin_SaveGroups(outRows)

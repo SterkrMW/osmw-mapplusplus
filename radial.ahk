@@ -248,7 +248,15 @@ RadialOpen(name) {
         spec["onBeforeOpen"].Call()
     }
 
-    _Radial_EnsureGui(ring)
+    try {
+        _Radial_EnsureGui(ring)
+    } catch as err {
+        ; The runtime passed the startup probe but the window still could not
+        ; be built. Marking it switches the session to native, so the next
+        ; press gets the addon's native fallback instead of this error again.
+        MarkWebView2Unavailable("Radial " name, err)
+        return
+    }
     if !IsObject(ring.gui) {
         return
     }

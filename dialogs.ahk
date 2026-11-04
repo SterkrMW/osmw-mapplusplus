@@ -379,7 +379,9 @@ _Dlg_EnsureGui() {
     try {
         g := WebViewGui("-Caption +AlwaysOnTop +ToolWindow -Resize", "Maps++", , wvSettings)
     } catch as err {
-        LogWarn("Dialog", "WebView2 dialog unavailable — using native: " err.Message)
+        ; Also switches the session to native, so the next panel does not
+        ; repeat the same failure as an error dialog of its own.
+        MarkWebView2Unavailable("Dialog", err)
         return false
     }
     gDlgGui := g

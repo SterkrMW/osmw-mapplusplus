@@ -11,12 +11,16 @@ _Settings_BuildNative() {
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gPrimaryProfileId, gSecondaryProfileId, LAUNCH_LAYOUT_DEFAULT
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
-    global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme
-    global gSettingsNativeFieldSetter
+    global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme, gShowHoverCoords
+    global gMinimapSource, MINIMAP_SOURCES, MINIMAP_SOURCE_LABELS, gMinimapFollowGameScale
+    global gSettingsNativeFieldSetter, gSettingsRenderedAddonValues
 
+    gSettingsRenderedAddonValues := Map()
     contributors := []
     for _, am in gAddonHooks {
-        if !am.Has("OnSettingsWeb")
+        ; Same rule as the WebView2 page, so a disabled addon has no tab here
+        ; either and its Save cannot reach the files it edits.
+        if !_Settings_AddonHasTab(am)
             continue
         label := am.Has("settingsLabel") ? am["settingsLabel"]
             : (am.Has("name") ? am["name"] : "Addon")
@@ -145,12 +149,26 @@ _Settings_BuildNative() {
 
     ; Minimap -----------------------------------------------------
     tab.UseTab(2)
-    g.Add("Text", "x" contentX " y" contentY " w150", "Scale (%):")
+    g.Add("Text", "x" contentX " y" contentY " w150", "Tab key:")
+    sourceDdl := g.Add("DropDownList", "x178 yp-3 w440", MINIMAP_SOURCE_LABELS)
+    sourceDdl.Value := 1
+    for i, src in MINIMAP_SOURCES {
+        if (src = gMinimapSource)
+            sourceDdl.Value := i
+    }
+    openChord := GetHotkeyDisplay("openMapsppMinimap")
+    g.Add("Text", "x178 y+4 w440 cGray",
+        "“Open Maps++ minimap” opens this overlay even where the game has its own"
+        . (openChord != "" ? " (" openChord ")." : " — bind it under Hotkeys."))
+    g.Add("Text", "x" contentX " y+18 w150", "Scale (%):")
     scaleEdit := g.Add("Edit", "x178 yp-3 w80 Number", String(gMinimapScale))
     g.Add("UpDown", "Range50-200", gMinimapScale)
     g.Add("Text", "x" contentX " y+22 w150", "Opacity (%):")
     opacityEdit := g.Add("Edit", "x178 yp-3 w80 Number", String(gMinimapOpacity))
     g.Add("UpDown", "Range30-100", gMinimapOpacity)
+    followScaleCb := g.Add("CheckBox", "x" contentX " y+12 w520",
+        "Grow with the game's display scale (the client mods' 2×/3×)")
+    followScaleCb.Value := gMinimapFollowGameScale ? 1 : 0
     g.Add("Text", "x" contentX " y+22 w150", "Anchor:")
     anchorDdl := g.Add("DropDownList", "x178 yp-3 w220", MINIMAP_ANCHORS)
     anchorDdl.Choose(gMinimapAnchor)
@@ -161,6 +179,9 @@ _Settings_BuildNative() {
     keepOpenCb := g.Add("CheckBox", "x" contentX " y+24 w520",
         "Keep the minimap open when the game loses focus")
     keepOpenCb.Value := gMinimapKeepOpen ? 1 : 0
+    hoverCoordsCb := g.Add("CheckBox", "x" contentX " y+10 w520",
+        "Show coordinates under the cursor")
+    hoverCoordsCb.Value := gShowHoverCoords ? 1 : 0
 
     ; Appearance --------------------------------------------------
     tab.UseTab(3)
@@ -203,9 +224,9 @@ _Settings_BuildNative() {
     addonFieldGroups := Map()
     for i, c in contributors {
         tab.UseTab(4 + i)
-        addonName := c.map.Has("name") ? c.map["name"] : c.label
-        fields := []
-        try fields := c.map["OnSettingsWeb"]()
+        addonName := _Settings_AddonKey(c.map)
+        ; Records what each field shows, so Save hands the addon only changes.
+        fields := _Settings_AddonFieldsFor(c.map)
         controls := []
         y := contentY
         for field in fields {
@@ -590,6 +611,9 @@ _Settings_BuildNative() {
                 "secondaryProfile", _SettingsNative_BoundId(secondaryProfileDdl, nativeProfiles)
             ),
             "minimap", Map(
+                "source", MINIMAP_SOURCES[sourceDdl.Value],
+                "showHoverCoords", hoverCoordsCb.Value ? true : false,
+                "followGameScale", followScaleCb.Value ? true : false,
                 "scale", Trim(scaleEdit.Value),
                 "opacity", Trim(opacityEdit.Value),
                 "anchor", anchorDdl.Text,

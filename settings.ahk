@@ -32,7 +32,17 @@ ShowSettingsWindow() {
         return
     }
     if _Settings_CanUseWebView() {
-        _Settings_BuildWebView()
+        ; Settings is where a user goes to fix things, so it must open even if
+        ; WebView2 fails despite the startup probe.
+        try {
+            _Settings_BuildWebView()
+        } catch as err {
+            MarkWebView2Unavailable("Settings", err)
+            if IsObject(gSettingsGui)
+                try gSettingsGui.Destroy()
+            gSettingsGui := 0
+            _Settings_BuildNative()
+        }
     } else {
         TrayTip("WebView2 settings are unavailable, so the native settings window was opened instead.",
             "Maps++", "Icon!")
@@ -119,6 +129,7 @@ _Settings_SendState() {
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, OVERLAY_W, OVERLAY_H, gAccentScheme, gShowHoverCoords
+    global gMinimapSource, gMinimapFollowGameScale, GAME_LOGICAL_W, GAME_LOGICAL_H
     global APP_VERSION, gVersionCheckEnabled, VERSION_CHECK_URL
     global gUpdateVersion, gUpdateNotes
     global gPrimaryProfileId, gSecondaryProfileId
@@ -143,6 +154,9 @@ _Settings_SendState() {
 
     ; Addon tabs (dynamic settings)
     addonTabsJson := _Settings_AddonTabsToJson()
+
+    ; The game picture the minimap preview is drawn against.
+    preview := GameContentRect()
 
     ; Addon enable/disable list
     addonsJson := _Settings_AddonsListToJson()
@@ -186,17 +200,24 @@ _Settings_SendState() {
             . ',"accountChoices":' _Settings_AccountChoicesToJson()
         . '}'
         . ',"minimap":{'
-            . '"scale":' gMinimapScale
+            . '"source":' _JSON_Str(gMinimapSource)
+            . ',"openChordDisplay":' _JSON_Str(GetHotkeyDisplay("openMapsppMinimap"))
+            . ',"scale":' gMinimapScale
             . ',"opacity":' gMinimapOpacity
             . ',"anchor":' _JSON_Str(gMinimapAnchor)
             . ',"offsetX":' gMinimapOffsetX
             . ',"offsetY":' gMinimapOffsetY
             . ',"keepOpen":' (gMinimapKeepOpen ? "true" : "false")
             . ',"showHoverCoords":' (gShowHoverCoords ? "true" : "false")
+            . ',"followGameScale":' (gMinimapFollowGameScale ? "true" : "false")
             . ',"baseW":' OVERLAY_W
             . ',"baseH":' OVERLAY_H
-            . ',"clientW":1024'
-            . ',"clientH":768'
+            ; The preview frames the real game picture when a client is running
+            ; (2× under the display module is 1600×1200), else the game's own
+            ; unscaled 800×600 — never a made-up desktop size.
+            . ',"clientW":' (preview.ok ? preview.w : GAME_LOGICAL_W)
+            . ',"clientH":' (preview.ok ? preview.h : GAME_LOGICAL_H)
+            . ',"contentScale":' (preview.ok ? preview.scale : 1)
         . '}'
         . ',"appearance":{"accentScheme":' _JSON_Str(gAccentScheme) '}'
         . ',"hotkeys":{"actions":' hotkeysJson '}'
@@ -211,7 +232,7 @@ _Settings_GetTabNames() {
     global gAddonHooks
     tabNames := ["Launcher", "Minimap", "Appearance", "Hotkeys"]
     for _, am in gAddonHooks {
-        if am.Has("OnSettingsWeb") {
+        if _Settings_AddonHasTab(am) {
             label := am.Has("settingsLabel") ? am["settingsLabel"]
                 : (am.Has("name") ? am["name"] : "Addon")
             tabNames.Push(label)
@@ -219,6 +240,109 @@ _Settings_GetTabNames() {
     }
     tabNames.Push("Addons")
     return tabNames
+}
+
+; Whether an addon gets a Settings tab. One rule for the tab names, both
+; frontends' tab bodies, Save and Reset to Defaults, so they cannot drift.
+;
+; A disabled addon gets none. Before this its tab was still shown and still
+; saved, which for Chat Mod meant "turn the addon off" did not stop Maps++
+; writing the game's osmw.ini — the opposite of what the Addons tab promises.
+_Settings_AddonHasTab(am) {
+    if !am.Has("OnSettingsWeb")
+        return false
+    name := am.Has("name") ? am["name"] : ""
+    return (name = "") || IsAddonEnabled(name)
+}
+
+; Calls the addon's OnSettingsWeb — exactly once per window open, which Chat
+; Mod's _ChatMod_RenderedPreset depends on — and remembers what every
+; value-bearing field showed, so Save can tell what the user actually changed.
+_Settings_AddonFieldsFor(am) {
+    global gSettingsRenderedAddonValues
+    fields := []
+    try fields := am["OnSettingsWeb"]()
+    if !IsObject(fields)
+        fields := []
+    rendered := Map()
+    for f in fields {
+        if !IsObject(f) || !f.Has("id") || f["id"] = ""
+            continue
+        fieldType := f.Has("type") ? f["type"] : "text"
+        if (fieldType = "info" || fieldType = "button")
+            continue
+        rendered[f["id"]] := { type: fieldType, value: f.Has("value") ? f["value"] : "" }
+    }
+    gSettingsRenderedAddonValues[_Settings_AddonKey(am)] := rendered
+    return fields
+}
+
+; The key both frontends file an addon's fields under in the save message.
+_Settings_AddonKey(am) {
+    if am.Has("name")
+        return am["name"]
+    return am.Has("settingsLabel") ? am["settingsLabel"] : "Addon"
+}
+
+; The subset of `incoming` that differs from what the window rendered. A field
+; with no snapshot counts as changed, so an action that grew the form, or a
+; frontend that rendered nothing, can never silently lose a value.
+;
+; Both frontends send every field on every Save — the page because its draft is
+; the whole form, the native panel because it reads every control back. Without
+; this, saving the minimap opacity also wrote every Chat Mod key with the values
+; Settings had been opened with, undoing any change made since in the game's own
+; F12 panel.
+_Settings_ChangedAddonValues(addonKey, incoming) {
+    global gSettingsRenderedAddonValues
+    rendered := gSettingsRenderedAddonValues.Has(addonKey)
+        ? gSettingsRenderedAddonValues[addonKey] : Map()
+    changed := Map()
+    for fieldId, value in incoming {
+        if !rendered.Has(fieldId) {
+            changed[fieldId] := value
+            continue
+        }
+        r := rendered[fieldId]
+        if !_Settings_FieldValueEqual(r.type, r.value, value)
+            changed[fieldId] := value
+    }
+    return changed
+}
+
+; Compared the way each frontend reports the type: checkboxes as booleans
+; (true/false from JSON, 1/0 from AHK, "1"/"0" from an ini), dropdowns and
+; numbers numerically, everything else as text. Text is case-sensitive on
+; purpose — a renamed tab "chat" → "Chat" is a change.
+_Settings_FieldValueEqual(fieldType, a, b) {
+    switch fieldType {
+        case "checkbox":
+            return _Settings_AsBool(a) = _Settings_AsBool(b)
+        case "dropdown", "number":
+            if (IsNumber(a) && IsNumber(b))
+                return Number(a) = Number(b)
+            return Trim(String(a)) == Trim(String(b))
+        case "orderedlist":
+            return RegExReplace(Trim(String(a)), "\s*,\s*", ",")
+                == RegExReplace(Trim(String(b)), "\s*,\s*", ",")
+        default:
+            return Trim(String(a)) == Trim(String(b))
+    }
+}
+
+_Settings_AsBool(v) {
+    if (v is Integer) || (v is Float)
+        return v != 0
+    s := StrLower(Trim(String(v)))
+    return !(s = "" || s = "0" || s = "false")
+}
+
+; Addons that edit a file the game's client mods own (Chat Mod → osmw.ini)
+; declare "nativeMods", true. They are handed only the keys the user changed,
+; and Reset to Defaults leaves them alone: native_mods.ahk's rule is that Maps++
+; writes the mods' settings only when the user asked for that specific change.
+_Settings_AddonIsNativeMods(am) {
+    return am.Has("nativeMods") && am["nativeMods"]
 }
 
 ; ── Hotkeys → JSON ───────────────────────────────────────────
@@ -250,11 +374,12 @@ _Settings_HotkeysToJson() {
 ; ── Addon tabs → JSON ────────────────────────────────────────
 
 _Settings_AddonTabsToJson() {
-    global gAddonHooks
+    global gAddonHooks, gSettingsRenderedAddonValues
+    gSettingsRenderedAddonValues := Map()
     json := "["
     first := true
     for _, am in gAddonHooks {
-        if !am.Has("OnSettingsWeb")
+        if !_Settings_AddonHasTab(am)
             continue
         if !first
             json .= ","
@@ -262,11 +387,10 @@ _Settings_AddonTabsToJson() {
 
         label := am.Has("settingsLabel") ? am["settingsLabel"]
             : (am.Has("name") ? am["name"] : "Addon")
-        addonName := am.Has("name") ? am["name"] : label
+        addonName := _Settings_AddonKey(am)
 
-        ; Call the addon's OnSettingsWeb to get field descriptors.
-        fields := []
-        try fields := am["OnSettingsWeb"]()
+        ; Field descriptors, with what they showed recorded for Save.
+        fields := _Settings_AddonFieldsFor(am)
 
         fieldsJson := "["
         fFirst := true
@@ -523,7 +647,8 @@ _Settings_HandleSave(msg) {
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, MINIMAP_ANCHORS, gAccentScheme, gShowHoverCoords
-    global gAddonHooks, gHotkeyActions, gVersionCheckEnabled
+    global gAddonHooks, gHotkeyActions, gVersionCheckEnabled, gMinimapSource
+    global gMinimapFollowGameScale
 
     ; ── Launcher ──
     launcher := msg["launcher"]
@@ -598,8 +723,14 @@ _Settings_HandleSave(msg) {
     ; silently switching the readout off.
     if mm.Has("showHoverCoords")
         gShowHoverCoords := mm["showHoverCoords"] ? true : false
+    if mm.Has("source")
+        gMinimapSource := NormalizeMinimapSource(mm["source"])
+    previousFollow := gMinimapFollowGameScale
+    if mm.Has("followGameScale")
+        gMinimapFollowGameScale := mm["followGameScale"] ? true : false
     SaveMinimapConfig()
-    if (gMinimapScale != previousScale || gAccentScheme != previousAccentScheme) {
+    if (gMinimapScale != previousScale || gAccentScheme != previousAccentScheme
+        || gMinimapFollowGameScale != previousFollow) {
         RebuildOverlayGui()
     } else {
         ApplyOverlayOpacity()
@@ -627,10 +758,29 @@ _Settings_HandleSave(msg) {
                 return false
             }
         }
+        ; Only chords that changed in this Save are checked against the keys
+        ; the client mods use in game, so an overlap the player already
+        ; accepted is not raised again every time anything is saved. Warned,
+        ; never refused — see NativeModsReservedKeys.
+        modKeys := 0
+        overlaps := ""
         for entry in hotkeys {
-            gHotkeyActions[entry["id"]]["chord"] := NormalizeHotkeyChord(entry["chord"])
+            action := gHotkeyActions[entry["id"]]
+            nextChord := NormalizeHotkeyChord(entry["chord"])
+            if (nextChord != "" && CanonicalHotkeyChord(nextChord) != CanonicalHotkeyChord(action["chord"])) {
+                if !IsObject(modKeys)
+                    modKeys := NativeModsReservedKeys()
+                if ((owner := NativeModsKeyConflict(nextChord, modKeys)) != "")
+                    overlaps .= "`n" FormatHotkeyDisplay(nextChord) " ("
+                        . (action.Has("label") ? action["label"] : entry["id"]) ") is also " owner
+            }
+            action["chord"] := nextChord
         }
         SaveHotkeyOverrides()
+        if (overlaps != "") {
+            LogWarn("Hotkeys", "Saved chords that the client mods also use in game:" overlaps)
+            TrayTip("Saved. These keys also do something in game:" overlaps, "Hotkeys", "Icon!")
+        }
     }
 
     ; ── Addon enable/disable ──
@@ -642,14 +792,29 @@ _Settings_HandleSave(msg) {
     }
 
     ; ── Addon settings (dynamic) ──
+    ; Only addons whose fields the user changed are saved at all. An addon that
+    ; edits the game's client-mod files ("nativeMods") is handed just those
+    ; changed keys; every other addon gets its full field map as before, since
+    ; most of them read a key that is absent as "off". The enable/disable
+    ; toggles above have already been applied, so an addon switched off in this
+    ; same Save is skipped along with its unsaved edits.
     addonSettings := msg.Has("addonSettings") ? msg["addonSettings"] : Map()
     if IsObject(addonSettings) {
         for _, am in gAddonHooks {
-            addonName := am.Has("name") ? am["name"] : ""
-            if (addonName = "" || !am.Has("OnSettingsWebSave"))
+            if (!am.Has("OnSettingsWebSave") || !_Settings_AddonHasTab(am))
                 continue
-            if addonSettings.Has(addonName) {
-                try am["OnSettingsWebSave"](addonSettings[addonName])
+            addonKey := _Settings_AddonKey(am)
+            if !addonSettings.Has(addonKey) || !IsObject(addonSettings[addonKey])
+                continue
+            incoming := addonSettings[addonKey]
+            changed := _Settings_ChangedAddonValues(addonKey, incoming)
+            if (changed.Count = 0)
+                continue
+            payload := _Settings_AddonIsNativeMods(am) ? changed : incoming
+            try {
+                am["OnSettingsWebSave"](payload)
+            } catch as err {
+                LogWarn("Settings", "Saving " addonKey " settings failed: " err.Message)
             }
         }
     }
@@ -679,7 +844,7 @@ ResetAllSettingsToDefaults() {
     global gPrimaryMonitorOverride, gSecondaryMonitorOverride
     global gPrimaryLaunchLayout, gSecondaryLaunchLayout, gVersionCheckEnabled
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
-    global gMinimapKeepOpen, gShowHoverCoords
+    global gMinimapKeepOpen, gShowHoverCoords, gMinimapSource, gMinimapFollowGameScale
     global gAddonHooks, gHotkeyActions, LAUNCH_LAYOUT_DEFAULT
     global gLaunchProfiles, gPrimaryProfileId, gSecondaryProfileId
 
@@ -715,6 +880,8 @@ ResetAllSettingsToDefaults() {
     gMinimapOffsetY := Integer(DefaultRead("Minimap", "OffsetY", "0"))
     gMinimapKeepOpen := (DefaultRead("Minimap", "KeepOpenOnFocusLoss", "0") = "1")
     gShowHoverCoords := (DefaultRead("Minimap", "ShowHoverCoords", "1") != "0")
+    gMinimapSource := NormalizeMinimapSource(DefaultRead("Minimap", "Source", "game"))
+    gMinimapFollowGameScale := (DefaultRead("Minimap", "FollowGameScale", "1") != "0")
     SaveMinimapConfig()
 
     ; ── Appearance ── (accent before overlay rebuild, same order as save)
@@ -729,6 +896,15 @@ ResetAllSettingsToDefaults() {
     }
     SaveHotkeyOverrides()
 
+    ; Which addons were live before the reset flips them. One that was off has
+    ; had no OnInit this session, so its OnSettingsWeb cannot be trusted to
+    ; describe its own fields; it keeps its settings and is reset only by name.
+    wasEnabled := Map()
+    for _, am in gAddonHooks {
+        if _Settings_AddonHasTab(am)
+            wasEnabled[_Settings_AddonKey(am)] := true
+    }
+
     ; ── Addon enable/disable ──
     for _, am in gAddonHooks {
         name := am.Has("name") ? am["name"] : ""
@@ -742,8 +918,14 @@ ResetAllSettingsToDefaults() {
     ; same addon (not batched) — Window Layout's OnSettingsWebSave reads back
     ; a global (_WindowLayout_SettingsNames) that only OnSettingsWeb sets, so
     ; the two must run as a pair in this order.
+    ;
+    ; Addons that edit the game's client-mod files are skipped: those settings
+    ; belong to the mods, are shared with the in-game F12 panel, and "reset
+    ; every Maps++ setting" is not a request to rewrite them.
     for _, am in gAddonHooks {
         if (!am.Has("OnSettingsWeb") || !am.Has("OnSettingsWebSave"))
+            continue
+        if _Settings_AddonIsNativeMods(am) || !wasEnabled.Has(_Settings_AddonKey(am))
             continue
         fields := []
         try fields := am["OnSettingsWeb"]()
@@ -818,7 +1000,9 @@ _Settings_ResetDefaultsBegin() {
     owner := gSettingsGui.Hwnd
     if !ConfirmAction(
         "Reset every Maps++ setting to its default? This includes addon "
-        . "on/off state and all keyboard shortcuts.",
+        . "on/off state and all keyboard shortcuts.`n`n"
+        . "The Chat Mod tab is left alone: those settings belong to the game's "
+        . "client mods (osmw.ini), where the in-game F12 panel edits them too.",
         "Maps++ — Settings",
         Map("severity", "danger", "danger", true, "owner", owner))
     {
@@ -990,10 +1174,12 @@ _Settings_OnCaptureCancel(actionId) {
 
 _Settings_Close() {
     global gSettingsGui, gSettingsHotkeyRows, gSettingsNativeFieldSetter
+    global gSettingsRenderedAddonValues
     CancelHotkeyCapture()
     gSettingsHotkeyRows := 0
     ; The controls it closes over are about to be destroyed.
     gSettingsNativeFieldSetter := 0
+    gSettingsRenderedAddonValues := Map()
     if IsObject(gSettingsGui) {
         try gSettingsGui.Destroy()
     }
@@ -1317,6 +1503,16 @@ _JSON_SkipWhitespace(str, &pos) {
 ; Orderedlist fields arrive as a comma-separated id string — from both the web
 ; and the native frontend, so an addon has one save path to write.
 ;
+; It is called only when at least one of the addon's fields differs from what
+; the window rendered, and never for an addon that is disabled (a disabled
+; addon gets no tab at all). By default it still receives every field, because
+; most addons treat an absent key as "off". An addon that edits a file the
+; game's client mods own must instead declare
+;     "nativeMods",         true
+; and then receives ONLY the changed keys, and is skipped by Reset to Defaults.
+; That is native_mods.ahk's rule 1: Maps++ writes the mods' settings only when
+; the user asked for that particular change.
+;
 ; A "button" field carries no value and never appears in that Map. Clicking it
 ; calls the addon's optional OnSettingsAction(actionId) hook with the field's
 ; id, from outside the WebView message callback — so it is the one field type
@@ -1330,4 +1526,5 @@ _JSON_SkipWhitespace(str, &pos) {
 ; hold in a fresh install. Both frontends then offer a per-field revert control
 ; that appears only while the current value differs from it. The global Reset to
 ; Defaults harvests the same key. A field with no "default" simply gets no
-; revert control, so this is opt-in per addon.
+; revert control, so this is opt-in per addon. ("nativeMods" addons keep their
+; per-field revert but are never touched by the global reset.)

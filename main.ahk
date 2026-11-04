@@ -14,6 +14,7 @@ SetTitleMatchMode(2)
 
 #Include variables.ahk
 #Include functions.ahk
+#Include native_mods.ahk
 #Include settings.ahk
 #Include dialogs.ahk
 #Include radial.ahk
@@ -35,6 +36,11 @@ LoadMinimapConfig()
 LoadNpcNextId()
 LogInfo("Startup", "Config loaded — interface " gInterfaceMode
     . ", " gAddonHooks.Length " addon(s) registered")
+; Probed here, before anything builds a window, so a machine without the WebView2
+; Runtime gets one notice at startup and native panels throughout — rather than
+; an error the first time the tray is right-clicked.
+if (gInterfaceMode = "webview" && !WebView2RuntimeAvailable())
+    MarkWebView2Unavailable("Startup")
 if !A_IsCompiled
     GenerateAddonIncludes()
 LoadAddonEnabledStates()
@@ -66,6 +72,25 @@ if !FileExist(MARKER_PNG) {
     TrayTip("marker.png missing next to script — position marker disabled.`n" MARKER_PNG, "Maps++", "Iconi")
 }
 
+; ── Fixed hotkeys (not rebindable) ───────────────────────────────
+; Keep gHotkeyReserved in hotkeys.ahk in sync with this list — it is what stops
+; a rebindable action from being assigned one of these chords. They are static
+; on purpose: Reload/Exit must survive a broken hotkey registry, and the
+; calibration captures read the cursor over the minimap, so they cannot be
+; buttons. (This block was lost once, in the tray-menu rewrite, and nothing
+; noticed for months because the calibration panel kept telling users to press
+; keys that did nothing — keep it.)
+
+^!r:: Reload()
+^!q:: ExitApp()
+^!d:: ShowDebugState()
+^!s:: CalibrateSignaturesNow()
+^!v:: VerifyResolution()
+^!1:: CaptureCalibrationPoint(1)
+^!2:: CaptureCalibrationPoint(2)
+^!3:: ApplyCalibrationFromPoints()
+^!4:: ExportCurrentCalibrationToFile()
+
 ; ── Tray menu ────────────────────────────────────────────────────
 
 RebuildTrayMenu()
@@ -89,7 +114,13 @@ _Tray_UnhookMessages(*) {
 _OnTrayNotify(wParam, lParam, msg, hwnd) {
     ; 0x0205 = WM_RBUTTONUP (right-click on system tray icon)
     if (lParam = 0x0205) {
-        ShowWebTrayMenu()
+        ; Returning nothing lets AHK show the native menu, which is the
+        ; fallback both for a session already switched to native and for a
+        ; WebView2 that fails here despite the startup probe. Uncaught, that
+        ; failure was an error dialog on every right-click — and since these
+        ; arrive whenever the thread pumps messages, often mid-launch.
+        if !IsWebViewInterface() || !ShowWebTrayMenu()
+            return
         return 0 ; Suppress native Win32 context menu
     }
 }
@@ -146,7 +177,15 @@ _EnsureWebTrayGui() {
 
 ; Warms the menu up shortly after launch so the first right-click is quick.
 _PrewarmWebTrayMenu() {
-    try _EnsureWebTrayGui()
+    if !IsWebViewInterface()
+        return
+    try {
+        _EnsureWebTrayGui()
+    } catch as err {
+        ; Said now rather than on the first right-click, which would only
+        ; fall back to the native menu without explaining why.
+        MarkWebView2Unavailable("Tray menu prewarm", err)
+    }
 }
 
 ShowWebTrayMenu() {
@@ -157,9 +196,16 @@ ShowWebTrayMenu() {
     gWebTrayCallbacks := Map()
     gWebTrayItems := _ConvertHmenuToWebItems(A_TrayMenu.Handle)
 
-    _EnsureWebTrayGui()
+    ; Only the window build is caught, so that a WebView2 failure falls back to
+    ; the native menu while a bug in the menu code above still surfaces as one.
+    try {
+        _EnsureWebTrayGui()
+    } catch as err {
+        MarkWebView2Unavailable("Tray menu", err)
+        return false
+    }
     if !IsObject(gWebTrayGui) {
-        return
+        return false
     }
 
     mW := TRAY_MENU_W, mH := TRAY_MENU_H
@@ -188,6 +234,7 @@ ShowWebTrayMenu() {
     _PushTrayMenuState()
     ; Backstop for a page that fails to load and never reports.
     SetTimer(_RevealWebTrayMenu, -600)
+    return true
 }
 
 _RevealWebTrayMenu() {
@@ -428,13 +475,20 @@ _IconForLabel(lbl) {
     ; Another toggle carrying its own state in the label.
     if (InStr(lbl, "Client Mod Logging — ") = 1)
         return "bug_report"
+    ; The Tab Minimap radio items (MINIMAP_SOURCE_LABELS), selected or not.
+    for _, srcLabel in MINIMAP_SOURCE_LABELS {
+        if (lbl = srcLabel || lbl = "● " srcLabel)
+            return "map"
+    }
     switch lbl {
         ; `info` and `folder` are not in the subsetted font and would render as
         ; permanent tofu, so these borrow the closest names that are.
         ; TODO: `info` / `folder` once the icon subset is next regenerated.
         case "About Maps++…": return "search"
         case "Calibrate This Map…": return "track_changes"
+        case "Open Maps++ Minimap", "Tab Minimap": return "map"
         case "Copy Diagnostics": return "bug_report"
+        case "Client Mods Status…": return "search"
         case "Open Log Folder": return "format_list_bulleted"
         case "Launch (Primary)", "Launch (Secondary)", "Client Launch": return "rocket_launch"
         case "Primary", "Secondary": return "devices"
@@ -502,13 +556,14 @@ RebuildTrayMenu() {
     debugMenu.Add("Debug State`tCtrl+Alt+D", (*) => ShowDebugState())
     debugMenu.Add("Copy Diagnostics", (*) => CopyDiagnosticsReport())
     debugMenu.Add("Open Log Folder", (*) => OpenLogFolder())
-    ; The injected mods' own logs, off by default. State in the label as well as
+    ; The client mods' own logs, off by default. State in the label as well as
     ; the checkmark, since the enhanced tray renders the label and not the mark.
     modLogOn := ModLoggingEnabled()
     modLogLabel := "Client Mod Logging — " (modLogOn ? "On" : "Off")
     debugMenu.Add(modLogLabel, (*) => ToggleModLogging())
     if modLogOn
         debugMenu.Check(modLogLabel)
+    debugMenu.Add("Client Mods Status…", (*) => ShowClientModsStatus())
     debugMenu.Add()
     debugMenu.Add("Calibrate Signatures`tCtrl+Alt+S", (*) => CalibrateSignaturesNow())
     debugMenu.Add("Verify Signatures`tCtrl+Alt+V", (*) => VerifyResolution())
@@ -528,6 +583,16 @@ RebuildTrayMenu() {
     ; Core, not an addon: the minimap needs calibration in every variant, and
     ; lite ships the minimap. Added before the count check so the group always
     ; has at least this entry.
+    mapMenu.Add("Open Maps++ Minimap`t" GetHotkeyDisplay("openMapsppMinimap"),
+        (*) => (FocusTrackedGameClient(), ToggleMapsppMinimap()))
+    ; Radio items marked with "● " the way Interface does it below, since the
+    ; enhanced tray renders that prefix and not the native checkmark.
+    sourceMenu := Menu()
+    for i, src in MINIMAP_SOURCES {
+        sourceMenu.Add((gMinimapSource = src ? "● " : "") MINIMAP_SOURCE_LABELS[i],
+            SetMinimapSource.Bind(src))
+    }
+    mapMenu.Add("Tab Minimap", sourceMenu)
     mapMenu.Add("Calibrate This Map…", (*) => ShowCalibrationPanel())
     if _TrayMenuHasItems(mapMenu)
         trayMenu.Add("Map & Overlay", mapMenu)
@@ -537,6 +602,11 @@ RebuildTrayMenu() {
     interfaceMenu := Menu()
     nativeLabel := (gInterfaceMode = "native" ? "● " : "") "Native (low memory)"
     webLabel := (gInterfaceMode = "webview" ? "● " : "") "WebView2 (enhanced)"
+    ; Chosen but unusable: say so where the choice is made. Only the native menu
+    ; can be on screen in that state, so the web menu's label→icon map never
+    ; sees this text. Clicking it reloads, which re-probes the runtime.
+    if (gInterfaceMode = "webview" && !IsWebViewInterface())
+        webLabel .= " — runtime unavailable"
     interfaceMenu.Add(nativeLabel, (*) => SetInterfaceMode("native"))
     interfaceMenu.Add(webLabel, (*) => SetInterfaceMode("webview"))
     trayMenu.Add("Interface", interfaceMenu)
@@ -639,9 +709,87 @@ HandleTab() {
         CloseOverlay()
         return
     }
+    ; From the Tab hotkey this is always true — HotIfToggleMinimap already asked.
+    ; From Quick Actions it may not be, and then the ring's "Minimap" should do
+    ; what Tab would have: hand the key to the game, so its own minimap opens.
+    ; ($Tab's hook ignores keys this script sends, so this cannot re-enter.)
+    if TabOpensMapsppMinimap() {
+        ShowOrToggleOverlay(gResolvedMapName, gResolvedMapPath)
+        return
+    }
+    if WinActive(GAME_WIN_FILTER)
+        SendEvent("{Tab}")
+}
 
-    ; Tab is captured only when a valid custom map exists.
+; Opens (or closes) the Maps++ overlay whatever Tab is set to do — the way to its
+; POIs, party markers and waypoints on a map where the game has a minimap too.
+; Still refuses where the overlay could not work at all: no image for this map,
+; a battle, a loading screen.
+ToggleMapsppMinimap() {
+    global gOverlayVisible, gCanOverride, gResolvedMapName, gResolvedMapPath
+    if gOverlayVisible {
+        CloseOverlay()
+        return
+    }
+    if !gCanOverride {
+        TrayTip((gResolvedMapName = "")
+            ? "Focus a game client in the world first."
+            : "Maps++ has no map image for " gResolvedMapName ".",
+            "Maps++", "Iconi")
+        return
+    }
+    if !IsMinimapAllowed() {
+        TrayTip("The minimap is not available right now (battle or loading screen).",
+            "Maps++", "Iconi")
+        return
+    }
     ShowOrToggleOverlay(gResolvedMapName, gResolvedMapPath)
+}
+
+; For tray entries: the tray takes focus from the game, and UpdateMapState
+; forgets the map the moment the game is not focused. Hand focus back to the
+; client being tracked and re-read before acting on "the current map".
+FocusTrackedGameClient() {
+    global gTrackedGameHwnd
+    hwnd := (gTrackedGameHwnd && WinExist("ahk_id " gTrackedGameHwnd)) ? gTrackedGameHwnd : 0
+    if !hwnd {
+        windows := GetTopLevelGameWindows()
+        hwnd := windows.Length ? windows[1] : 0
+    }
+    if !hwnd
+        return false
+    try WinActivate("ahk_id " hwnd)
+    try WinWaitActive("ahk_id " hwnd, , 0.4)
+    UpdateMapState()
+    return WinActive("ahk_id " hwnd) ? true : false
+}
+
+; Tray → Map & Overlay → Tab Minimap. Saved immediately, like the Interface
+; choice beside it; Settings → Minimap shows the same value.
+SetMinimapSource(src, *) {
+    global gMinimapSource, CONFIG_INI
+    gMinimapSource := NormalizeMinimapSource(src)
+    try IniWrite(gMinimapSource, CONFIG_INI, "Minimap", "Source")
+    LogInfo("Minimap", "Tab minimap source set to " gMinimapSource)
+    SetTimer(RebuildTrayMenu, -1)
+}
+
+; Once, ever: the first time Tab goes to the game on a map Maps++ also has an
+; image for. Every shipped map is such a map on a patched client, so without
+; this a user who relied on POIs or party markers would just find them gone.
+_MaybeShowMinimapSourceNotice(st, mapPath) {
+    global gMinimapSource, gMinimapSourceNoticeShown, CONFIG_INI
+    if (gMinimapSourceNoticeShown || gMinimapSource != "game" || mapPath = "")
+        return
+    if !(IsObject(st) && st.available)
+        return
+    gMinimapSourceNoticeShown := true
+    try IniWrite("1", CONFIG_INI, "Minimap", "SourceNoticeShown")
+    chord := GetHotkeyDisplay("openMapsppMinimap")
+    TrayTip("Tab now opens the game's own minimap here.`n"
+        . "For the Maps++ map (POIs, party markers, waypoints) use "
+        . (chord != "" ? chord : "Open Maps++ minimap — bind it under Settings → Hotkeys")
+        . ", or Tray → Map & Overlay.", "Maps++", "Iconi")
 }
 
 CloseOverlay() {
@@ -680,7 +828,7 @@ CloseOverlayIfFocusLeftGame() {
 
 UpdateMapState() {
     global gCanOverride, gResolvedMapName, gResolvedMapPath, gTrackedGameHwnd
-    global gOverlayVisible, gCurrentMapPath, gCurrentMapName, gPic
+    global gOverlayVisible, gCurrentMapPath, gCurrentMapName, gPic, gNativeMinimap
     static sPrevMapName := ""
 
     activeHwnd := WinActive(GAME_WIN_FILTER)
@@ -697,7 +845,13 @@ UpdateMapState() {
     }
 
     gTrackedGameHwnd := activeHwnd
+    ; Here rather than at open time: a change drops the overlay Gui, and doing
+    ; that from inside ShowOrToggleOverlay would re-enter it mid-toggle.
+    RefreshGameContentScale(activeHwnd)
     mapName := ReadCurrentMapName()
+    ; For the debug views and the one-time notice only. Tab's own decision is
+    ; re-read at the keypress (TabOpensMapsppMinimap), never taken from here.
+    gNativeMinimap := (mapName = "") ? 0 : ReadNativeMinimapState()
     if (mapName = "") {
         gCanOverride := false
         gResolvedMapName := ""
@@ -739,6 +893,8 @@ UpdateMapState() {
         sPrevMapName := mapName
         FireAddonHook("OnMapChange", mapName, prev)
     }
+    if (!gMinimapSourceNoticeShown && IsMinimapAllowed())
+        _MaybeShowMinimapSourceNotice(gNativeMinimap, mapPath)
 
     ; Hot-swap the minimap image if the scene changed to a different map.
     if gOverlayVisible && (gCurrentMapPath != mapPath) {
@@ -785,7 +941,9 @@ ShowAboutDialog() {
     ShowMessage("osMW Maps++`n`n"
         . "Version " APP_VERSION (A_IsCompiled ? "" : "  (running from source)") "`n"
         . "AutoHotkey " A_AhkVersion "`n"
-        . "Interface: " (gInterfaceMode = "webview" ? "WebView2 (enhanced)" : "Native (low memory)") "`n"
+        . "Interface: " (IsWebViewInterface() ? "WebView2 (enhanced)"
+            : gInterfaceMode = "webview" ? "Native — WebView2 Runtime unavailable"
+            : "Native (low memory)") "`n"
         . active " of " gAddonHooks.Length " addons active`n"
         . updateLine
         . "`nReporting a problem? Tray → Debug → Copy Diagnostics`n"
@@ -811,16 +969,24 @@ OpenLogFolder() {
     }
 }
 
-; The injected mods write nothing unless this is on, so this is the "turn it on,
+; The client mods write nothing unless this is on, so this is the "turn it on,
 ; reproduce it, send me the files" step of a support conversation rather than
-; something anyone leaves enabled. Each DLL reads the key once, when it is
-; injected, so clients already running keep whatever they started with — hence
-; the relaunch in the notification.
+; something anyone leaves enabled. Each DLL reads the key once, as the client
+; starts, so clients already running keep whatever they started with — hence
+; the relaunch in the notification. The key lives in the mods' own osmw.ini;
+; see native_mods.ahk.
 ToggleModLogging() {
     want := !ModLoggingEnabled()
     if !SetModLogging(want) {
-        TrayTip("Could not write the game folder's config.ini.`n"
-            . "Set a game path in Settings → Launcher first.", "Maps++", "Iconx")
+        gameDir := ResolveGameDirectory()
+        TrayTip((gameDir = "")
+            ? "Could not write the game folder's osmw.ini.`n"
+              . "Set a game path in Settings → Launcher first."
+            : !NativeModsInstalled()
+            ? "The osMW client mods are not installed in`n" gameDir
+              . "`nso there is no mod logging to turn on."
+            : "Could not write " NativeModsIniPath() ".`nSee the Maps++ log for why.",
+            "Maps++", "Iconx")
         return
     }
     ; After the callback returns, so the native tray's label and checkmark
@@ -833,11 +999,36 @@ ToggleModLogging() {
         "Maps++", "Iconi")
 }
 
+; Tray → Debug → Client Mods Status. What osmw_status.ini says about the client
+; mods: which features are running, which stood down and why, and whether
+; Windows blocked any. Read-only — the file is the core's. Reached from the tray,
+; so a blocking dialog is fine here (see DeferFromWebMessage for when it isn't).
+ShowClientModsStatus() {
+    st := NativeModsReadStatus()
+    summary := NativeModsStatusSummary(st)
+    opts := Map("severity", summary.severity)
+    table := NativeModsStatusTable(st)
+    if (st.ok && table != "")
+        opts["detail"] := table
+    ShowMessage(summary.text, "Maps++ — Client Mods Status", opts)
+}
+
 ShowDebugState() {
     global gCanOverride, gResolvedMapName, gResolvedMapPath, gLastReadStatus, gLastPosStatus
+    global gMinimapSource
     global gLastRawX, gLastRawY, gResolvedOffsets, gResolvedBuildStamp, gFallbackOffsets
     global GAME_COORD_DIV_X, GAME_COORD_DIV_Y
+    ; Re-read rather than taken from UpdateMapState: opening this dialog already
+    ; took focus from the game, and that is when the cached state goes blank.
+    nativeMm := ReadNativeMinimapState()
     msg := "CanOverride: " gCanOverride "`n"
+        . "Tab source: " gMinimapSource " — Tab "
+            . (!gCanOverride || gMinimapSource = "off" ? "reaches the game"
+            : gMinimapSource = "mapspp" ? "opens Maps++"
+            : nativeMm.available ? "reaches the game (it has a minimap here)"
+            : "opens Maps++ (the game has none here)") "`n"
+        . "Game minimap: " NativeMinimapSummary(nativeMm) "`n"
+        . "Display: " GameDisplaySummary(GameContentRect()) "`n"
         . "ReadStatus: " gLastReadStatus "`n"
         . "PosStatus: " gLastPosStatus "`n"
         . "RawX: " gLastRawX " RawY: " gLastRawY "`n"
@@ -915,7 +1106,9 @@ CaptureCalibrationPoint(index) {
     global gCalibrationPoint1, gCalibrationPoint2
 
     if !gOverlayVisible || !IsObject(gGui) || !gGui.Hwnd {
-        ShowMessage("Open the minimap first, then hover a landmark and capture again.",
+        ShowMessage("Open the Maps++ minimap first, then hover a landmark and capture again."
+            . "`n`nOn a map where Tab opens the game's own minimap, use Open Maps++ minimap"
+            . " (Tray → Map & Overlay, or its hotkey) instead.",
             "Calibration", Map("severity", "warn"))
         return
     }

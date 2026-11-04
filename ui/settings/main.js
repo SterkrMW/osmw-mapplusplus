@@ -575,12 +575,23 @@ function populateMinimap() {
     const anchor = document.getElementById('minimapAnchor');
     anchor.value = state.minimap.anchor;
 
+    // Who Tab belongs to. An older host sends no "source"; show the default
+    // rather than a blank select.
+    document.getElementById('minimapSource').value = state.minimap.source || 'game';
+    const sourceHint = document.getElementById('minimapSourceHint');
+    if (sourceHint && state.minimap.openChordDisplay) {
+        sourceHint.querySelector('strong').textContent =
+            `Open Maps++ minimap (${state.minimap.openChordDisplay})`;
+    }
+
     // Offsets
     document.getElementById('offsetX').value = state.minimap.offsetX;
     document.getElementById('offsetY').value = state.minimap.offsetY;
     document.getElementById('keepOpen').checked = !!state.minimap.keepOpen;
     document.getElementById('showHoverCoords').checked = !!state.minimap.showHoverCoords;
-    ['minimapAnchor', 'offsetX', 'offsetY'].forEach(id => {
+    // Absent from an older host: it scaled nothing, so show it on (the default).
+    document.getElementById('followGameScale').checked = state.minimap.followGameScale !== false;
+    ['minimapAnchor', 'offsetX', 'offsetY', 'followGameScale'].forEach(id => {
         document.getElementById(id).addEventListener('input', updateMinimapPreview);
         document.getElementById(id).addEventListener('change', updateMinimapPreview);
     });
@@ -633,11 +644,17 @@ function updateMinimapPreview() {
     const offsetY = Number(document.getElementById('offsetY').value) || 0;
     const baseW = Number(state.minimap.baseW) || 400;
     const baseH = Number(state.minimap.baseH) || 300;
-    const clientW = Number(state.minimap.clientW) || 1024;
-    const clientH = Number(state.minimap.clientH) || 768;
+    // The real game picture when a client is running, else the unscaled 800×600.
+    const clientW = Number(state.minimap.clientW) || 800;
+    const clientH = Number(state.minimap.clientH) || 600;
+    const contentScale = Number(state.minimap.contentScale) || 1;
+    const follow = document.getElementById('followGameScale').checked;
     const stageW = stage.clientWidth || 320;
     const stageH = stage.clientHeight || 240;
-    const widthPct = (baseW * scale / 100) / clientW * 100;
+    // Mirrors MinimapScaleFactor(): Size, times the game's scale when following,
+    // capped at 4× the 400×300 base.
+    const factor = Math.min(4, (scale / 100) * (follow ? contentScale : 1));
+    const widthPct = (baseW * factor) / clientW * 100;
     map.style.width = `${Math.min(96, widthPct)}%`;
     map.style.aspectRatio = `${baseW} / ${baseH}`;
     map.style.opacity = String(opacity / 100);
@@ -645,7 +662,7 @@ function updateMinimapPreview() {
     map.style.setProperty('--preview-nudge-y', `${offsetY / clientH * stageH}px`);
     map.dataset.anchor = anchor;
     document.getElementById('previewFrameLabel').textContent =
-        `Game window · ${clientW} × ${clientH}`;
+        `Game window · ${clientW} × ${clientH}` + (contentScale > 1 ? ` (${contentScale}×)` : '');
     const labels = {
         Center: 'Centred', TopLeft: 'Top-left', TopRight: 'Top-right',
         BottomLeft: 'Bottom-left', BottomRight: 'Bottom-right'
@@ -1336,6 +1353,7 @@ function collectAndSave() {
 
     // Minimap
     const minimap = {
+        source:   document.getElementById('minimapSource').value,
         scale:    parseInt(document.getElementById('minimapScale').value, 10),
         opacity:  parseInt(document.getElementById('minimapOpacity').value, 10),
         anchor:   document.getElementById('minimapAnchor').value,
@@ -1343,6 +1361,7 @@ function collectAndSave() {
         offsetY:  parseInt(document.getElementById('offsetY').value, 10) || 0,
         keepOpen: document.getElementById('keepOpen').checked,
         showHoverCoords: document.getElementById('showHoverCoords').checked,
+        followGameScale: document.getElementById('followGameScale').checked,
     };
 
     const selectedScheme = document.querySelector('input[name="accentScheme"]:checked');
@@ -1451,7 +1470,7 @@ if (previewTab !== null && !window.chrome?.webview) {
             launchLayoutOptions: [{ value: '', label: 'Default layout' }, { value: 'Four box', label: 'Four box' }],
             primaryLaunchLayout: 'Four box', secondaryLaunchLayout: ''
         },
-        minimap: { scale: 115, opacity: 80, anchor: 'TopRight', offsetX: -12, offsetY: 18, keepOpen: true, baseW: 400, baseH: 300, clientW: 1024, clientH: 768 },
+        minimap: { source: 'game', openChordDisplay: '', scale: 115, opacity: 80, anchor: 'TopRight', offsetX: -12, offsetY: 18, keepOpen: true, followGameScale: true, baseW: 400, baseH: 300, clientW: 1600, clientH: 1200, contentScale: 2 },
         appearance: { accentScheme: 'amber' },
         hotkeys: { actions: [
             { id: 'toggle-map', label: 'Toggle minimap', category: 'Core', chord: '^m', display: 'Ctrl+M', defaultChord: '^m', defaultDisplay: 'Ctrl+M' },

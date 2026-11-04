@@ -7,6 +7,54 @@
 global APP_VERSION := "1.4.0"
 global PROCESS_EXE := "main.exe"
 global GAME_WIN_FILTER := "ahk_exe " PROCESS_EXE
+; The game's own window. GAME_WIN_FILTER also matches the client's separate chat
+; window (class "WindowedMode", owned by this one), so anything that places
+; itself on the game picture resolves through GameMainWindow() first — while
+; chat had focus, the minimap used to anchor itself to the chat window.
+global GAME_MAIN_WIN_CLASS := "##RAYSDDWNDCLASS20010705##"
+; The game draws an 800×600 logical surface whatever size its window is.
+global GAME_LOGICAL_W := 800
+global GAME_LOGICAL_H := 600
+; Published on the game window by osmw_display.dll (the client mods' 2×/3×,
+; Resizable and Borderless modes) and removed in its Stock mode. Client-relative;
+; the four edges are stored plus one because a zero property means "absent".
+; Scale is the integer magnification; Mode is 1 windowed, 2 resizable,
+; 3 borderless. See tools/client-dll/display-scaling.md in the server repo.
+global DISPLAY_PROP_LEFT := "osMW.Display.ContentLeft.v1"
+global DISPLAY_PROP_TOP := "osMW.Display.ContentTop.v1"
+global DISPLAY_PROP_RIGHT := "osMW.Display.ContentRight.v1"
+global DISPLAY_PROP_BOTTOM := "osMW.Display.ContentBottom.v1"
+global DISPLAY_PROP_SCALE := "osMW.Display.ContentScale.v1"
+global DISPLAY_PROP_MODE := "osMW.Display.Mode.v1"
+global DISPLAY_MODE_BORDERLESS := 3
+global DISPLAY_MODE_NAMES := Map(0, "stock", 1, "windowed", 2, "resizable", 3, "borderless")
+; osmw_status.ini's Result codes, mirroring osmw_core_api.h in the server repo's
+; tools/client-mods/core/sdk. Anything not listed is shown as its number.
+global NATIVE_MODS_RESULT_NAMES := Map(
+    0, "ok",
+    1, "disabled",
+    -1, "invalid argument",
+    -2, "incompatible ABI",
+    -3, "unavailable",
+    -4, "not found (a signature missed — client update?)",
+    -5, "signature matched more than once",
+    -6, "address already claimed by another mod",
+    -7, "wrong owner",
+    -8, "busy",
+    -9, "patch still active",
+    -10, "internal error",
+    -11, "buffer too small",
+    -12, "queue full",
+    -13, "duplicate id",
+    -14, "stopping",
+    -15, "blocked by Windows (Smart App Control)")
+; Module states that mean the feature is not doing its job.
+global NATIVE_MODS_BAD_STATES := ["missing", "legacy", "incompatible", "failed", "unsafe-to-unload"]
+; A launch waits this long at most for osmw_display.dll to finish resizing a new
+; client before centring it or applying a layout, and calls the size settled
+; once it has held still for LAUNCH_SETTLE_STABLE_MS.
+global LAUNCH_SETTLE_TIMEOUT_MS := 4000
+global LAUNCH_SETTLE_STABLE_MS := 500
 ; RVAs from main.exe — do not use fixed absolute addresses (bases differ per process / ASLR).
 global MAP_FILE_OFFSET := 0x340EC5
 ; Friendly zone name (e.g. "Woodlingor"), adjacent to the map filename string.
@@ -17,6 +65,43 @@ global POS_X_OFFSET := 0x30B2D0
 global POS_Y_OFFSET := 0x30B2D4
 global GAME_STATE_OFFSET := 0x34313C
 global BATTLE_STATE_OFFSET := 0x301DE4
+
+; ── The game's own minimap ──
+; The client now ships minimaps for maps it never had (Oranus, via the
+; minimap_file4 patch and system\smallmap04.mda), so Maps++ must know whether the
+; map in front of it has one before it takes Tab away from the game. All from
+; the client RE notes (docs/client-packet-re.md, "the 52-minimap cap") and the
+; OpenMinimap gate disassembled at VA 0x442370; RVA = VA - 0x400000.
+;
+; The map's minimap image index, from MapData offset 40 (written at 0x417DC2).
+; Signed: < 0 means the map has none, and 0 is a real image.
+global MINIMAP_INDEX_OFFSET := 0x340EE8
+; MapData offset 72. Zeroed alongside a negative index; must be non-zero.
+global MINIMAP_GATE_OFFSET := 0x340F44
+; Byte. The server's EnableMinimap flag (packet 0x00130007). The game refuses to
+; open a minimap from files 02/03/04 while it is clear.
+global MINIMAP_ENABLE_FLAG_OFFSET := 0x3BAE24
+; Byte. 1 once art from files 02/03/04 has been loaded. Reported, never relied
+; on: it describes the last minimap the game LOADED, which can be the previous
+; map's — the tier is derived from the index instead (MINIMAP_FILE2_FIRST_INDEX).
+global MINIMAP_TIER_OFFSET := 0x3BAE25
+; The game's minimap window handle: >= 0 open, -1 closed, and 0 before the
+; client has initialised it. Diagnostics only.
+global MINIMAP_WINDOW_OFFSET := 0x3028E0
+; First index served by smallmap02.mda — every index from here up is a "tier"
+; minimap that also needs the EnableMinimap flag.
+global MINIMAP_FILE2_FIRST_INDEX := 20
+; Indices 52 and up exist only on a client carrying minimap_file4. Its hook
+; replaces `83 F8 34` (cmp eax, 0x34) at this RVA with an E9 jmp; on a client
+; without it the imm8 there is the exclusive upper bound, and anything at or
+; above it loads no art at all. Code bytes, so they move on a client update —
+; anything that is neither form reads as "unknown" and the index is trusted.
+global MINIMAP_FILE4_HOOK_RVA := 0x605C8
+global MINIMAP_FILE4_FIRST_INDEX := 52
+global MINIMAP_FILE4_MDA := "system\smallmap04.mda"
+; Larger than any real index by an order of magnitude. A value past it means the
+; offset has moved, not that the map has a minimap.
+global MINIMAP_INDEX_SANE_MAX := 1024
 ; Character class of the logged-in character, 0-7. Indexes avatars\c<N>.png.
 ; Only meaningful once the client is past the login screens (GAME_STATE_READY).
 global CHAR_CLASS_OFFSET := 0x2AA62C
@@ -173,7 +258,33 @@ global gMinimapAnchor := "Center"
 global gMinimapOffsetX := 0        ; pixel nudge from the anchor; drag writes back here
 global gMinimapOffsetY := 0
 global gMinimapKeepOpen := false   ; pin: don't auto-close when the game loses focus
+; Multiply the overlay by the focused client's display scale (osmw_display.dll's
+; 2×/3×), so it stays the same size relative to the game picture. Calibration is
+; unaffected: it lives in 400×300 base space and every drawing path goes through
+; MinimapScaleFactor(). [Minimap] FollowGameScale.
+global gMinimapFollowGameScale := true
+; The focused client's integer display scale, 1 without the display module.
+global gGameContentScale := 1
+; Overlay size cap, as a multiple of the 400×300 base: 200 % at 3× would
+; otherwise be a 2400×1800 window.
+global MINIMAP_SCALE_FACTOR_MAX := 4.0
 global MINIMAP_ANCHORS := ["Center", "TopLeft", "TopRight", "BottomLeft", "BottomRight"]
+; Who Tab belongs to ([Minimap] Source):
+;   game    the game's own minimap wherever the client has one for this map;
+;           Maps++ only where it does not (the default — the client now has
+;           minimaps for every map Maps++ ships an image for)
+;   mapspp  Maps++ wherever it has an image, as before the client gained them
+;   off     never Maps++; Tab always reaches the game
+; The "Open Maps++ minimap" action ignores this and opens the overlay anyway.
+global MINIMAP_SOURCES := ["game", "mapspp", "off"]
+global MINIMAP_SOURCE_LABELS := ["The game's minimap where it has one, Maps++ elsewhere",
+    "Maps++ wherever it has a map", "The game's minimap only (Maps++ never takes Tab)"]
+global gMinimapSource := "game"
+; Last ReadNativeMinimapState() for the focused client, for the debug views.
+global gNativeMinimap := 0
+; Whether the one-time "Tab now opens the game's minimap here" notice has been
+; shown ([Minimap] SourceNoticeShown in config.ini).
+global gMinimapSourceNoticeShown := false
 ; Marker labels (party markers, POIs): white on an opaque black box. The dot
 ; carries the colour — coloured text on map art was the unreadable part.
 global MARKER_LABEL_TEXT_COLOR := "FFFFFF"
@@ -243,6 +354,14 @@ global LAUNCH_ACCOUNTS_ONLY := "only:"     ; exactly this one row
 ; Interface mode ([UI] in config.ini). WebView2 preserves the polished tray,
 ; settings and radial client picker; native keeps the process Chromium-free.
 global gInterfaceMode := "webview"
+; Whether the WebView2 Runtime can actually be used, which gInterfaceMode alone
+; cannot say: "" (not probed yet), "ok", "missing" (the probe found none) or
+; "failed" (a window could not be built anyway). Never persisted, so installing
+; the runtime brings enhanced mode back on the next start. Info is the version,
+; or the HRESULT and reason, for the log and diagnostics.
+global gWebViewRuntimeState := ""
+global gWebViewRuntimeInfo := ""
+global gWebViewFallbackNotified := false
 ; Accent scheme ([UI] AccentScheme). Dark surfaces and semantic status colours
 ; remain fixed; this only selects the shared highlight palette.
 global gAccentScheme := "amber"
@@ -253,6 +372,10 @@ global gSettingsGui := 0
 ; posts to the WebView2 one. 0 whenever the native panel is not the live
 ; frontend, which is how that function tells the two apart.
 global gSettingsNativeFieldSetter := 0
+; addonName → Map(fieldId → {type, value}) as the open Settings window rendered
+; it. Save compares against this so an addon is only handed what the user
+; changed — see _Settings_ChangedAddonValues. Cleared on open and close.
+global gSettingsRenderedAddonValues := Map()
 ; Monitor overrides for the "primary"/"secondary" launch targets. 0 = auto:
 ; primary follows the OS primary display, secondary picks the first non-primary
 ; display. Set to a 1-based monitor index to pin either target — this is how
@@ -298,8 +421,14 @@ global gNpcNextId := NPC_ID_START
 ; Hardcoded RVAs that get discovered and resolved at runtime. The values here
 ; serve two purposes: bootstrap input for signature capture (Ctrl+Alt+S), and
 ; runtime fallback when no cache or signature is available.
-global SIGNATURE_NAMES := ["MAP_FILE_OFFSET", "MAP_NAME_OFFSET", "POS_X_OFFSET", "POS_Y_OFFSET", "GAME_STATE_OFFSET", "BATTLE_STATE_OFFSET", "CHAR_CLASS_OFFSET", "CHAR_VITALS_OFFSET", "BATTLE_ACTOR_BASE"]
-global gFallbackOffsets := Map("MAP_FILE_OFFSET", MAP_FILE_OFFSET, "MAP_NAME_OFFSET", MAP_NAME_OFFSET, "POS_X_OFFSET", POS_X_OFFSET, "POS_Y_OFFSET", POS_Y_OFFSET, "GAME_STATE_OFFSET", GAME_STATE_OFFSET, "BATTLE_STATE_OFFSET", BATTLE_STATE_OFFSET, "CHAR_CLASS_OFFSET", CHAR_CLASS_OFFSET, "CHAR_VITALS_OFFSET", CHAR_VITALS_OFFSET, "BATTLE_ACTOR_BASE", BATTLE_ACTOR_BASE_OFFSET)
+global SIGNATURE_NAMES := ["MAP_FILE_OFFSET", "MAP_NAME_OFFSET", "POS_X_OFFSET", "POS_Y_OFFSET", "GAME_STATE_OFFSET", "BATTLE_STATE_OFFSET", "CHAR_CLASS_OFFSET", "CHAR_VITALS_OFFSET", "BATTLE_ACTOR_BASE",
+    "MINIMAP_INDEX_OFFSET", "MINIMAP_GATE_OFFSET", "MINIMAP_ENABLE_FLAG_OFFSET", "MINIMAP_TIER_OFFSET", "MINIMAP_WINDOW_OFFSET"]
+global gFallbackOffsets := Map("MAP_FILE_OFFSET", MAP_FILE_OFFSET, "MAP_NAME_OFFSET", MAP_NAME_OFFSET, "POS_X_OFFSET", POS_X_OFFSET, "POS_Y_OFFSET", POS_Y_OFFSET, "GAME_STATE_OFFSET", GAME_STATE_OFFSET, "BATTLE_STATE_OFFSET", BATTLE_STATE_OFFSET, "CHAR_CLASS_OFFSET", CHAR_CLASS_OFFSET, "CHAR_VITALS_OFFSET", CHAR_VITALS_OFFSET, "BATTLE_ACTOR_BASE", BATTLE_ACTOR_BASE_OFFSET,
+    ; The game's own minimap (see MINIMAP_INDEX_OFFSET). Each is read by game
+    ; code at a fixed address, so Calibrate Signatures can capture all five.
+    "MINIMAP_INDEX_OFFSET", MINIMAP_INDEX_OFFSET, "MINIMAP_GATE_OFFSET", MINIMAP_GATE_OFFSET,
+    "MINIMAP_ENABLE_FLAG_OFFSET", MINIMAP_ENABLE_FLAG_OFFSET, "MINIMAP_TIER_OFFSET", MINIMAP_TIER_OFFSET,
+    "MINIMAP_WINDOW_OFFSET", MINIMAP_WINDOW_OFFSET)
 ; Offsets that cannot be captured as byte signatures — they are data strings
 ; with no abs32 code reference for the scanner to latch onto — but that sit at
 ; a fixed delta from an offset that can. Once the source resolves, these follow.
@@ -341,10 +470,11 @@ global ADDONS_INCLUDE_FILE := A_ScriptDir "\_addons.ahk"
 global gLogPath := ""
 global LOG_MAX_BYTES := 1048576   ; rotate to a single .1 file past this
 global gLogFailed := false        ; a log that can't be written stops trying
-; The injected mods' own logging, which is a separate thing from the above:
-; osmw_chat.dll and osmw_login.dll each write one file per client per launch
-; into the game folder. Off unless someone turns it on — see ModLoggingEnabled()
-; in functions.ahk for where the key lives and why it is not in CONFIG_INI.
+; The client mods' own logging, which is a separate thing from the above: the
+; core and each feature DLL write tagged osmw_*.<pid>.log files into the game
+; folder, one set per client per launch. Off unless someone turns it on — see
+; ModLoggingEnabled() in native_mods.ahk: the key is [Debug] in the mods' own
+; osmw.ini, not CONFIG_INI.
 global MOD_LOG_SECTION := "Debug"
 global MOD_LOG_KEY := "ModLogging"
 ; Per (addon, hook) failure tracking for FireAddonHook. An addon that throws on

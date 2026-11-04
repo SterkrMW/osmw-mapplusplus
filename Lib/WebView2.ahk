@@ -64,11 +64,17 @@ class WebView2 {
 	static CreateEnvironmentAsync(options := 0, dataDir := '', edgeRuntime := '', dllPath := 'WebView2Loader.dll') {
 		if !FileExist(dllPath) && FileExist(t := A_LineFile '\..\' (A_PtrSize * 8) 'bit\WebView2Loader.dll')
 			dllPath := t
+		; osMW Maps++ local change: skip a version folder with no msedgewebview2.exe
+		; in it. Passing one explicitly fails with 0x80070002 even when a working
+		; runtime is installed, and leftovers from a partial uninstall, a failed
+		; update or an antivirus quarantine are exactly that. Mirrored by
+		; _WV2_RuntimeFolder() in functions.ahk; keep the two in step.
 		if !edgeRuntime {
 			ver := '0.0.0.0'
 			for root in [EnvGet('ProgramFiles(x86)'), A_AppData '\..\Local']
 				loop files root '\Microsoft\EdgeWebView\Application\*', 'D'
 					if RegExMatch(A_LoopFilePath, '\\([\d.]+)$', &m) && VerCompare(m[1], ver) > 0
+						&& FileExist(A_LoopFileFullPath '\msedgewebview2.exe')
 						edgeRuntime := A_LoopFileFullPath, ver := m[1]
 		}
 		if options && !(options is this.EnvironmentOptions) {

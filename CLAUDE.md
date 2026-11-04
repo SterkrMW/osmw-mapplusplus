@@ -12,7 +12,7 @@ Windows-only. Requires AutoHotkey v2.0.
 
 - Run uncompiled: open `main.ahk` with AutoHotkey v2 (or `AutoHotkey64.exe main.ahk`). There is no package manager or test framework — this is not a Node/Python project.
 - Build release variants: `pwsh ./build.ps1` (all variants) or `pwsh ./build.ps1 -Variant full` (one variant: `full`, `lite`, or `battle`, per `variants\*.txt`). Requires `Ahk2Exe.exe` (probes `$env:AHK2EXE` then standard AutoHotkey install paths, or pass `-Ahk2ExePath`).
-  - The build writes `_addons.ahk` from the variant's manifest (list of `addons\*.ahk` filenames), validates the complete managed ABI 1.0 payload, compiles `main.ahk` → `releases\<variant>\mapsplusplus.exe`, then copies `marker.png`, `maps\`, `ui\`, `avatars\`, `Lib\` alongside it, hoists both compatibility launchers from `Lib\` to the release root (they look for `main.exe` beside themselves; both inject only `osmw_core.dll`), and restores your dev-mode `_addons.ahk` afterward.
+  - The build writes `_addons.ahk` from the variant's manifest (list of `addons\*.ahk` filenames), compiles `main.ahk` → `releases\<variant>\mapsplusplus.exe`, then copies `marker.png`, `defaults.ini`, `maps\`, `ui\`, `avatars\`, `Lib\` alongside it, and restores your dev-mode `_addons.ahk` afterward. It ships nothing of the native client mods — no DLLs, no launchers, no ABI payload (see "The native client mods" below); `Lib\` holds only the WebView2 libraries.
   - `-Clean` wipes `releases\` first. Manifests list one addon filename per line (`#` comments allowed); an addon referenced by a manifest but missing from `addons\` fails the build.
 - There are no automated tests. Verification is manual: run against the live game client, or use the in-app debug tools (Tray → Debug: **Debug State**, **Calibrate Signatures**, **Verify Signatures**) described in TUTORIAL.md.
 
@@ -52,7 +52,7 @@ If you ever invoke Ahk2Exe yourself rather than through `build.ps1`, wrap it the
 
 ### Load order and global state
 
-`main.ahk` includes, in order: `variables.ahk` (all global state/constants) → `functions.ahk` (core logic) → `settings.ahk` (+ `settings_native.ahk`) → `radial.ahk` (the shared radial-menu engine) → `hotkeys.ahk` → `_addons.ahk` (generated, conditionally included — see below). Nearly all state is declared as `global` in `variables.ahk` and mutated in place; there is no dependency-injection or module boundary, so when adding state, put constants/config-backed globals there and follow the existing naming (`g`-prefixed mutable globals, UPPER_CASE constants).
+`main.ahk` includes, in order: `variables.ahk` (all global state/constants) → `functions.ahk` (core logic) → `native_mods.ahk` (the only door to the client mods' files) → `settings.ahk` (+ `settings_native.ahk`) → `dialogs.ahk` → `radial.ahk` (the shared radial-menu engine) → `hotkeys.ahk` → `_addons.ahk` (generated, conditionally included — see below). Nearly all state is declared as `global` in `variables.ahk` and mutated in place; there is no dependency-injection or module boundary, so when adding state, put constants/config-backed globals there and follow the existing naming (`g`-prefixed mutable globals, UPPER_CASE constants).
 
 `_addons.ahk` is a **generated** file (gitignored-style scratch, not hand-edited) listing `#Include addons\<file>.ahk` lines. In dev mode, `GenerateAddonIncludes()` regenerates it from whatever is physically in `addons\` and `Reload()`s if it changed. In a compiled release, it's frozen to whatever `build.ps1` wrote for that variant and never regenerated (`!A_IsCompiled` guards the regen call in `main.ahk`).
 
@@ -72,6 +72,10 @@ The battle actor array at `BATTLE_ACTOR_BASE_OFFSET` describes the fight from th
 ### Minimap overlay lifecycle
 
 The overlay (`gGui`, built in `main.ahk`'s `ShowOrToggleOverlay`) is a borderless always-on-top `+E0x08000000` (`WS_EX_NOACTIVATE`) window so it never steals game focus. `UpdateMapState()` runs on a 200ms timer, reads the current map name from memory, resolves it to an image in `maps\`, and auto-closes the overlay when the minimap becomes disallowed (`IsMinimapAllowed()`: battle, loading screen, unsupported/unreadable zone). Calibration (world position → overlay pixel) is per-map data in `maps\calibration.ini`, always in **base** (unscaled 400×300) map space — the user's `Scale` setting is applied only at draw time (`MinimapScaleFactor()`), so calibrating at any zoom level produces the same stored numbers.
+
+**Tab belongs to the game wherever the game has a minimap.** The client's `minimap_file4` patch (server repo, `tools/client-patch/`) gave every map Maps++ ships an image for a native minimap too (server `minimapFile` 52–79), so a `$Tab` that captured whenever an image existed swallowed the game's own minimap everywhere. `[Minimap] Source` (`game` default | `mapspp` | `off`) decides; `TabOpensMapsppMinimap()` is the one predicate, used by `HotIfToggleMinimap` and `HandleTab`, and it reads `ReadNativeMinimapState()` **at the keypress**, never from the 200ms cache, so it is right the instant after a teleport. That function mirrors the client's own OpenMinimap gate (VA `0x442370`): index ≥ 0, gate ≠ 0, and for any index ≥ 20 the server's EnableMinimap flag. The tier is **derived from the index**, not read from `MINIMAP_TIER_OFFSET`, because that byte describes the last minimap the game *loaded*, which can be the previous map's. Indices ≥ 52 additionally need the patch (code bytes at RVA `0x605C8`: `E9` patched, `83 F8 nn` not) and `system\smallmap04.mda`; bytes that are neither read as "unknown" and the index is trusted. Every failure mode returns "no game minimap", which is the pre-patch behaviour. `openMapsppMinimap` (unbound) / `ToggleMapsppMinimap()` opens the overlay regardless — it is the only way to POIs, party markers and waypoints on a patched client — and a one-time notice (`[Minimap] SourceNoticeShown`, config.ini only) says so the first time Tab goes to the game on a covered map.
+
+**The game picture is not always the client area.** The client mods' `osmw_display.dll` scales the 800×600 surface 2×/3× (its shipped Windowed/Auto default already does on a 1440p monitor) or letterboxes it in a Resizable/Borderless window, and publishes where the picture is as window properties on the game window (`DISPLAY_PROP_*`; edges stored +1). Three helpers in `functions.ahk` are the only things that should know: `GameMainWindow(hwnd)` maps any `main.exe` window to the real game window — `GAME_WIN_FILTER` also matches the client's chat window, which is what the overlay used to anchor to whenever chat had focus; `GameContentRect(hwnd)` is the picture in screen pixels plus scale and mode, falling back to the whole client area when the properties are absent or inconsistent; `LogicalToClient(hwnd, lx, ly)` turns a fixed 800×600 click (inventory button, chat button) into real client pixels. Anything placed *on* the game uses the content rect; `GameClientRect()` remains for things placed relative to the window. `MinimapScaleFactor()` multiplies by `gGameContentScale` when `[Minimap] FollowGameScale` is on (refreshed in `UpdateMapState`, which drops the overlay Gui on a change, since a picture control cannot resize in place). Launches wait for the size to settle (`WaitForGameWindowsSettled`, only when `NativeDisplayModuleExpected()`) before re-centring or applying a layout; Window Layout skips Borderless and maximized clients, because the display module owns size and Maps++ only ever owns position.
 
 ### Calibration panel
 
@@ -115,7 +119,7 @@ An addon deliberately left out of every manifest is dev-only: `GenerateAddonIncl
 
 ### Hotkey system
 
-All rebindable hotkeys go through a central registry in `hotkeys.ahk`: `RegisterHotkeyAction(Map("id", ..., "default", chord, "handler", fn, ...))`. An empty default or saved chord means the action is deliberately unbound; `ApplyAllHotkeys()` skips it. The function tears down and rebinds everything else (needed after Settings save or addon enable/disable toggling which actions are live) using AHK v2's dynamic `Hotkey()` API rather than static `#HotIf`/hotkey directives. Context (when the hotkey is active) is expressed via `hotIfWinActive` (bound to `GAME_WIN_FILTER`) or `hotIfFn` (a `HotIf()` predicate callback) on the action spec — see `HotIfToggleMinimap` for an example combining overlay state and map eligibility. User choices live in `config.ini [Hotkeys]`; a blank value preserves an explicit unbound choice. `gHotkeyReserved` in `hotkeys.ahk` is a hand-maintained list of fixed, non-rebindable chords — it has no compile-time link to the actual fixed bindings, so a new fixed hotkey must be added to both places.
+All rebindable hotkeys go through a central registry in `hotkeys.ahk`: `RegisterHotkeyAction(Map("id", ..., "default", chord, "handler", fn, ...))`. An empty default or saved chord means the action is deliberately unbound; `ApplyAllHotkeys()` skips it. The function tears down and rebinds everything else (needed after Settings save or addon enable/disable toggling which actions are live) using AHK v2's dynamic `Hotkey()` API rather than static `#HotIf`/hotkey directives. Context (when the hotkey is active) is expressed via `hotIfWinActive` (bound to `GAME_WIN_FILTER`) or `hotIfFn` (a `HotIf()` predicate callback) on the action spec — see `HotIfToggleMinimap` for an example combining overlay state and map eligibility. User choices live in `config.ini [Hotkeys]`; a blank value preserves an explicit unbound choice. `gHotkeyReserved` in `hotkeys.ahk` is a hand-maintained list of fixed, non-rebindable chords — it has no compile-time link to the actual fixed bindings (the static `^!r::`… block under "Fixed hotkeys" in `main.ahk`), so a new fixed hotkey must be added to both places. That block was once deleted by an unrelated rewrite and nothing noticed for months: the calibration panel kept telling users to press Ctrl+Alt+1/2, which did nothing. If you touch `main.ahk`'s top half, check it is still there.
 
 ### Two interface modes (Native vs WebView2)
 
@@ -123,6 +127,10 @@ All rebindable hotkeys go through a central registry in `hotkeys.ahk`: `Register
 
 - **WebView2 ("enhanced")**: renders HTML/CSS/JS panels under `ui\<panel>\` inside a `WebViewGui` (from `Lib\WebViewToo.ahk`, using `Lib\{32bit,64bit}\WebView2Loader.dll`). AHK ↔ JS communication is one hand-rolled JSON protocol per panel: AHK calls `gui.PostWebMessageAsJson('{"type":"...",...}')` to push state, and JS posts back via `window.chrome.webview.postMessage`, received AHK-side through `WebMessageReceived` → a per-panel `_OnWebMessage` handler that switches on `msg["type"]`. There's no shared client-side framework; each `ui\<panel>\main.js` is vanilla JS. Windows are built once and parked off-screen (`x-30000 y-30000`) rather than destroyed/recreated between opens, because standing up a WebView2 + loading a page costs hundreds of ms — see the tray menu's `_EnsureWebTrayGui`/`_RevealWebTrayMenu`/`_CloseWebTrayMenu` in `main.ahk` for the canonical park/reveal/dismiss pattern to copy for new WebView2 panels.
 - **Native ("low memory")**: plain Win32/AHK `Gui` controls (`settings_native.ahk`, and list-based fallbacks like the client roster's list view), no Chromium subprocess. If `Lib\WebViewToo.ahk` or the relevant `ui\...\index.html` is missing, WebView2 surfaces fall back to native automatically (see `_Settings_CanUseWebView()`).
+
+Our own files are not enough: without the **WebView2 Runtime** every `WebViewGui(` throws `0x80070002` out of `CreateCoreWebView2EnvironmentWithOptions`. Users got that as an uncaught error on every tray right-click. That is why `IsWebViewInterface()` means *effective* mode. It is `gInterfaceMode = "webview"` **and** `WebView2RuntimeAvailable()`, a once-per-session probe of the loader's `GetAvailableCoreWebView2BrowserVersionString`. It passes the same folder that creation will (`_WV2_RuntimeFolder()` mirrors the scan in `Lib\WebView2.ahk`, which carries a local fix that skips version folders missing `msedgewebview2.exe`; keep the two in step).
+
+`gInterfaceMode` itself keeps the user's choice and is never downgraded, so installing the runtime restores enhanced mode with no further step. A new panel must branch on `IsNativeInterface()` before building, as every existing one does; a files-only `_X_CanUseWebView()` gate does not cover this. For a runtime that passes the probe but fails anyway, the tray, radial, Settings and dialog builders catch the failure and call `MarkWebView2Unavailable(where, err)`, which switches the rest of the session to native and tells the user once.
 
 Both frontends for a given panel (e.g. `settings.ahk`'s `_Settings_BuildWebView` vs `_Settings_BuildNative`) must feed the same underlying state/save functions — when changing a setting's behavior, update the shared read/write logic, not just one frontend.
 
@@ -160,25 +168,81 @@ Column-aligned output (signature dumps, debug state, slot tables) belongs in the
 **Any save path that writes user text to an ini must call `EnsureIniUtf16(path)` before its first `IniWrite`/`IniDelete`** (`functions.ahk`, near `ResolveWritableIniPath`). Windows fixes an ini's encoding from what is already on disk, and AHK only creates a UTF-16 one when `IniWrite` is what creates the file — a store whose first call is `IniDelete` (deleting a section it is about to rewrite, as `_Pois_Save` and `_BH_SaveProfiles` do) instead gets an ANSI file, and from then on every write through it silently replaces characters outside the system codepage with `?`. Character names and POI labels are exactly the affected values.
 - `maps\*.jpg` — one custom minimap image per supported zone, named `MAP<id>.jpg` matching the in-game map filename.
 
-### Native mods (`patches\`)
+### The native client mods (a separate product)
 
-Two 32-bit C mods injected into the client — `chatmod` (the chat window: font, tabs, timestamps, mentions, wheel scroll, cooldown text) and `login` (auto-login and character select) — plus the launchers that load them. `patches\README.md` covers the build; each mod's `NOTES.txt` is the authority on its internals, hook addresses and measured limits.
+The 32-bit C mods that run inside the client -- `osmw_core.dll` and its
+features, including the chat window and auto-login -- live in the osMW server
+repo under `tools/client-mods/`, are built there, and reach a game folder by
+their own route. **Maps++ does not ship, deploy, update or version them**, and
+works normally on a client that does not have them. `patches-MOVED.md` has the
+history; `Lib\` holds only the WebView2 libraries now.
 
-They live here because they used to live in the game folder, unversioned, while their compiled output was committed to `Lib\` — and the two drifted silently. A fix went into the C source while `Lib\` kept shipping the build from before it, so a fresh install got the old behaviour with nothing to indicate why. Sources and shipped binaries now share one history.
+**`native_mods.ahk` is the whole of the contract.** The mods own `osmw.ini` and
+`osmw_defaults.ini` beside `main.exe`, with the same chain Maps++ uses for its
+own pair: `osmw.ini` -> `osmw_defaults.ini` -> the literal compiled into the
+DLL. `NativeModsRead`/`NativeModsWrite`/`NativeModsInstalled` are the only ways
+to touch them, and the rules there are load-bearing:
 
-**`Lib\osmw_*.dll` is a build artifact, not something to hand-edit or hand-copy.** `build.ps1` runs `patches\common\modhash.py --check` before compiling and rebuilds any mod whose sources no longer match what produced `Lib\`. That check hashes source *content*, never mtimes — git does not preserve mtimes, so a newer-than test would fire at random on a fresh clone. Python and the MSVC x86 build tools are needed only to rebuild; without them the check degrades to a warning so the AHK side still builds. `-SkipMods` opts out.
+- **Writes happen only when the user asks.** `_ChatMod_SyncGate` used to write
+  `[Addons] ChatMod` before every launch, which silently undid the in-game F12
+  settings panel. Nothing writes on launch now; the gate is a checkbox on the
+  Chat Mod tab instead.
+- **One key per write**, never a section rewrite and never `IniDelete`: a
+  running client writes its own keys (chat geometry, fight speed) into the same
+  file.
+- **Never write `osmw_defaults.ini`.** It ships with the mods and is replaced
+  wholesale when they update.
+- Maps++'s `config.ini`/`defaults.ini` are a *different pair of files*, even
+  when Maps++ is installed in the game folder and they sit side by side. They
+  used to be the same files, which is what made `[Addons]`, `[Minimap]` and
+  `[Debug]` collide between the two products. The mods carry a pre-split
+  `config.ini` across once themselves, then leave it alone.
+- `NativeModsInstalled()` is false on a stock client. Every caller must degrade
+  to saying so rather than writing into a folder with no mods in it, and
+  `NativeModsWrite` itself now refuses there.
+- **A Settings tab that edits the mods' files declares `"nativeMods", true`**
+  in its `RegisterAddon` map (Chat Mod does). Both Settings frontends send
+  every field on every Save, so before this, saving the minimap opacity
+  rewrote all of `[Chat]` with the values the window had opened with and
+  undid any F12 edit made meanwhile. Save now snapshots what each addon tab
+  rendered (`_Settings_AddonFieldsFor`) and calls an addon only if one of
+  its fields changed; a `nativeMods` addon receives *only* the changed keys,
+  and Reset to Defaults skips it entirely. Ordinary addons still get their
+  full map, because most of them read an absent key as "off". A disabled
+  addon gets no tab, no Save and no Reset (`_Settings_AddonHasTab`).
 
-Since the sources left the game folder, every path in the Python tools belongs to one of two roots, and `patches\common\paths.py` is the only place that decides which: `PROJ` (this repo — sources, `sigs.h`, `Lib\`) or `GAME` (the install — `main.exe`, `signatures.ini`, `offsets_cache.ini`, per-pid logs, deployed DLLs). `GAME` comes from `--game-root`, then `$OSMW_GAME_ROOT`, then `[Launcher] GamePath` in this repo's `config.ini`, and a directory only counts if `main.exe` is in it — a stale config entry must report as missing rather than silently target another install.
+**Reading what the mods report.** `NativeModsReadStatus()` parses
+`osmw_status.ini`, the core's atomic startup report (core state, release
+integrity, one `[Module.N]` per feature with state, result code and version)
+-- the same payload as the in-game F12 -> Status page. It is one file for every
+client in the folder with no PID, so anything showing it says it describes the
+last client to change state. Tray -> Debug -> **Client Mods Status...** and
+`BuildDiagnosticsReport` share `NativeModsStatusTable`, so they cannot drift.
+Result `-15` is "blocked by Windows" (Smart App Control refusing an unsigned
+DLL); a `disabled` login module is normal in any client not launched with
+auto-login consent and is reported as idle, not off.
 
-**The mods' own logging is opt-in.** Each DLL writes one `osmw_*.<pid>.log` per client per launch into the game folder, which is five files a launch for a player who is not debugging anything — so `[Debug] ModLogging` in the *game folder's* `config.ini` (default `0`, toggled from Tray → Debug → **Client Mod Logging**, read AHK-side by `ModLoggingEnabled`/`SetModLogging`) gates it, and with it clear `mw_log`/`lg_log` open no file at all. Off also prunes to zero, so switching it back off clears what a troubleshooting session wrote; a live client's log survives because it is held without `FILE_SHARE_DELETE`. Each DLL reads the key **once, at injection**, so a change applies to clients launched afterwards, never to ones already running. An enabled log stops at 1 MB with a final line rather than rotating — the diagnostically valuable part of a mod log is the signature/startup block at the *top*, which rotation would be the one thing to discard. `BuildDiagnosticsReport` names the state, so a report with no `osmw_*.log` reads as "logging was off" rather than "the mod never loaded".
+**Keys the mods take in game** (`NativeModsReservedKeys`: `[Settings] OpenKey`
+F12, `[Fight] CycleKey` F11, Timers' fixed F9, `[Leaderboard] OpenKey`, Chat
+Mod's system-wide `ClearHotkey`/`TabHotkey`, each only while its `[Addons]`
+gate is on) are **warned about, never refused** -- at capture, at Save (only
+for chords that changed), and in diagnostics. The F-key features poll key
+state, so they match on the trigger key with any modifiers; Chat Mod's are real
+hotkeys and match the exact chord. Chord comparison everywhere goes through
+`CanonicalHotkeyChord` (modifiers in `^!+#` order, key lowercased): the capture
+writes `^+c` while defaults were typed `+^c`, and a plain string compare let
+two actions share a chord unnoticed.
 
-**Auto-login consent is per-process, not a setting.** `[Addons] AutoLogin` is persistent and so cannot express "this launch": whatever Maps++ last wrote applied to a client the player then started by hand, which is why `osmw_chat_launch.exe` used to log itself in. It also doubles as Maps++'s own addon-enable flag, so it cannot be parked at `0` between launches either. Maps++ now sets `OSMW_AUTOLOGIN` in the environment immediately before `Run()` and clears it once the batch is spawned (`_AutoLogin_BeforeLaunch` / `AfterLaunchSpawned`); the DLL requires both that variable and the ini key. Both launchers pass `NULL` for `lpEnvironment`, so it reaches `main.exe` through the injection chain with no launcher change. The name is duplicated in `dllmain.c` (`LG_CONSENT_VAR`) and `auto_login.ahk` (`_AUTOLOGIN_CONSENT_VAR`) — change both together.
-
-`OSMW_LOGIN_ROW` (`LG_ROW_VAR` / `_AUTOLOGIN_ROW_VAR`, same duplication rule) rides the same channel but answers *which* row rather than *whether*, carrying an opaque roster row id. Consent is one answer for a whole batch, so it is set once around the launch; the row is not, and `_AutoLogin_BeforeLaunchClient` is called **inside** `LaunchWithProfile`'s loop before each `Run()` — `Run` snapshots the environment at `CreateProcess`, which is the only reason per-client assignment works at all. `AfterLaunchSpawned` clears both, so a plain next-free launch cannot inherit a row from an earlier assigned batch. Two asymmetries against `lg_claim_row`'s next-free walk are deliberate and documented in `patches\login\NOTES.txt`: a named row is claimed whether or not it is `enabled`, and a named row held by a live PID stands the client down at the stock login screen rather than falling back to another account — the server rejects a duplicate account login anyway, so a fallback would just log the player into the wrong character.
-
-**`login_roster.dat` stays at magic `OSMWROS1`.** Roster row *groups* are a Maps++ launcher concept the DLL has no use for, so they live in `config.ini [AutoLoginGroups]` keyed by row id rather than in the file. Bumping the magic would make every already-deployed `osmw_login.dll` fail `lg_roster_load` and silently stop logging anyone in — far too high a price for a label. That constraint applies to anything else tempted to extend the format.
-
-**`EnsureInjectPayload` refreshes, it does not just seed.** It used to refuse whenever the destination existed, so an install that deployed the mods once kept them for good and every later fix in `Lib\` sat there unreachable. It now stamps the deployed set with `APP_VERSION` in `osmw_payload.ini` beside `main.exe` and re-copies when that differs; a file locked by a running client throws, and the stamp is deliberately left unwritten so the next launch with no clients running retries rather than recording a half-updated set as current. `BuildDiagnosticsReport` prints the stamp and flags it stale. Any change to a mod's behaviour that Maps++ depends on needs an `APP_VERSION` bump to actually ship.
+**The mods' own logging is opt-in.** Each DLL writes one `osmw_*.<pid>.log` per
+client per launch into the game folder, which is five files a launch for a
+player who is not debugging anything -- so `[Debug] ModLogging` in `osmw.ini`
+(default `0`, toggled from Tray -> Debug -> **Client Mod Logging**, read
+AHK-side by `ModLoggingEnabled`/`SetModLogging` in `native_mods.ahk`) gates it,
+and with it clear the log calls open no file at all. Each DLL reads the key
+**once, as the client starts**, so a change applies to clients launched
+afterwards, never to ones already running. `BuildDiagnosticsReport` names the
+state and whether the mods are installed at all, so a report with no
+`osmw_*.log` reads as "logging was off" rather than "the mod never loaded".
 
 ### Launch profiles
 

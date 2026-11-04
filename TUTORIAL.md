@@ -1,6 +1,6 @@
 # osMW Maps++ — Player Guide
 
-**osMW Maps++** is a companion app for [MythWar Online](https://github.com/osMW) when playing on the **osMW** private server. It replaces the in-game minimap with detailed custom maps and adds quality-of-life tools for multi-boxing (running several game clients at once).
+**osMW Maps++** is a companion app for [MythWar Online](https://github.com/osMW) when playing on the **osMW** private server. It adds a detailed minimap overlay — with points of interest, party markers and waypoints — and quality-of-life tools for multi-boxing (running several game clients at once).
 
 Maps++ runs in the background and appears in your system tray as **osMW Maps++**.
 
@@ -10,7 +10,7 @@ Maps++ runs in the background and appears in your system tray as **osMW Maps++**
 
 | Feature | Description |
 |--------|-------------|
-| **Custom minimap** | Press **Tab** to overlay a high-resolution map on top of the game window. |
+| **Custom minimap** | A high-resolution map over the game window, with POIs, party markers and waypoints. Where the game has its own minimap, **Tab** opens that one, and Maps++'s is a hotkey away. |
 | **Live position marker** | A dot on the map tracks your character as you move. |
 | **Game launcher** | Launch new game clients from the tray menu or a hotkey, centered on your chosen monitor. |
 | **Launch profiles** | Name what a launch does — which accounts, how many clients, which display, which layout — and bind one to each launch hotkey. |
@@ -18,8 +18,9 @@ Maps++ runs in the background and appears in your system tray as **osMW Maps++**
 | **Better Hotkeys** | Give each character any number of persistent battle-skill shortcuts, including different skills on the same key. |
 | **Multi-box helpers** | Optional addons arrange windows, toggle chat, open inventory, and send battle commands to all fighting characters. |
 | **Radial menus** | **Ctrl+Alt+A** rings your common actions around the cursor; choose **Clients** there to jump between alts. One click each. |
+| **Works with the client mods** | Edits the Chat Mod settings, shows which client mods are running, and keeps its overlays and clicks lined up when the mods scale the game 2× or 3×. |
 
-Maps++ reads information from the running game client (`main.exe`). It never patches `main.exe`. Launching preflights and transactionally installs `osmw_core.dll`, its ABI metadata, all seven managed feature DLLs, and both compatibility launchers, then starts the chat-named launcher so the core is present before the client initialises.
+Maps++ reads information from the running game client (`main.exe`). It never patches `main.exe`, and it never installs, updates or loads the **osMW client mods** (`osmw_core.dll` and its features — chat window, auto-login, the in-game F12 settings panel, display scaling and more). Those are a separate download that the client loads itself. Maps++ works with or without them; when they are there, it reads their status and edits a few of their settings, but only when you ask it to.
 
 ---
 
@@ -56,9 +57,13 @@ which display, which layout*, edited under **Settings → Launcher**. Out of the
 Primary and Secondary, carrying whatever display and layout you already had. Because both actions
 just run a profile, they stay one click and one hotkey no matter how you configure them.
 
+If the client mods' display scaling is on, each new client grows to 2× or 3× a moment after its
+window appears. Maps++ waits for that (a few seconds at most) before centring the clients or
+applying the layout, so they land where you expect at their final size.
+
 If **Launch on startup** is enabled in `config.ini`, Maps++ opens a game client for you when the app starts.
 
-To skip the stock login screen, add accounts under **Tray → Clients & Windows → Auto-login roster…** and leave **Settings → Launcher → Auto-login launched clients** on. Maps++ clicks through the intro, then the injected login fills the account. Passwords stay on this Windows user and are never stored in `config.ini`. Turn that launcher setting off when you want the stock login screen.
+To skip the stock login screen, add accounts under **Tray → Clients & Windows → Auto-login roster…** and leave **Settings → Launcher → Auto-login launched clients** on. Maps++ clicks through the intro, then the client mods' auto-login fills the account (it needs the client mods installed). Passwords stay on this Windows user and are never stored in `config.ini`. Turn that launcher setting off when you want the stock login screen.
 
 If a profile names no accounts, each client claims the next enabled roster row on its own — which
 is fine for one batch, but arbitrary once you run more clients than one batch holds. Give the
@@ -72,18 +77,44 @@ profile a **group** of accounts instead and it launches exactly those characters
 
 | Action | How |
 |--------|-----|
-| **Open / toggle minimap** | **Tab** (while the game window is focused) |
+| **Open / toggle minimap** | **Tab** (while the game window is focused) — on a map where the game has no minimap of its own |
+| **Open the Maps++ minimap anywhere** | **Open Maps++ minimap** — unbound until you give it a key under **Settings → Hotkeys**; also **Tray → Map & Overlay → Open Maps++ Minimap** and the **Maps++ map** spoke of the action ring |
 | **Close minimap** | **Tab** again, **Right-click** on the overlay, or switch away from the game |
 
 The overlay is centered on the game window and stays on top. Clicks on the minimap do **not** steal focus from the game, so you can keep playing normally.
+
+### Tab: the game's minimap or Maps++'s
+
+The game now has a minimap of its own on every map Maps++ ships an image for, Oranus included.
+So by default **Tab goes to the game** wherever the game has a minimap, and opens the Maps++
+overlay only where it does not. The first time that happens, Maps++ tells you once how to reach
+its own map instead.
+
+Change it under **Settings → Minimap → Tab key**, or **Tray → Map & Overlay → Tab Minimap**:
+
+| Choice | Tab does |
+|--------|----------|
+| **The game's minimap where it has one, Maps++ elsewhere** *(default)* | Opens the game's own minimap when the map has one; the Maps++ overlay otherwise |
+| **Maps++ wherever it has a map** | Opens the Maps++ overlay on every map it has an image for, as before |
+| **The game's minimap only** | Always goes to the game; Maps++ never takes Tab |
+
+Whichever you pick, **Open Maps++ minimap** opens the overlay — with its POIs, party markers and
+waypoints — even on a map where the game has a minimap too. Tab always closes the overlay while it
+is open.
+
+> A map counts as having a game minimap only when the game would really open one: the map must
+> come with one, your character must have minimaps enabled by the server, and for the newer
+> minimaps (Oranus and others past the first 52) the client must have the minimap patch and
+> `smallmap04.mda`. If any of that is missing, Tab opens Maps++ as it always did.
 
 ### Sizing and placing the minimap
 
 **Settings → Minimap** controls how the overlay looks:
 
 - **Size** — 50–200 % of the standard 400×300. Map calibration is unaffected, so the marker stays accurate at any size.
+- **Grow with the game's display scale** — on by default. When the client mods show the game at 2× or 3×, the minimap is enlarged by the same amount, so it keeps its size relative to the game. Turn it off to keep the overlay at exactly the Size above.
 - **Opacity** — 30–100 %, for when you want to see the game through the map.
-- **Position** — centered (the default) or pinned to a corner of the game window.
+- **Position** — centered (the default) or pinned to a corner of the game picture. With the client mods' Resizable or Borderless display, that is the corner of the game picture itself, not of the black bars around it.
 - **Nudge X / Y** — a pixel offset from that position. You can also **hold Ctrl and drag the overlay**; where you drop it is saved automatically. (Ctrl is required so that mousing over the minimap to read marker labels never moves it by accident.)
 - **Double-click the overlay** to snap it straight back to the centre of the game window — handy if you dragged it somewhere awkward, or onto a display you no longer have.
 - **Keep the minimap open when the game loses focus** — by default the overlay hides when you Alt+Tab away. Tick this to keep it up. It still closes for battles and unsupported zones.
@@ -132,7 +163,7 @@ The custom map works only when **all** of these are true:
 - You are **not in battle**.
 - Your current zone has a matching image in the `maps\` folder (e.g. `MAP301.jpg` for that map).
 
-If you enter battle, load into an unsupported zone, or the game cannot read the current map name, the overlay closes automatically. **Tab** will work again once you return to a supported area.
+If you enter battle, load into an unsupported zone, or the game cannot read the current map name, the overlay closes automatically. It opens again once you return to a supported area — with **Tab** if the map has no game minimap (or **Tab key** is set to *Maps++ wherever it has a map*), otherwise with **Open Maps++ minimap**.
 
 ### Adding a zone Maps++ doesn't have
 
@@ -141,8 +172,9 @@ If you enter battle, load into an unsupported zone, or the game cannot read the 
 1. Put the zone's image in the `maps\` folder, named after its map file —
    `MAP301.jpg`, `MAP329.jpg` and so on. The name Maps++ is looking for is shown at the top of
    the calibration window while you stand in that zone.
-2. Open the minimap and the calibration window, then stand somewhere you can recognise on the
-   image — a shop door, a bridge, a corner.
+2. Open the Maps++ minimap and the calibration window, then stand somewhere you can recognise on
+   the image — a shop door, a bridge, a corner. (On a map where Tab opens the game's own
+   minimap, open Maps++'s with **Open Maps++ minimap** or **Tray → Map & Overlay**.)
 3. Move the mouse to that same spot **on the minimap** and press **Ctrl+Alt+1**.
 4. Walk somewhere **diagonally away** and repeat with **Ctrl+Alt+2**.
 5. Press **Apply calibration**.
@@ -174,11 +206,11 @@ Right-click the tray icon for the main menu:
 | **Client Launch** | Run any *other* profile, or pick accounts for one launch without changing a setting — see below |
 | **Quick Actions** | Open the action ring and access game controls such as Send Enter, battle send, chat, inventory and view mode |
 | **Clients & Windows** | Open the client roster, edit the auto-login roster, arrange game windows and access character tools available in the current build |
-| **Map & Overlay** | Add or manage map POIs and toggle map-related overlay features available in the current build |
+| **Map & Overlay** | Open the Maps++ minimap, choose what **Tab** opens (**Tab Minimap**), calibrate the current map, add or manage map POIs and toggle map-related overlay features available in the current build |
 | **Interface** | Switch between Native (low memory) and WebView2 (enhanced); Maps++ reloads automatically |
 | **Settings…** | Open the settings window (game path, launcher, monitors, Window Layout, addons). Addon settings show a small **Reset** beside any value you have changed from its default |
 | **Reload** | Restart Maps++ (picks up config changes) |
-| **Debug** | Diagnostics and memory-signature tools — see below |
+| **Debug** | Diagnostics, client mod status and logging, and memory-signature tools — see below |
 | **About Maps++…** | Version, interface mode and how many addons are active |
 | **Exit** | Quit the app |
 
@@ -198,6 +230,14 @@ Under **Settings → Launcher**, each launch target has a **Layout after launch*
 tray and the radial rings prewarmed for immediate response. **Native (low memory)** uses
 standard Windows/AHK controls, does not preload WebView2, opens the client roster as a list and
 Quick Actions as a popup menu. Your selection is remembered in `config.ini`.
+
+The enhanced interface needs the **Microsoft Edge WebView2 Runtime**. It comes with Windows 11
+and most up-to-date Windows 10 installs, but some editions and "debloated" or gaming Windows
+builds leave it out or remove it. If it is missing, Maps++ uses the native interface instead and
+tells you once at startup. The **WebView2 (enhanced)** entry under **Tray → Interface** then reads
+*runtime unavailable*. To get the enhanced interface back, install the
+[Evergreen WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703) and click that
+entry, or restart Maps++. Your choice stays saved, so you never need to switch modes by hand.
 
 Confirmations, name prompts and diagnostic read-outs follow the same choice. In enhanced mode
 they are Maps++'s own dialogs, matching the panel that raised them; in low-memory mode they are
@@ -222,19 +262,26 @@ one line per event there — startup, errors, and anything an addon reported —
 happened five minutes ago is still recoverable. The log is capped at about 1 MB and the previous
 one is kept as `mapsplusplus.log.1`; nothing else is retained.
 
-**Tray → Debug → Client Mod Logging** is off, and should stay off until someone asks for it. The
-two mods injected into the client (`osmw_chat.dll` and `osmw_login.dll`) can each write their own
-log — `osmw_chat.<pid>.log` and `osmw_login.<pid>.log`, one file per client per launch, in the
-game folder. That is a handful of files every launch for something only useful while a problem is
-being chased, so nothing is written unless you turn this on.
+**Tray → Debug → Client Mods Status…** shows what the osMW client mods report about themselves:
+which features are running, which are switched off, and which stood down and why — a feature
+whose signature no longer matches after a client update, say, or one **blocked by Windows**
+(Smart App Control refuses unsigned DLLs; they are not damaged). It is the same report as the
+in-game **F12 → Status** page, read from `osmw_status.ini` in the game folder. That one file is
+shared by every client in the folder, so it describes whichever client last started or stopped.
+Copy Diagnostics includes the same table. Auto-login shows as idle in a client you started by
+hand — it only runs in clients Maps++ launches with auto-login on — and that is normal.
 
-If a chat-mod or auto-login problem is being investigated: switch it on, **relaunch your clients**
-(each mod reads the setting once, as it is injected, so windows already open are unaffected),
-reproduce the problem, then send the `osmw_*.log` files from the game folder alongside your
-diagnostics. Switch it back off afterwards — the mods then delete the files they wrote as clients
-are relaunched. While on, each mod keeps only its five newest logs and stops writing past about
-1 MB. The diagnostics report says which state you are in, so an empty game folder is never
-mistaken for a mod that failed to load.
+**Tray → Debug → Client Mod Logging** is off, and should stay off until someone asks for it. The
+client mods can each write a tagged log — `osmw_core.<pid>.log` and one per feature, one set per
+client per launch, in the game folder. That is a handful of files every launch for something only
+useful while a problem is being chased, so nothing is written unless you turn this on. The switch
+is `[Debug] ModLogging` in the mods' own `osmw.ini`; this menu item is a shortcut to it.
+
+If a client-mod problem (chat, auto-login, display, …) is being investigated: switch it on,
+**relaunch your clients** (each mod reads the setting once, as the client starts, so windows
+already open are unaffected), reproduce the problem, then send the `osmw_*.log` files from the game
+folder alongside your diagnostics. Switch it back off afterwards. The diagnostics report says which
+state you are in, so an empty game folder is never mistaken for a mod that failed to load.
 
 > **If an addon keeps failing, Maps++ turns it off.** Rather than notifying you once a second
 > forever, a repeatedly-failing addon is disabled for the rest of the session and named in one
@@ -264,7 +311,15 @@ setting off and it makes no requests at all.
 
 Everyday shortcuts can be changed under **Settings → Hotkeys** (click a shortcut, press new keys, then Save). Choose **Unbind** when an action should have no direct shortcut. Changes apply immediately — no Reload needed. The tables below list the **default** bindings.
 
-The default set is intentionally small: core controls and the **Ctrl+Alt+A** Quick Actions ring are bound, while addon actions start unbound. This avoids claiming common game and Windows shortcuts just because an addon is installed; use the ring or tray menu, or bind only the addon actions you want.
+The default set is intentionally small: core controls and the **Ctrl+Alt+A** Quick Actions ring are bound, and most addon actions start unbound (Chat Toggle and Inventory keep the chords they have always had). This avoids claiming common game and Windows shortcuts just because an addon is installed; use the ring or tray menu, or bind only the addon actions you want.
+
+**Keys the client mods use in game.** With the osMW client mods installed, some keys already do
+something in game: **F12** opens the settings panel, **F11** cycles fight speed, **F9** shows the
+timer panel, plus a leaderboard key and Chat Mod's clear/tab hotkeys if you set them. Maps++ still
+lets you bind those, since you may want both — but it warns you when you pick one, and again when
+you save, so a key that suddenly does two things is never a surprise. **Copy Diagnostics** lists
+any overlaps too. (Maps++ reads which keys from the mods' own settings, so a key you moved in the
+F12 panel is the one it checks.)
 
 Existing saved bindings are left alone during an update. Use **Reset** (or **Reset all shortcuts to defaults**) if you want the revised defaults.
 
@@ -274,7 +329,8 @@ Global shortcuts work while the game or minimap overlay is focused.
 
 | Hotkey | Action |
 |--------|--------|
-| **Tab** | Toggle custom minimap (in game, on a supported map) |
+| **Tab** | Toggle the Maps++ minimap — on a supported map where the game has no minimap of its own (see **Settings → Minimap → Tab key**); otherwise Tab reaches the game |
+| **Not bound** | **Open Maps++ minimap** — the overlay even where the game has a minimap too |
 | **Right-click** | Close minimap (while overlay is open) |
 | **Ctrl+Alt+L** | Launch the configured clients on the primary target |
 | **Ctrl+Alt+K** | Launch the configured clients on the secondary target |
@@ -284,10 +340,25 @@ Global shortcuts work while the game or minimap overlay is focused.
 | **Ctrl+Alt+R** | Reload Maps++ |
 | **Ctrl+Alt+Q** | Exit Maps++ |
 
+These are fixed and cannot be rebound — Reload and Exit have to work even when something else is
+broken, and the calibration captures read where your mouse is over the minimap:
+
+| Hotkey | Action |
+|--------|--------|
+| **Ctrl+Alt+1** / **Ctrl+Alt+2** | Capture calibration point 1 / 2 (mouse over the minimap — see *Adding a zone Maps++ doesn't have*) |
+| **Ctrl+Alt+3** | Apply calibration from the two points |
+| **Ctrl+Alt+4** | Export the current map's calibration |
+| **Ctrl+Alt+D** | Debug State |
+| **Ctrl+Alt+S** | Calibrate Signatures |
+| **Ctrl+Alt+V** | Verify Signatures |
+
 ### Window Layout (Full / Lite)
 
 Arranges your open game windows on one monitor. Window **size is never changed**—only position.
-**Minimized clients are left alone**, so a client you deliberately tucked away stays that way.
+**Minimized clients are left alone**, so a client you deliberately tucked away stays that way —
+and so are **maximized** and **Borderless** ones (the client mods' Borderless display covers its
+whole monitor, so there is nowhere to move it). Slots are sized for the largest client, so a mix
+of 1× and 2× clients does not overlap.
 
 | Hotkey | Action |
 |--------|--------|
@@ -377,17 +448,21 @@ Made a mess? **Undo Last Apply** puts every window back where the last apply fou
 
 | Hotkey | Action |
 |--------|--------|
-| **Not bound** | Toggle chat on **all other** clients (keeps active window’s chat as-is) |
-| **Not bound** | Toggle chat on the **active** client only |
-| **Not bound** | Toggle **mini chat size** on all clients |
+| **Ctrl+Shift+C** | Toggle chat on **all other** clients (keeps active window’s chat as-is) |
+| **Ctrl+C** | Toggle chat on the **active** client only |
+| **Ctrl+Alt+C** | Toggle **mini chat size** on all clients |
 
-Useful when multi-boxing: hide chat on alts to reduce clutter, or shrink chat globally.
+Useful when multi-boxing: hide chat on alts to reduce clutter, or shrink chat globally. These only
+act while a game window is focused. **Ctrl+Shift+C** is also one of the clear-chat keys the Chat
+Mod offers — if you give it to the Chat Mod, rebind or unbind this one, or one of the two will not
+register. With Chat Mod's *Let me resize* on, the chat window's size is the mod's, so the mini-size
+toggle may not stick.
 
 ### Chat mod (all variants)
 
 Configured from **Settings → Chat Mod**.
 
-`osmw_chat.dll` is a core-managed feature that Maps++ installs for you. The historical `osmw_chat_launch.exe` entry point now injects only `osmw_core.dll` when the client does not already self-load it; the core starts chat first so its font hooks are early. This panel is how you configure it. It improves the game's own chat window rather than drawing a new one:
+`osmw_chat.dll` is one of the osMW client mods, installed with the client rather than by Maps++. This panel is how you configure it, when your game folder has them; when it does not, the panel says so and changes nothing. It improves the game's own chat window rather than drawing a new one:
 
 - A readable font, chosen from four **tested presets** — *Default* (the client's own Courier New), *Crisp*, *Large* and *Wide* — or set by hand with *Custom*. **18 pixels is a hard ceiling**: above it the client cuts the bottom of every line, underscores first. Nothing can be set to avoid that, which is why the presets stop where they do. Pick *Default* to put the chat back to stock.
 - Channel tabs with a clickable strip, so you can watch trade without the rest. **Edit tabs…** opens an editor where you name each tab and tick the channels it shows — there is no syntax to learn, and it refuses anything the client would silently cut.
@@ -396,18 +471,24 @@ Configured from **Settings → Chat Mod**.
 - Inline timestamps, mouse-wheel scrolling, and a cooldown message that says how many seconds are left instead of “Please do not flood !”.
 - Moving and resizing the chat window freely. The position is remembered **relative to the game window**, so with several clients running each chat window comes back beside its own client instead of all of them stacking in one place. With nothing remembered, the chat window docks against the right edge of its client, exactly where the unmodified game puts it. **Reset chat window position** puts it back there at any time.
 
-Changes apply within about two seconds — there is nothing to restart. Settings are stored under `[Chat]` in the game folder's `config.ini` (see below); the mod reads that file itself. **Reset to Defaults** does not clear the blocked-names list; unblocking is always explicit.
+Changes apply within about two seconds — there is nothing to restart. Settings are stored under `[Chat]` in the mods' own `osmw.ini` in the game folder, the same file the in-game **F12** panel edits. Maps++ writes **only the settings you changed** when you press Save, so saving something else in Maps++ never undoes a change you made in game. **Reset to Defaults** leaves this tab alone — those settings belong to the client mods — and it does not clear the blocked-names list either; unblocking is always explicit.
 
-Two of its settings are **system-wide hotkeys registered by the mod, not by Maps++**: *Clear chat* and *Cycle tabs*. Leave the matching entries in `[Hotkeys]` alone — binding the same chord in both places means one of them silently fails to register.
+Two of its settings are **system-wide hotkeys registered by the mod, not by Maps++**: *Clear chat* and *Cycle tabs*. Leave the matching entries in `[Hotkeys]` alone — binding the same chord in both places means one of them silently fails to register. Maps++ warns you if you try.
 
-Turning the **Chat mod** addon off in Settings → Addons leaves the client's chat completely stock. The launcher still loads the mod, but the mod stands down.
+Turning the **Chat mod** addon off in Settings → Addons only hides this tab in Maps++. The chat mod itself keeps running; the **Enable the chat mod in game** switch at the top of this tab is what turns it off.
 
 ### Inventory (Full only)
 
 | Hotkey | Action |
 |--------|--------|
-| **Not bound** | Open inventory on the active client (clicks the inventory button) |
-| **Not bound** | Send **Alt+I** to open inventory |
+| **Alt+E** | Open inventory on the active client (clicks the inventory button) |
+| **Alt+Shift+E** | Send **Alt+I** to open inventory |
+
+**Alt+E steps aside where the game does better.** In a fight, Alt+E is the game's own **Skill**
+command, so Maps++ lets it through. And on a client with the inventory hotkey patch, the game opens
+the bag on Alt+E itself, so Maps++ lets it through there too rather than opening the bag and
+closing it again. Rebind the action to another key and it works everywhere, as before. The click
+lands on the bag button even when the client mods show the game at 2× or 3×.
 
 ### Character Vendor (Full only)
 
@@ -523,13 +604,13 @@ Choose **Tray → Clients & Windows → Auto-login roster…**. Add a row per ch
 
 Passwords are write-only. After save the field is empty and the hint says the password is stored. They are encrypted for **this Windows user** in `login_roster.dat` next to `main.exe`. Another Windows account on the same PC cannot read them, and they never appear in `config.ini`, `mapsplusplus.log`, or the roster page after save. Group names are *not* in that file — they live in Maps++'s own `config.ini`, so the roster file's format is unchanged.
 
-**Settings → Launcher → Auto-login launched clients** is what the launch shortcuts honour. On (the default) clicks through the intro on the new windows only and lets each client claim the next roster row. Off leaves the stock login — already-playing clients are not sent Enter. An empty roster (or every row disabled) also leaves the stock login. **Settings → Addons → Auto-login** is a master switch: off hides the roster editor *and* stops auto-login entirely.
+**Settings → Launcher → Auto-login launched clients** is what the launch shortcuts honour. On (the default) clicks through the intro on the new windows only and lets each client claim the next roster row. Off leaves the stock login — already-playing clients are not sent Enter. An empty roster (or every row disabled) also leaves the stock login. **Settings → Addons → Auto-login** only hides the roster editor and the account menus in Maps++; the launcher setting above is what turns auto-login off. Auto-login itself is a client mod (`osmw_login.dll`), so it needs the client mods installed.
 
-**Auto-login only ever applies to clients Maps++ itself launched.** Consent travels to the mod in an environment variable that exists only for the moment Maps++ spawns the clients, so a client you start yourself — running `osmw_chat_launch.exe` from Explorer, say — always gets the stock login screen, whatever your Maps++ settings say. With **Tray → Debug → Client Mod Logging** on, the tagged `osmw_core.<pid>.log` in the game folder names which gate stopped the managed login feature, if either did.
+**Auto-login only ever applies to clients Maps++ itself launched.** Consent travels to the mod in an environment variable that exists only for the moment Maps++ spawns the clients, so a client you start yourself — running `main.exe` from Explorer, say — always gets the stock login screen, whatever your Maps++ settings say. That is also why **Client Mods Status** lists auto-login as idle in such a client. With **Tray → Debug → Client Mod Logging** on, the tagged `osmw_core.<pid>.log` in the game folder names which gate stopped the managed login feature, if either did.
 
 Use a distinct account per window. If the client says the account is already logged in, that is a server rule — Maps++ will not work around it. For the same reason, **an account you pick explicitly is never swapped for another**: if a live client already holds it, the new window simply stays at the stock login screen — and says `requested row … unavailable` in its `osmw_login.<pid>.log`, if client mod logging is on.
 
-When you launch from Maps++, it preflights the complete core/API/feature/launcher set, validates ABI 1.0 and the exact seven-module manifest, stages every changed file, and commits `osmw_payload.ini` last. An incomplete package or locked destination blocks the launch; already-replaced entries are rolled back and the next launch retries after every client is closed. An install that already lives in the game folder has both launchers in place from the start. Browse in Settings still points at `main.exe`; overlay attach is still `main.exe`. The stamp records the Maps++ version, core ABI, and module list. **Tray → Debug → Copy Diagnostics** reports the deployed version and flags it as stale.
+The osMW client mods are installed and updated separately -- Maps++ neither ships nor deploys them, and everything except the Chat Mod tab works the same on a client without them. Browse in Settings points at `main.exe` (or at a launcher, if your client needs one to load the mods); overlay attach is still `main.exe`. **Tray -> Debug -> Copy Diagnostics** says whether the mods are present in your game folder.
 
 ---
 
@@ -823,7 +904,9 @@ Monitor=2
 Layout=__default__
 
 [Minimap]
+Source=game
 Scale=100
+FollowGameScale=1
 Opacity=100
 Anchor=Center
 OffsetX=0
@@ -880,7 +963,7 @@ ChatMod=1
 
 | Setting | Meaning |
 |---------|---------|
-| `GamePath` | Full path to `main.exe`. Launch still starts `osmw_chat_launch.exe` from that folder when the helper is present |
+| `GamePath` | Full path to the executable a launch starts: `main.exe`, or a mod launcher if your client needs one. Maps++ runs exactly what is set here |
 | `GameArgs` | Extra command-line arguments passed when launching the game |
 | `LaunchOnStartup` | `1` = launch a game client when Maps++ starts |
 | `LaunchAutoLogin` | `1` = launch shortcuts skip the intro and log in from the roster; `0` = stock login |
@@ -903,11 +986,14 @@ from your existing `Primary*` / `Secondary*` keys, so nothing about your launche
 | `Layout` | Blank = center only, `__default__` = follow `DefaultLayout`, or a preset/custom layout name |
 
 `[AutoLoginGroups]` maps a roster row id to its group name. It lives here rather than in
-`login_roster.dat` because the injected mod has no use for group names, and changing that file's
+`login_roster.dat` because the auto-login mod has no use for group names, and changing that file's
 format would stop an older already-deployed `osmw_login.dll` from reading it at all.
+| `Source` | What **Tab** opens: `game` (the game's own minimap where it has one, Maps++ elsewhere — the default), `mapspp` (Maps++ wherever it has a map) or `off` (Tab always reaches the game). Set from **Settings → Minimap → Tab key** or **Tray → Map & Overlay → Tab Minimap** |
+| `SourceNoticeShown` | `1` once the one-time "Tab now opens the game's own minimap" notice has appeared. Clear it to see it again |
 | `Scale` | Minimap size, 50–200 % of the standard 400×300 |
+| `FollowGameScale` | `1` (the default) = multiply `Scale` by the game's own display scale when the client mods show it at 2× or 3×; `0` = always exactly `Scale` |
 | `Opacity` | Minimap opacity, 30–100 % |
-| `Anchor` | Where the minimap sits on the game window: `Center`, `TopLeft`, `TopRight`, `BottomLeft`, `BottomRight` |
+| `Anchor` | Where the minimap sits on the game picture: `Center`, `TopLeft`, `TopRight`, `BottomLeft`, `BottomRight` |
 | `OffsetX` / `OffsetY` | Pixel nudge from the anchor (negative allowed). Dragging the minimap writes these for you |
 | `KeepOpenOnFocusLoss` | `1` = keep the minimap open when you Alt+Tab away |
 | `ShowHoverCoords` | `1` = show in-game coordinates in the corner while the mouse is over the minimap |
@@ -931,13 +1017,13 @@ format would stop an older already-deployed `osmw_login.dll` from reading it at 
 | `ItemIdOffset` | Override for the inventory item-id address, e.g. `0x2E2028`. Only needed if a game update moves it; blank uses the built-in value (or whatever signature calibration resolves), `0` turns thumbnails off. When set, it wins over signature calibration — which is the point, since the case it exists for is calibration landing on the wrong address |
 | `[Hotkeys]` | One entry per rebindable action, in AutoHotkey chord syntax (`^`=Ctrl, `!`=Alt, `+`=Shift). A blank value means **Not bound**; rebind or unbind from **Settings → Hotkeys** |
 | `[Addons]` | `0` = disabled, `1` = enabled (also toggled from **Settings → Addons**) |
-| `[Debug] ModLogging` | `1` = the two injected mods write their own per-client logs into the game folder; `0` (the default) = they write nothing and delete what an earlier session left. Like `[Chat]` below, this key belongs to the DLLs and lives in the `config.ini` **next to `main.exe`**. Toggle it from **Tray → Debug → Client Mod Logging** |
+| `[Debug] ModLogging` | Not in this file. `1` = the client mods write their own per-client `osmw_*.<pid>.log` files into the game folder; `0` (the default) = they write nothing. Like `[Chat]` below, this key belongs to the mods and lives in their own **`osmw.ini` next to `main.exe`**. Toggle it from **Tray → Debug → Client Mod Logging** |
 
 After editing `config.ini`, use **Reload** from the tray menu or **Ctrl+Alt+R**.
 
 ### Chat mod settings (`[Chat]`)
 
-These belong to `osmw_chat.dll`, not to Maps++, and live in the `config.ini` **next to `main.exe`** — not in Maps++'s own `config.ini` if the two have been separated. Set them from **Settings → Chat Mod**; the mod re-reads the file about every two seconds and applies changes live, so there is nothing to reload or restart.
+These belong to `osmw_chat.dll`, not to Maps++, and live in the client mods' own **`osmw.ini` next to `main.exe`** — never in Maps++'s `config.ini`, even when the two files sit side by side. Set them from **Settings → Chat Mod** or the in-game **F12** panel; the mod re-reads the file about every two seconds and applies changes live, so there is nothing to reload or restart. Maps++ writes only the keys you change, one at a time, and never on its own.
 
 | Setting | Meaning |
 |---------|---------|
@@ -1078,6 +1164,11 @@ A typical setup with the **Full** variant:
 
 ### Minimap does not open when I press Tab
 
+- **Tab may be opening the game's own minimap instead.** On a map where the game has a minimap,
+  Tab goes to the game by default. Use **Open Maps++ minimap** (bind it under Settings → Hotkeys,
+  or Tray → Map & Overlay), or set **Settings → Minimap → Tab key** to *Maps++ wherever it has a
+  map*. **Tray → Debug → Debug State** shows the *Tab source* line, saying where Tab goes right now
+  and why.
 - Make sure the **game window is focused** (click it first).
 - Confirm you are **not in battle** and not on a loading screen.
 - Check that your current zone has a map file in `maps\` (supported maps ship with the release).

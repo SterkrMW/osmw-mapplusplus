@@ -2,7 +2,7 @@
    ../common/style.css, so this matches the rest of Maps++.
 
    The one exception is the tab-strip preview at the bottom, which quotes the
-   chat window's OWN colours (COL_* in patches/chatmod/src/tabs.c) rather than
+   chat window's OWN colours (COL_* in the server repo's tools/client-mods/chatmod/src/tabs.c) rather than
    the app palette. It is imitating a surface the game draws, not a surface
    Maps++ draws, so matching the app here would make the preview a worse
    preview. This is the mirror of the party_health rule in CLAUDE.md: there,
@@ -117,7 +117,7 @@ body {
     margin: 12px 0 4px;
 }
 
-/* The chat strip's own colours, taken from patches/chatmod/src/tabs.c so the
+/* The chat strip's own colours, taken from the server repo's tools/client-mods/chatmod/src/tabs.c so the
    preview looks like the thing it is previewing. Deliberately not app tokens —
    see the note at the top of this file. */
 .strip {

@@ -441,9 +441,11 @@ _PartyHealth_CellMetrics(count, availW) {
     return { cellW: cellW, totalW: cellW * count + chrome }
 }
 
-; Centred along the bottom edge of the active client's rect.
+; Centred along the bottom edge of the active client's game picture — which, under
+; the display module's Resizable or Borderless modes, is not the window's bottom
+; edge but the top of the black bar below the picture.
 _PartyHealth_StripPosition(w, h) {
-    area := GameClientRect()
+    area := GameContentRect()
     x := area.x + Floor((area.w - w) / 2)
     y := area.y + area.h - h
     ; A window wider than the strip is the normal case; a narrower one must not
@@ -552,7 +554,7 @@ _PartyHealth_Build(clients) {
             }
         }
     }
-    area := GameClientRect()
+    area := GameContentRect()
     metrics := _PartyHealth_CellMetrics(clients.Length, area.w)
     sig := _PartyHealth_SignatureFor(clients, metrics.cellW, anyPet)
     if (sig = _PartyHealth_Signature && IsObject(_PartyHealth_Gui)) {

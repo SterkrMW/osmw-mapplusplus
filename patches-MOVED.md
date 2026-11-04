@@ -1,7 +1,7 @@
-# The native mods moved
+# The native mods are a separate product
 
-`patches/` is gone from this repository. The nine DLL mods now live in the
-osMW server repo:
+`patches/` is gone from this repository. The DLL mods live in the osMW server
+repo:
 
     mw-tools/tools/client-mods/
 
@@ -13,38 +13,33 @@ let them drift, and it had already happened: the (now scrapped) fishing mod
 shipped three packet types the server had never heard of, and nothing could
 have noticed.
 
-Sources, the server that answers them, and the design notes in
-`tools/client-dll/` are now in one history.
+## Maps++ no longer ships or deploys them
 
-## What this means for a release
+Maps++ used to carry the built DLLs in `Lib/` and copy them into the game
+folder before every launch. That was a temporary measure from early
+development, and it is gone: the mods reach a game folder by their own route,
+`Lib/` holds only the WebView2 libraries, and `build.ps1` has no native payload
+step, no `-SkipMods` switch and no module manifest to keep in step.
 
-`build.ps1` treats `patches/` as optional and will ship `Lib/` as-is without
-it, which is why nothing here breaks. But the staleness check that lived in
-`patches/common/modhash.py` went with the sources, and that check exists
-because `Lib/` and the sources drifted once before: a fix landed in the C
-source while `Lib/` kept shipping the previous build, so a fresh install
-silently got the old behaviour.
+The two products are also no longer allowed to share settings files:
 
-**So before cutting a release, rebuild the DLLs in the server repo and copy
-them into `Lib/` here:**
+| File (game folder) | Owner |
+|---|---|
+| `osmw.ini`, `osmw_defaults.ini` | the mods |
+| `config.ini`, `defaults.ini`, `signatures.ini`, `offsets_cache.ini` | Maps++ |
 
-    cd <mw-tools>
-    python tools/client-mods/core/tools/build.py --test
-    python tools/client-mods/<mod>/tools/build.py --test     # for each mod
-    copy build\client-mods\*.dll  <maps++>\Lib\
-    copy build\client-mods\*.exe  <maps++>\Lib\
-    copy build\client-mods\osmw_core_api.ini  <maps++>\Lib\
+They used to be one pair, and it went wrong in both directions: `[Addons]`
+mixed Maps++ addon toggles with module gates, `[Minimap]` mixed the overlay's
+keys with the minimap module's, and Maps++ rewrote `[Addons] ChatMod` on every
+launch over whatever the in-game F12 panel had set. The mods carry a pre-split
+`config.ini` across once, on their first start after the rename, and then leave
+it alone.
 
-`build/client-mods/` in the server repo is generated and untracked; `Lib/`
-here stays tracked, because it is what a release ships.
-
-## The scrapped fishing mod
-
-`osmw_fishing.dll` was dropped for quality. Its sources and MDA are archived in
-the server repo under `archive/scrapped-fishing-mod/`, and every reference to
-it has been removed from the core loader list, the build lists, the mod-hash
-registry and the scan tests. The server-side fishing minigame is a separate,
-live feature and was not touched.
+Maps++ may still *edit* `osmw.ini` - the Chat Mod settings tab, and Tray ->
+Debug -> Client Mod Logging - but only when the user asks, and only through
+`native_mods.ahk`, which is the whole of the contract. Nothing here requires
+the mods to be installed: with no `osmw_core.dll` beside `main.exe`, the tab
+says so and everything else works as before.
 
 ## History
 

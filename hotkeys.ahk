@@ -114,13 +114,33 @@ IsHotkeyChordValid(chord) {
     return true
 }
 
-GetHotkeyConflictAction(chord, exceptId := "") {
-    global gHotkeyActions, gHotkeyReserved, gSettingsHotkeyRows
+; One spelling per chord, for comparing: modifiers in a fixed ^!+# order and the
+; key lowercased. "+^c" and "^+C" are the same keys pressed, but the capture
+; writes modifiers in one order and the defaults were typed in another, so a
+; plain string compare let two actions take the same chord unnoticed. Left/right
+; modifier markers (<^) collapse to the plain modifier — the safe direction for
+; a conflict check.
+CanonicalHotkeyChord(chord) {
     chord := NormalizeHotkeyChord(chord)
     if (chord = "")
         return ""
+    key := HotkeyTriggerKey(chord)
+    prefix := SubStr(chord, 1, StrLen(chord) - StrLen(key))
+    out := ""
+    for modChar in ["^", "!", "+", "#"] {
+        if InStr(prefix, modChar)
+            out .= modChar
+    }
+    return out StrLower(key)
+}
+
+GetHotkeyConflictAction(chord, exceptId := "") {
+    global gHotkeyActions, gHotkeyReserved, gSettingsHotkeyRows
+    chord := CanonicalHotkeyChord(chord)
+    if (chord = "")
+        return ""
     for reserved in gHotkeyReserved {
-        if (StrLower(chord) = StrLower(reserved))
+        if (chord = CanonicalHotkeyChord(reserved))
             return "(reserved — cannot rebind Reload, Exit, or debug/calibration keys)"
     }
     if IsObject(gSettingsHotkeyRows) {
@@ -128,7 +148,7 @@ GetHotkeyConflictAction(chord, exceptId := "") {
             if row.Has("id") && row["id"] = exceptId
                 continue
             pending := row.Has("pending") ? row["pending"] : row["action"]["chord"]
-            if (StrLower(pending) = StrLower(chord))
+            if (CanonicalHotkeyChord(pending) = chord)
                 return row["action"].Has("label") ? row["action"]["label"] : row["id"]
         }
         ; Data-driven providers may contribute hidden runtime actions which do
@@ -139,7 +159,7 @@ GetHotkeyConflictAction(chord, exceptId := "") {
                 continue
             if !IsHotkeyActionEnabled(action)
                 continue
-            if (StrLower(action["chord"]) = StrLower(chord))
+            if (CanonicalHotkeyChord(action["chord"]) = chord)
                 return action.Has("label") ? action["label"] : id
         }
         return ""
@@ -149,7 +169,7 @@ GetHotkeyConflictAction(chord, exceptId := "") {
             continue
         if !IsHotkeyActionEnabled(action)
             continue
-        if (StrLower(action["chord"]) = StrLower(chord))
+        if (CanonicalHotkeyChord(action["chord"]) = chord)
             return action.Has("label") ? action["label"] : id
     }
     return ""
@@ -262,13 +282,15 @@ ApplyAllHotkeys() {
 }
 
 ; HotIf callback criteria for dynamic Hotkey() — mirrors the old static #HotIf blocks.
+; Tab is captured only when it is Maps++'s to take. Otherwise HotIf fails and,
+; because the binding is $-prefixed, the keystroke reaches the game untouched —
+; which is how the game's own minimap opens on a map that has one. Who Tab
+; belongs to is [Minimap] Source; see TabOpensMapsppMinimap.
 HotIfToggleMinimap(*) {
-    global gOverlayVisible, gCanOverride
+    global gOverlayVisible
     if gOverlayVisible && IsGameOrOverlayActive()
-        return true
-    if WinActive(GAME_WIN_FILTER) && gCanOverride && !gOverlayVisible && IsMinimapAllowed()
-        return true
-    return false
+        return true          ; Tab always closes the overlay, however it was opened
+    return WinActive(GAME_WIN_FILTER) && TabOpensMapsppMinimap()
 }
 
 HotIfCloseOverlay(*) {
@@ -291,6 +313,17 @@ RegisterCoreHotkeyActions() {
         "handler", HandleTab,
         "hotIfFn", HotIfToggleMinimap,
         "passThrough", true
+    ))
+    ; The way to the Maps++ overlay — POIs, party markers, waypoints — on a map
+    ; where Tab now goes to the game's own minimap. Unbound: every key it could
+    ; default to is one the game might want.
+    RegisterHotkeyAction(Map(
+        "id", "openMapsppMinimap",
+        "label", "Open Maps++ minimap (even where the game has one)",
+        "category", "Core",
+        "default", "",
+        "handler", (*) => ToggleMapsppMinimap(),
+        "hotIfFn", HotIfGameOrOverlay
     ))
     RegisterHotkeyAction(Map(
         "id", "closeOverlay",
@@ -446,6 +479,12 @@ _HotkeyCaptureKeyDown(hook, vk, onDone) {
     if (conflict != "") {
         TrayTip("Already used by " conflict ".", "Hotkeys", "Iconx")
         return
+    }
+    ; A key the client mods use in game is accepted — it is the player's call,
+    ; and some will want both — but never silently.
+    if ((owner := NativeModsKeyConflict(chord)) != "") {
+        TrayTip(FormatHotkeyDisplay(chord) " is also " owner " in game,"
+            . " so pressing it will do both.", "Hotkeys", "Icon!")
     }
 
     hook.Stop()

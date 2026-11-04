@@ -84,8 +84,8 @@ function adoptDetail(msg) {
         fingerprintOk: msg.fingerprintOk !== false,
         workW: msg.workW || 1920,
         workH: msg.workH || 1080,
-        winW: msg.winW || 1024,
-        winH: msg.winH || 768,
+        winW: msg.winW || 800,
+        winH: msg.winH || 600,
         slots: (msg.slots || []).map(s => ({
             fx: Number(s.fx) || 0,
             fy: Number(s.fy) || 0,

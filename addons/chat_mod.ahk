@@ -1,6 +1,6 @@
 #Requires AutoHotkey v2.0
 
-; Settings for osmw_chat.dll — the injected chat window mod (font, free
+; Settings for osmw_chat.dll — the client mods' chat window feature (font, free
 ; placement, channel tabs, mentions, timestamps, wheel scroll, cooldown text,
 ; client-level name blocking).
 ;
@@ -19,25 +19,24 @@
 ;
 ; Three things here are load-bearing:
 ;
-;   1. The ini is the GAME FOLDER's config.ini, resolved through
-;      ResolveGameDirectory(), never Maps++'s CONFIG_INI. Those are the same
-;      file in a normal install, but ResolveWritableIniPath() falls back to
-;      %AppData% when the game folder is not writable, and the DLL cannot
-;      follow it there. addons\auto_login.ahk makes the same distinction for
-;      the same reason.
+;   1. The ini is the mods' own osmw.ini beside main.exe, reached only through
+;      native_mods.ahk, never Maps++'s CONFIG_INI. They are separate products
+;      with separate files: Maps++'s config.ini can even end up in %AppData%
+;      when the game folder is not writable, and the DLL cannot follow it
+;      there. addons\auto_login.ahk makes the same distinction for the roster.
 ;   2. Writes are per key. [Chat] also holds WinX/WinY/WinW/WinH, which the DLL
 ;      itself writes whenever the player finishes dragging or resizing the chat
 ;      window, plus chip/markup keys this tab never shows. Rewriting the
 ;      section would destroy the player's saved geometry and race the DLL for
 ;      the file.
-;   3. Launch is already wired: EnsureInjectPayload deploys osmw_chat.dll and
-;      ResolveLaunchExecutable starts osmw_chat_launch.exe. Nothing here needs
-;      to inject, and there is deliberately no attach-to-running-client path —
-;      the chat window and its fonts are built during the client's startup
-;      init, so injecting later is too late for anything font related.
+;   3. Maps++ does not install, deploy or launch the mod, and never writes
+;      osmw.ini on its own account. The tab is a convenience editor over a
+;      file the mods own; when they are not installed it says so and offers
+;      nothing. Every write here is a user pressing Save.
 ;
-; The launcher is dumb and always injects; [Addons] ChatMod is what decides
-; whether the mod does anything, and the DLL reads that key itself.
+; [Addons] ChatMod is what decides whether the mod does anything. The tab shows
+; it as a checkbox, so turning it off is a deliberate act rather than a side
+; effect of disabling this addon in Maps++.
 
 ; One row per key this tab owns. Field ids are the ini key names themselves, so
 ; the values coming back from OnSettingsWebSave need no translation table.
@@ -71,7 +70,8 @@ global _CHATMOD_SPEC := [
 global _CHATMOD_DEFAULT_ON := ["TabStrip", "RememberActiveTab", "WheelScroll",
     "CooldownMessage", "HighlightMentions", "RememberGeometry"]
 
-; Measured against the real renderer by patches\chatmod\tools\fontpresets.py;
+; Measured against the real renderer by the server repo's
+; tools/client-mods/chatmod/tools/fontpresets.py;
 ; keep the two in step, and treat the tool as the source of truth because it
 ; measures rather than assumes.
 global _CHATMOD_FACES := ["", "Consolas", "Cascadia Mono", "Courier New",
@@ -151,6 +151,11 @@ global _CHATMOD_RESET_WAIT_MS := 6500
 RegisterAddon(Map(
     "name",              "ChatMod",
     "settingsLabel",     "Chat Mod",
+    ; These settings are the mods' own (osmw.ini). Settings hands this addon
+    ; only the keys the user changed and Reset to Defaults skips it, so a save
+    ; elsewhere in the window can never undo an edit made in the game's F12
+    ; panel. See the field contract at the end of settings.ahk.
+    "nativeMods",        true,
     "OnInit",            _ChatMod_OnInit,
     "OnSettingsWeb",     _ChatMod_OnSettingsWeb,
     "OnSettingsWebSave", _ChatMod_OnSettingsWebSave,
@@ -158,23 +163,20 @@ RegisterAddon(Map(
 ))
 
 _ChatMod_OnInit() {
-    _ChatMod_SyncGate()
+    ; Deliberately empty. Enabling or disabling this addon changes whether
+    ; Maps++ shows the tab, and nothing about the mod itself.
 }
 
 ; ── The ini ─────────────────────────────────────────────────────
 
-; The game folder's config.ini — what the DLL reads. "" when no game path is
-; configured yet, which every caller must handle rather than writing to "\".
+; The mods' own settings, beside the client. See native_mods.ahk for the whole
+; contract; both return "" when no game path is configured yet.
 _ChatMod_IniPath() {
-    gameDir := ResolveGameDirectory()
-    return (gameDir = "") ? "" : gameDir "\config.ini"
+    return NativeModsIniPath()
 }
 
-; The chat mod's own shipped defaults, beside the client. Maps++ ships the same
-; merged defaults.ini, so in a normal install this is one file documenting both.
 _ChatMod_DefaultsPath() {
-    gameDir := ResolveGameDirectory()
-    return (gameDir = "") ? "" : gameDir "\defaults.ini"
+    return NativeModsDefaultsPath()
 }
 
 _ChatMod_ReadDefault(keyName) {
@@ -184,14 +186,12 @@ _ChatMod_ReadDefault(keyName) {
     return IniRead(defPath, "Chat", keyName, "")
 }
 
-; config.ini → defaults.ini → "", the same chain ConfigRead() uses, but against
-; the game folder's pair rather than Maps++'s own. Reading the shipped defaults
-; means a fresh install shows what the DLL will actually do, not a guess.
+; osmw.ini → osmw_defaults.ini → "", the chain the DLL itself uses — which is
+; exactly NativeModsRead. Reading the shipped defaults means a fresh install
+; shows what the DLL will actually do, not a guess. cfgPath is kept for the
+; callers' sake; NativeModsRead resolves the same file.
 _ChatMod_ReadKey(cfgPath, keyName) {
-    fallback := _ChatMod_ReadDefault(keyName)
-    if (cfgPath = "")
-        return fallback
-    return IniRead(cfgPath, "Chat", keyName, fallback)
+    return NativeModsRead("Chat", keyName, "")
 }
 
 _ChatMod_ReadSettings() {
@@ -255,7 +255,7 @@ _ChatMod_Coerce(spec, raw, &outVal) {
     }
 }
 
-; Writes only the keys the caller supplied, one IniWrite each. Never IniDelete,
+; Writes only the keys the caller supplied, one NativeModsWrite each. Never IniDelete,
 ; never a section rewrite — see the header. Returns the number written.
 _ChatMod_WriteSettings(values) {
     global _CHATMOD_SPEC
@@ -266,10 +266,9 @@ _ChatMod_WriteSettings(values) {
         LogWarn("ChatMod", "No game path configured — nothing written")
         return 0
     }
-    ; A no-op once the file exists, which it always does in a real install; the
-    ; live one is ANSI because the C DLL created it, and it stays that way.
-    EnsureIniUtf16(cfgPath)
 
+    ; One NativeModsWrite per key: that is the contract's one-key-per-write
+    ; rule, and it is where the encoding and not-installed checks live.
     written := 0
     for spec in _CHATMOD_SPEC {
         keyName := spec["key"]
@@ -281,12 +280,8 @@ _ChatMod_WriteSettings(values) {
                 . spec["kind"] " (" String(values[keyName]) ")")
             continue
         }
-        try {
-            IniWrite(outVal, cfgPath, "Chat", keyName)
+        if NativeModsWrite("Chat", keyName, outVal)
             written++
-        } catch as err {
-            LogWarn("ChatMod", "Could not write " keyName ": " err.Message)
-        }
     }
     LogInfo("ChatMod", "Wrote " written " [Chat] key(s) to " cfgPath)
     return written
@@ -299,7 +294,8 @@ _ChatMod_WriteSettings(values) {
 ; the parse and format halves that let an editor work in tabs and tick-boxes
 ; and hand back a string the DLL will read the same way.
 ;
-; Every constant here mirrors one in patches\chatmod\src\tabs.c. They are the
+; Every constant here mirrors one in the server repo's
+; tools/client-mods/chatmod/src/tabs.c. They are the
 ; client's limits, not ours, and exceeding one is silent: a seventh tab is
 ; dropped, a sixteenth character of a name is cut, and a spec past the config
 ; buffer is truncated mid-channel.
@@ -461,33 +457,6 @@ _ChatMod_ValidateTabRows(rows) {
     return ""
 }
 
-; ── The [Addons] ChatMod gate ───────────────────────────────────
-
-; SetAddonEnabled writes Maps++'s CONFIG_INI, which is not necessarily the file
-; the DLL reads. Mirror the state into the game folder so a toggle in Settings
-; actually reaches the mod. Idempotent, and a harmless rewrite of the same
-; value when the two paths are the same file.
-_ChatMod_SyncGate() {
-    cfgPath := _ChatMod_IniPath()
-    if (cfgPath = "")
-        return
-    if !FileExist(cfgPath)
-        EnsureIniUtf16(cfgPath)
-    gate := IsAddonEnabled("ChatMod") ? "1" : "0"
-    try IniWrite(gate, cfgPath, "Addons", "ChatMod")
-    catch as err
-        LogWarn("ChatMod", "Could not write game ChatMod gate: " err.Message)
-}
-
-; Called from BuildGameLaunchCommand via GetFuncByName, so the gate still
-; reaches the DLL in a build that does not bundle this addon and after the user
-; has disabled it (a disabled addon's OnInit never fires).
-_ChatMod_BeforeLaunch(gameDir) {
-    if (gameDir = "")
-        return
-    _ChatMod_SyncGate()
-}
-
 ; ── Settings tab ────────────────────────────────────────────────
 
 _ChatMod_OnSettingsWeb() {
@@ -504,10 +473,27 @@ _ChatMod_OnSettingsWeb() {
     if (_ChatMod_IniPath() = "") {
         fields.Push(Map("type", "info", "text",
             "Set the game path under Launcher first. These settings live in the "
-            . "config.ini next to main.exe, which is the file the chat mod reads, "
+            . "osmw.ini next to main.exe, which is the file the chat mod reads, "
             . "so there is nowhere to save them until Maps++ knows where the game is."))
         return fields
     }
+
+    if !NativeModsInstalled() {
+        fields.Push(Map("type", "info", "text",
+            "The osMW client mods are not installed in this game folder "
+            . "(no osmw_core.dll), so there is nothing for these settings to "
+            . "configure. Maps++ works either way; it does not install them."))
+        return fields
+    }
+
+    ; The mod's own gate, shown rather than synced: the in-game panel and a
+    ; text editor can both change it, and Maps++ must not quietly win. It is
+    ; [Addons] ChatMod in osmw.ini, which is a different file and a different
+    ; product from the ChatMod row in Maps++'s own Addons tab.
+    fields.Push(Map("type", "checkbox", "id", "__Gate",
+        "label", "Enable the chat mod in game",
+        "value", NativeModsRead("Addons", "ChatMod", "1") != "0",
+        "default", true))
 
     s := _ChatMod_ReadSettings()
 
@@ -529,8 +515,10 @@ _ChatMod_OnSettingsWeb() {
     fields.Push(Map("type", "info", "text",
         "Improves the game's own chat window: a readable font, channel tabs, "
         . "mention highlighting, timestamps and wheel scrolling.`n`n"
-        . "Changes apply within about two seconds — nothing to restart. Turning "
-        . "this addon off under Addons leaves the chat completely stock."))
+        . "Changes apply within about two seconds — nothing to restart. These "
+        . "settings belong to the game's client mods (osmw.ini), and the in-game "
+        . "F12 panel edits the same ones. Turning this addon off under Addons only "
+        . "hides this tab; the switch below is what turns the chat mod itself off."))
 
     ; The preset picker sits above the three fields it drives. Both are shown
     ; at once on purpose: neither frontend can hide a field (native lays its
@@ -730,8 +718,11 @@ _ChatMod_OnSettingsWebSave(values) {
         LogWarn("ChatMod", "Rejected CooldownFormat: " problem)
         TrayTip(problem, "Chat Mod", "Iconx")
     }
+    if values.Has("__Gate") {
+        NativeModsWrite("Addons", "ChatMod", values["__Gate"] ? "1" : "0")
+        values.Delete("__Gate")
+    }
     _ChatMod_WriteSettings(values)
-    _ChatMod_SyncGate()
 }
 
 ; ── Tab editor ──────────────────────────────────────────────────
@@ -1185,11 +1176,7 @@ _ChatMod_WriteBlocked(names) {
         TrayTip(problem, "Chat Mod", "Iconx")
         return false
     }
-    EnsureIniUtf16(cfgPath)
-    try {
-        IniWrite(_ChatMod_FormatBlocked(names), cfgPath, "Chat", "BlockedNames")
-    } catch as err {
-        LogWarn("ChatMod", "Could not write BlockedNames: " err.Message)
+    if !NativeModsWrite("Chat", "BlockedNames", _ChatMod_FormatBlocked(names)) {
         TrayTip("Could not write to " cfgPath ".", "Chat Mod", "Iconx")
         return false
     }
@@ -1423,11 +1410,7 @@ _ChatMod_RequestPositionReset() {
         TrayTip("Set the game path under Launcher first.", "Chat Mod", "Iconx")
         return false
     }
-    EnsureIniUtf16(cfgPath)
-    try {
-        IniWrite("1", cfgPath, "Chat", "ResetPosition")
-    } catch as err {
-        LogWarn("ChatMod", "Could not request a position reset: " err.Message)
+    if !NativeModsWrite("Chat", "ResetPosition", "1") {
         TrayTip("Could not write to " cfgPath ".", "Chat Mod", "Iconx")
         return false
     }
@@ -1480,18 +1463,18 @@ _ChatMod_EndPositionReset() {
 
 ; Why nothing answered, in the order worth checking. A mod older than this
 ; command silently ignores the key, which is indistinguishable from no client
-; running unless we say so.
+; running unless we say so. Maps++ does not version the mods, so it can only
+; report the two things it does know.
 _ChatMod_ResetUnheardText() {
-    global APP_VERSION
-    stamp := DeployedPayloadVersion()
-    if (stamp != "" && stamp != APP_VERSION) {
-        return "No client answered. The chat mod in your game folder is "
-            . "version " stamp " and does not know this command. Close every "
-            . "client and launch from Maps++ to update it."
+    if !NativeModsInstalled() {
+        return "The osMW client mods are not installed in this game folder, "
+            . "so nothing is listening. The request is saved and will be "
+            . "picked up if they are installed later."
     }
     return "No running client picked this up — check the game path under "
-        . "Launcher points at the client you are looking at. The request is "
-        . "saved, so the next client you start will do it."
+        . "Launcher points at the client you are looking at, and that its "
+        . "client mods are up to date. The request is saved, so the next "
+        . "client you start will do it."
 }
 
 ; Turns a moved preset into the three font keys, in place.

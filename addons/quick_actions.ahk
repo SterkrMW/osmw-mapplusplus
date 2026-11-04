@@ -82,6 +82,10 @@ _QuickActions_BuildCatalog() {
     return [
         Map("id", "toggleMinimap",           "label", "Minimap",       "icon", "map",
             "needsGame", true, "state", "overlay"),
+        ; Does what Tab does: the game's minimap where it has one. This one is
+        ; always the Maps++ overlay — POIs, party markers, waypoints.
+        Map("id", "openMapsppMinimap",       "label", "Maps++ map",    "icon", "map",
+            "needsGame", true, "state", "overlay"),
         Map("id", "viewModeToggle",          "label", "View mode",     "icon", "visibility"),
         Map("id", "viewModeCycle",           "label", "Cycle view",    "icon", "visibility"),
         ; TODO: `swords` once the icon subset is next regenerated.

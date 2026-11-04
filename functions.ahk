@@ -169,6 +169,157 @@ IsMinimapAllowed() {
     return NumGet(valBuf, 0, "Int") = 0
 }
 
+; ── The game's own minimap ───────────────────────────────────────
+;
+; Whether the client can show its own minimap on the map it is standing on —
+; the question Maps++ has to answer before it takes Tab away from the game. It
+; used to be "never" on every map Maps++ ships an image for; the client's
+; minimap_file4 patch changed that to "always", for every one of them.
+;
+; The client's own gate (OpenMinimap, 0x442370) is: index >= 0, gate != 0, and
+; for any minimap outside smallmap.mda the server's EnableMinimap flag too. On
+; top of that an index from the fourth file needs the patch that adds it and the
+; file itself, or the game opens nothing.
+;
+; proc/pid default to the focused (cached) client. ok=false means "could not
+; tell" — a failed read, or an index that can only mean the offset has moved —
+; and every caller treats it as "no game minimap", which is exactly how Maps++
+; behaved before this existed.
+ReadNativeMinimapState(proc := 0, pid := 0) {
+    global MINIMAP_FILE2_FIRST_INDEX, MINIMAP_FILE4_FIRST_INDEX, MINIMAP_INDEX_SANE_MAX
+    st := { ok: false, available: false, index: -1, gate: 0, flag: 0, tierByte: -1,
+        window: -1, file4: "unknown", bound: 0, mdaPresent: true, reason: "" }
+    if !IsObject(proc) {
+        cached := GetCachedProcessHandleAndBase()
+        if !cached.ok {
+            st.reason := "no game client"
+            return st
+        }
+        proc := cached
+        pid := cached.pid
+    }
+    idxBuf := ReadClientBuffer(proc, GetResolvedOffset("MINIMAP_INDEX_OFFSET"), 4)
+    gateBuf := ReadClientBuffer(proc, GetResolvedOffset("MINIMAP_GATE_OFFSET"), 4)
+    flagBuf := ReadClientBuffer(proc, GetResolvedOffset("MINIMAP_ENABLE_FLAG_OFFSET"), 1)
+    if !(idxBuf && gateBuf && flagBuf) {
+        st.reason := "could not read the game's minimap state"
+        return st
+    }
+    st.index := NumGet(idxBuf, 0, "Int")
+    st.gate := NumGet(gateBuf, 0, "Int")
+    st.flag := NumGet(flagBuf, 0, "UChar")
+    if (tierBuf := ReadClientBuffer(proc, GetResolvedOffset("MINIMAP_TIER_OFFSET"), 1))
+        st.tierByte := NumGet(tierBuf, 0, "UChar")
+    if (winBuf := ReadClientBuffer(proc, GetResolvedOffset("MINIMAP_WINDOW_OFFSET"), 4))
+        st.window := NumGet(winBuf, 0, "Int")
+    if (st.index >= MINIMAP_INDEX_SANE_MAX || st.index <= -MINIMAP_INDEX_SANE_MAX) {
+        st.reason := "index " st.index " is not plausible — the offset may have moved"
+        return st
+    }
+    st.ok := true
+
+    cap := _NativeMinimapCapacity(proc, pid)
+    st.file4 := cap.file4
+    st.bound := cap.bound
+    st.mdaPresent := cap.mdaPresent
+
+    if (st.index < 0 || st.gate = 0) {
+        st.reason := "this map has no game minimap"
+        return st
+    }
+    if (st.index >= MINIMAP_FILE2_FIRST_INDEX && st.flag = 0) {
+        st.reason := "the server has not enabled minimaps for this character"
+        return st
+    }
+    if (st.index >= MINIMAP_FILE4_FIRST_INDEX) {
+        if (cap.file4 = "absent" && st.index >= cap.bound) {
+            st.reason := "this client lacks the minimap patch for index " st.index
+            return st
+        }
+        if (cap.file4 = "patched" && !cap.mdaPresent) {
+            st.reason := "smallmap04.mda is missing from the game folder"
+            return st
+        }
+    }
+    st.available := true
+    st.reason := "game minimap " st.index
+    return st
+}
+
+; What this client can load past the 52 stock minimaps: {file4, bound,
+; mdaPresent}. file4 is "patched" (minimap_file4's jmp), "absent" (the stock
+; `cmp eax, imm8`, whose imm8 is the bound — also how the superseded
+; minimap_capacity patch looks) or "unknown" (neither: a different build).
+; Both facts are fixed for a process's lifetime, so they are read once per pid.
+_NativeMinimapCapacity(proc, pid) {
+    global MINIMAP_FILE4_HOOK_RVA, MINIMAP_FILE4_MDA, PROCESS_EXE
+    static cache := Map()
+    key := pid ":" proc.modBase
+    if cache.Has(key)
+        return cache[key]
+    cap := { file4: "unknown", bound: 0, mdaPresent: true }
+    if (code := ReadClientBuffer(proc, MINIMAP_FILE4_HOOK_RVA, 5)) {
+        b0 := NumGet(code, 0, "UChar")
+        if (b0 = 0xE9) {
+            cap.file4 := "patched"
+        } else if (b0 = 0x83 && NumGet(code, 1, "UChar") = 0xF8) {
+            cap.file4 := "absent"
+            cap.bound := NumGet(code, 2, "UChar")
+        }
+    }
+    if (cap.file4 = "patched") {
+        exePath := ""
+        try exePath := ProcessGetPath(pid)
+        if (exePath != "") {
+            SplitPath(exePath, , &exeDir)
+            cap.mdaPresent := FileExist(exeDir "\" MINIMAP_FILE4_MDA) ? true : false
+        }
+    }
+    ; PIDs are recycled, so an unbounded cache would eventually answer for a
+    ; process it never saw. Clients come and go a handful at a time.
+    if (cache.Count >= 32)
+        cache := Map()
+    cache[key] := cap
+    return cap
+}
+
+; Whether Tab, right now, opens the Maps++ overlay rather than reaching the
+; game. Read fresh at the keypress, so it is right even the instant after a
+; teleport. The overlay-already-open case (Tab closes it) is the caller's.
+TabOpensMapsppMinimap() {
+    global gCanOverride, gMinimapSource
+    if (!gCanOverride || gMinimapSource = "off")
+        return false
+    if !IsMinimapAllowed()
+        return false
+    if (gMinimapSource = "mapspp")
+        return true
+    return !ReadNativeMinimapState().available
+}
+
+NormalizeMinimapSource(value) {
+    global MINIMAP_SOURCES
+    value := StrLower(Trim(String(value)))
+    for _, name in MINIMAP_SOURCES {
+        if (name = value)
+            return name
+    }
+    return "game"
+}
+
+; One line for the debug views: where Tab goes and why.
+NativeMinimapSummary(st) {
+    if !IsObject(st)
+        return "not read yet"
+    if !st.ok
+        return "unknown — " st.reason
+    return (st.available ? "available" : "not available") " — " st.reason
+        . " (index " st.index ", gate " st.gate ", flag " st.flag
+        . ", tier byte " st.tierByte ", window " st.window
+        . ", file4 " st.file4 (st.file4 = "absent" ? " bound " st.bound : "")
+        . (st.file4 = "patched" ? (st.mdaPresent ? ", mda ok" : ", mda MISSING") : "") ")"
+}
+
 ; Reads the map filename from memory (e.g. "MAP007.map") and returns the
 ; base name with .map swapped for .jpg (e.g. "MAP007.jpg") for minimap lookup.
 ReadCurrentMapName() {
@@ -605,8 +756,26 @@ ReadUInt32BE(buf, offset) {
 ; space (OVERLAY_W/H); only drawing is scaled, so changing the scale can never
 ; invalidate maps\calibration.ini.
 MinimapScaleFactor() {
-    global gMinimapScale
-    return gMinimapScale / 100.0
+    global gMinimapScale, gMinimapFollowGameScale, gGameContentScale, MINIMAP_SCALE_FACTOR_MAX
+    f := gMinimapScale / 100.0
+    if gMinimapFollowGameScale
+        f *= gGameContentScale
+    return Min(f, MINIMAP_SCALE_FACTOR_MAX)
+}
+
+; Follows the focused client's display scale, so a 2× client gets a 2× overlay.
+; A change drops the overlay Gui — the same path a Size change in Settings takes,
+; since a picture control cannot be resized in place — and it is rebuilt at the
+; new size, immediately if it was on screen or on the next open if not.
+RefreshGameContentScale(hwnd := 0) {
+    global gGameContentScale, gMinimapFollowGameScale, gGui
+    s := GameContentRect(hwnd).scale
+    s := (s >= 1 && s <= 8) ? s : 1
+    if (s = gGameContentScale)
+        return
+    gGameContentScale := s
+    if (gMinimapFollowGameScale && IsObject(gGui))
+        RebuildOverlayGui()
 }
 
 MinimapDisplayW() {
@@ -627,6 +796,7 @@ MinimapMarkerSize() {
 LoadMinimapConfig() {
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
     global gMinimapKeepOpen, MINIMAP_ANCHORS, gShowHoverCoords
+    global gMinimapSource, gMinimapSourceNoticeShown, CONFIG_INI, gMinimapFollowGameScale
     ; Always run through ConfigRead so a missing config.ini still picks up
     ; defaults.ini (IniRead returns its fallback when the file is absent).
     scale := Trim(ConfigRead("Minimap", "Scale", "100"))
@@ -656,11 +826,18 @@ LoadMinimapConfig() {
     }
     gMinimapKeepOpen := (Trim(ConfigRead("Minimap", "KeepOpenOnFocusLoss", "0")) = "1")
     gShowHoverCoords := (Trim(ConfigRead("Minimap", "ShowHoverCoords", "1")) != "0")
+    gMinimapSource := NormalizeMinimapSource(ConfigRead("Minimap", "Source", "game"))
+    gMinimapFollowGameScale := (Trim(ConfigRead("Minimap", "FollowGameScale", "1")) != "0")
+    ; State rather than a preference, so it is read from config.ini only —
+    ; defaults.ini has no business saying the notice was already seen.
+    gMinimapSourceNoticeShown := (Trim(IniRead(CONFIG_INI, "Minimap", "SourceNoticeShown", "0")) = "1")
 }
 
 SaveMinimapConfig() {
     global gMinimapScale, gMinimapOpacity, gMinimapAnchor, gMinimapOffsetX, gMinimapOffsetY
-    global gMinimapKeepOpen, CONFIG_INI, gShowHoverCoords
+    global gMinimapKeepOpen, CONFIG_INI, gShowHoverCoords, gMinimapSource, gMinimapFollowGameScale
+    IniWrite(gMinimapSource, CONFIG_INI, "Minimap", "Source")
+    IniWrite(gMinimapFollowGameScale ? "1" : "0", CONFIG_INI, "Minimap", "FollowGameScale")
     IniWrite(gShowHoverCoords ? "1" : "0", CONFIG_INI, "Minimap", "ShowHoverCoords")
     IniWrite(gMinimapScale, CONFIG_INI, "Minimap", "Scale")
     IniWrite(gMinimapOpacity, CONFIG_INI, "Minimap", "Opacity")
@@ -730,13 +907,9 @@ GetOverlayPositionForGameWindow() {
 ;
 ; Falls back to the first game window found, then to the primary screen, so a
 ; caller always gets usable numbers; `ok` says whether a game window was behind
-; them.
+; them. Always the game's own window — see GameMainWindow.
 GameClientRect() {
-    global GAME_WIN_FILTER
-    hwnd := WinActive(GAME_WIN_FILTER)
-    if !hwnd {
-        hwnd := WinExist(GAME_WIN_FILTER)
-    }
+    hwnd := GameMainWindow()
     if !hwnd {
         return { ok: false, hwnd: 0, x: 0, y: 0, w: A_ScreenWidth, h: A_ScreenHeight }
     }
@@ -751,14 +924,151 @@ GameClientRect() {
     }
 }
 
+; The game's own window for `hwnd` (default: the focused client, else any).
+;
+; GAME_WIN_FILTER matches every top-level window main.exe owns, and the client
+; has a second one — its chat window — that takes focus whenever you type. So
+; "the active game window" was the chat window half the time, and the overlay,
+; the party HUD and the fixed-position clicks all used it as the game. Resolve
+; through the class, then the owner (the chat window is owned by the game
+; window), then the process. Returns the input unchanged if none of those finds
+; it, so nothing that worked before can stop working.
+GameMainWindow(hwnd := 0) {
+    global GAME_WIN_FILTER, GAME_MAIN_WIN_CLASS
+    if !hwnd {
+        hwnd := WinActive(GAME_WIN_FILTER)
+        if !hwnd
+            hwnd := WinExist(GAME_WIN_FILTER)
+        if !hwnd
+            return 0
+    }
+    cls := ""
+    try cls := WinGetClass("ahk_id " hwnd)
+    if (cls = GAME_MAIN_WIN_CLASS)
+        return hwnd
+    owner := DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")  ; GW_OWNER
+    if owner {
+        ownerCls := ""
+        try ownerCls := WinGetClass("ahk_id " owner)
+        if (ownerCls = GAME_MAIN_WIN_CLASS)
+            return owner
+    }
+    pid := 0
+    try pid := WinGetPID("ahk_id " hwnd)
+    if pid {
+        if (main := WinExist("ahk_class " GAME_MAIN_WIN_CLASS " ahk_pid " pid))
+            return main
+    }
+    return hwnd
+}
+
+; Screen rect of the game PICTURE, which is not always the client area.
+;
+; The client mods' display module (osmw_display.dll) can scale the 800×600
+; surface 2× or 3×, or letterbox it inside a Resizable or Borderless window with
+; black bars round it. It publishes where the picture is as window properties;
+; this reads them. Without the module, in its Stock mode, or if the properties
+; disagree with the window, the picture is the whole client area, scale 1 —
+; exactly what every caller used before.
+;
+;   {ok, hwnd, x, y, w, h}      the picture, in screen pixels
+;   scale, mode, managed        integer magnification, DISPLAY_MODE_NAMES key,
+;                               and whether the module described it
+;   contentLeft/Top             the picture's offset inside the client area
+;   clientX/Y/W/H               the whole client area, in screen pixels
+GameContentRect(hwnd := 0) {
+    global GAME_LOGICAL_W, DISPLAY_PROP_LEFT, DISPLAY_PROP_TOP, DISPLAY_PROP_RIGHT
+    global DISPLAY_PROP_BOTTOM, DISPLAY_PROP_SCALE, DISPLAY_PROP_MODE
+    main := GameMainWindow(hwnd)
+    if !main {
+        return { ok: false, managed: false, hwnd: 0, x: 0, y: 0, w: A_ScreenWidth,
+            h: A_ScreenHeight, scale: 1, mode: 0, contentLeft: 0, contentTop: 0,
+            clientX: 0, clientY: 0, clientW: A_ScreenWidth, clientH: A_ScreenHeight }
+    }
+    rc := Buffer(16, 0)
+    DllCall("user32\GetClientRect", "Ptr", main, "Ptr", rc)
+    pt := Buffer(8, 0)
+    DllCall("user32\ClientToScreen", "Ptr", main, "Ptr", pt)
+    cx := NumGet(pt, 0, "Int"), cy := NumGet(pt, 4, "Int")
+    cw := NumGet(rc, 8, "Int"), ch := NumGet(rc, 12, "Int")
+    out := { ok: true, managed: false, hwnd: main, x: cx, y: cy, w: cw, h: ch,
+        scale: 1, mode: 0, contentLeft: 0, contentTop: 0,
+        clientX: cx, clientY: cy, clientW: cw, clientH: ch }
+
+    l := _DisplayProp(main, DISPLAY_PROP_LEFT)
+    t := _DisplayProp(main, DISPLAY_PROP_TOP)
+    r := _DisplayProp(main, DISPLAY_PROP_RIGHT)
+    b := _DisplayProp(main, DISPLAY_PROP_BOTTOM)
+    if !(l && t && r && b)
+        return out
+    l -= 1, t -= 1, r -= 1, b -= 1
+    ; A rect outside the client area is one published for a size the window no
+    ; longer has (mid-resize); the whole client area is the better answer.
+    if !(r > l && b > t && l >= 0 && t >= 0 && r <= cw && b <= ch)
+        return out
+    out.managed := true
+    out.contentLeft := l
+    out.contentTop := t
+    out.x := cx + l
+    out.y := cy + t
+    out.w := r - l
+    out.h := b - t
+    s := _DisplayProp(main, DISPLAY_PROP_SCALE)
+    out.scale := (s >= 1) ? s : Max(1, Round(out.w / GAME_LOGICAL_W))
+    out.mode := _DisplayProp(main, DISPLAY_PROP_MODE)
+    return out
+}
+
+; One of the display module's window properties, or 0 when it is not set.
+; GetProp reads another process's window properties directly — no message is
+; sent, so a hung client cannot stall this.
+_DisplayProp(hwnd, name) {
+    v := 0
+    try v := DllCall("user32\GetPropW", "Ptr", hwnd, "WStr", name, "Ptr")
+    return v
+}
+
+; Logical game coordinates (the 800×600 surface every fixed click in Maps++ is
+; written against) to physical client coordinates for ControlClick/PostMessage,
+; on the game's own window. Unchanged when the display module is not managing
+; the window, which is exactly what those clicks did before.
+LogicalToClient(hwnd, lx, ly) {
+    global GAME_LOGICAL_W, GAME_LOGICAL_H
+    c := GameContentRect(hwnd)
+    if !c.managed
+        return { hwnd: c.hwnd, x: lx, y: ly }
+    ; Centre of the logical pixel, so a 3× click lands mid-cell rather than on
+    ; the edge the game's own floor() maps to the neighbouring pixel.
+    return {
+        hwnd: c.hwnd,
+        x: c.contentLeft + Floor((lx + 0.5) * c.w / GAME_LOGICAL_W),
+        y: c.contentTop + Floor((ly + 0.5) * c.h / GAME_LOGICAL_H)
+    }
+}
+
+; One line for the debug views.
+GameDisplaySummary(c) {
+    global DISPLAY_MODE_NAMES
+    if !c.ok
+        return "no game window"
+    if !c.managed
+        return "stock (no display module) — client " c.clientW "x" c.clientH
+    return (DISPLAY_MODE_NAMES.Has(c.mode) ? DISPLAY_MODE_NAMES[c.mode] : "mode " c.mode)
+        . " " c.scale "x — picture " c.w "x" c.h " at +" c.contentLeft ",+" c.contentTop
+        . " in client " c.clientW "x" c.clientH
+}
+
 ; Same, with the user's offsets excluded — the zero point a drag is measured
 ; against, so a dragged overlay stays put when the game window moves.
+;
+; Anchored to the game picture rather than the client area, so a corner anchor
+; lands on the picture's corner and not out in a Borderless window's black bars.
 GetOverlayAnchorPosition() {
     global MINIMAP_MAP_INSET, gMinimapAnchor
     totalW := MinimapDisplayW() + 2 * MINIMAP_MAP_INSET
     totalH := MinimapDisplayH() + 2 * MINIMAP_MAP_INSET
 
-    area := GameClientRect()
+    area := GameContentRect()
     areaX := area.x, areaY := area.y, areaW := area.w, areaH := area.h
 
     switch gMinimapAnchor {
@@ -1398,22 +1708,130 @@ UiPageUrl(page) {
     return page separator "accent=" NormalizeAccentScheme(gAccentScheme)
 }
 
+; The *effective* mode: the user's choice, but only while the WebView2 Runtime
+; is usable. Every surface already branches on this before building a WebView,
+; so folding the runtime in here is what sends all of them to their native
+; frontend on a machine without one. Gating on our own files alone is not
+; enough — Lib\ always ships — and without this every enhanced window threw
+; 0x80070002 out of CreateCoreWebView2EnvironmentWithOptions, which reached
+; users as an unhandled error on every tray right-click.
 IsWebViewInterface() {
     global gInterfaceMode
-    return gInterfaceMode = "webview"
+    return gInterfaceMode = "webview" && WebView2RuntimeAvailable()
 }
 
 IsNativeInterface() {
     return !IsWebViewInterface()
 }
 
+; Asks the loader whether a runtime exists, passing the same folder that
+; WebView2.CreateEnvironmentAsync will, so the answer predicts window creation
+; rather than some other lookup. Probed once per session and cached; native
+; mode short-circuits in IsWebViewInterface and never loads the loader at all.
+WebView2RuntimeAvailable() {
+    global gWebViewRuntimeState, gWebViewRuntimeInfo
+    if (gWebViewRuntimeState != "")
+        return gWebViewRuntimeState = "ok"
+
+    dllPath := A_ScriptDir "\Lib\" (A_PtrSize = 8 ? "64bit" : "32bit") "\WebView2Loader.dll"
+    folder := ""
+    if !FileExist(dllPath) {
+        gWebViewRuntimeState := "missing"
+        gWebViewRuntimeInfo := "WebView2Loader.dll not found"
+    } else {
+        folder := _WV2_RuntimeFolder()
+        pVer := 0
+        try {
+            hr := DllCall(dllPath "\GetAvailableCoreWebView2BrowserVersionString",
+                "Str", folder, "Ptr*", &pVer, "Int")
+            if (hr >= 0 && pVer) {
+                gWebViewRuntimeState := "ok"
+                gWebViewRuntimeInfo := StrGet(pVer, "UTF-16")
+            } else {
+                gWebViewRuntimeState := "missing"
+                gWebViewRuntimeInfo := "runtime not found"
+                    . (hr < 0 ? ", " Format("0x{:08X}", hr & 0xFFFFFFFF) : "")
+            }
+        } catch as err {
+            gWebViewRuntimeState := "missing"
+            gWebViewRuntimeInfo := "loader unusable: " err.Message
+        }
+        if pVer
+            DllCall("ole32\CoTaskMemFree", "Ptr", pVer)
+    }
+
+    where := folder != "" ? folder : "loader default"
+    if (gWebViewRuntimeState = "ok")
+        LogInfo("WebView2", "Runtime " gWebViewRuntimeInfo " (" where ")")
+    else
+        LogWarn("WebView2", "Runtime unavailable: " gWebViewRuntimeInfo " (" where ")")
+    return gWebViewRuntimeState = "ok"
+}
+
+; Mirrors the folder scan in Lib\WebView2.ahk's CreateEnvironmentAsync,
+; including the msedgewebview2.exe check added there locally. Keep the two in
+; step: the probe is only worth anything while it sees what creation will see.
+; Several version folders side by side is normal (the updater leaves old ones
+; behind), and one without its exe — a partial uninstall, a failed update, an
+; antivirus quarantine — used to be chosen anyway and fail with 0x80070002.
+_WV2_RuntimeFolder() {
+    folder := "", ver := "0.0.0.0"
+    for root in [EnvGet("ProgramFiles(x86)"), A_AppData "\..\Local"]
+        loop files root "\Microsoft\EdgeWebView\Application\*", "D"
+            if RegExMatch(A_LoopFilePath, "\\([\d.]+)$", &m) && VerCompare(m[1], ver) > 0
+                && FileExist(A_LoopFileFullPath "\msedgewebview2.exe")
+                folder := A_LoopFileFullPath, ver := m[1]
+    return folder
+}
+
+; Called when enhanced mode cannot be had: at startup when the probe found no
+; runtime, or by a surface whose WebViewGui threw despite a passing probe (err
+; set). The latter flips the session to native so later surfaces stop trying.
+; The user hears about it once per session; the log hears every time.
+MarkWebView2Unavailable(where, err := "") {
+    global gWebViewRuntimeState, gWebViewRuntimeInfo, gWebViewFallbackNotified
+    if IsObject(err) {
+        gWebViewRuntimeState := "failed"
+        gWebViewRuntimeInfo := err.Message
+    }
+    LogWarn("WebView2", where ": " gWebViewRuntimeInfo " — using the native interface")
+    if gWebViewFallbackNotified
+        return
+    gWebViewFallbackNotified := true
+    if (gWebViewRuntimeState = "failed")
+        TrayTip("WebView2 could not start, so Maps++ is using its native interface for this session."
+            . "`nDetails are in mapsplusplus.log.", "Maps++", "Icon!")
+    else
+        TrayTip("The WebView2 Runtime is not installed, so Maps++ is using its native interface."
+            . "`nInstall the Microsoft Edge WebView2 Runtime to get the enhanced one back.",
+            "Maps++", "Icon!")
+}
+
+; How the interface reads in the About box and the diagnostics report: the
+; choice, and the effective mode when the runtime overrode it.
+InterfaceModeLabel() {
+    global gInterfaceMode, gWebViewRuntimeState, gWebViewRuntimeInfo
+    if (gInterfaceMode != "webview")
+        return "native"
+    if (gWebViewRuntimeState = "ok")
+        return "webview (runtime " gWebViewRuntimeInfo ")"
+    if (gWebViewRuntimeState = "")
+        return "webview (runtime not probed yet)"
+    return "webview → native (" gWebViewRuntimeInfo ")"
+}
+
 ; Changing frontend affects startup message handlers and prewarmed windows, so
 ; apply it with a reload rather than trying to replace live controllers.
 SetInterfaceMode(mode, *) {
-    global gInterfaceMode, CONFIG_INI
+    global gInterfaceMode, gWebViewRuntimeState, CONFIG_INI
     mode := (StrLower(mode) = "native") ? "native" : "webview"
-    if (mode = gInterfaceMode)
+    if (mode = gInterfaceMode) {
+        ; Re-choosing enhanced while the runtime is missing is how a user who
+        ; has just installed it asks to try again; the probe runs on reload.
+        if (mode = "webview" && gWebViewRuntimeState != "ok")
+            Reload()
         return
+    }
     IniWrite(mode, CONFIG_INI, "UI", "Mode")
     gInterfaceMode := mode
     Reload()
@@ -1574,8 +1992,64 @@ CenterWindowOnMonitor(hwnd, monIdx) {
     WinMove(x, y, , , "ahk_id " hwnd)
 }
 
+; Waits for the client mods' display module to finish sizing freshly launched
+; clients, so whatever places them next sees their final size. Returns true
+; when it waited — the caller should then place them again — and false when no
+; resize was coming (no display module, or its Stock mode), in which case it
+; returned at once and launches behave exactly as they always did.
+;
+; "Settled" is: every window carries the module's properties and none has
+; changed size for LAUNCH_SETTLE_STABLE_MS. Bounded by LAUNCH_SETTLE_TIMEOUT_MS,
+; after which the clients are placed as they are rather than not at all.
+WaitForGameWindowsSettled(hwnds) {
+    global LAUNCH_SETTLE_TIMEOUT_MS, LAUNCH_SETTLE_STABLE_MS, DISPLAY_PROP_SCALE
+    if (!IsObject(hwnds) || !hwnds.Length || !NativeDisplayModuleExpected())
+        return false
+    deadline := A_TickCount + LAUNCH_SETTLE_TIMEOUT_MS
+    lastSig := ""
+    stableSince := A_TickCount
+    while (A_TickCount < deadline) {
+        sig := ""
+        allManaged := true
+        for hwnd in hwnds {
+            if !WinExist("ahk_id " hwnd)
+                continue
+            w := 0, h := 0
+            try WinGetPos(, , &w, &h, "ahk_id " hwnd)
+            sig .= hwnd ":" w "x" h ";"
+            if !_DisplayProp(GameMainWindow(hwnd), DISPLAY_PROP_SCALE)
+                allManaged := false
+        }
+        if (sig != lastSig) {
+            lastSig := sig
+            stableSince := A_TickCount
+        } else if (allManaged && A_TickCount - stableSince >= LAUNCH_SETTLE_STABLE_MS) {
+            return true
+        }
+        Sleep 100
+    }
+    LogInfo("Launch", "Display module had not settled after " LAUNCH_SETTLE_TIMEOUT_MS
+        . " ms — placing the clients at their current size")
+    return true
+}
+
+; Centres a launched client again once its final size is known. A Borderless
+; client covers its monitor by design, and a maximized Resizable one fills it,
+; so both are left exactly where the display module put them.
+RecentreLaunchedWindow(hwnd, monIdx) {
+    global DISPLAY_MODE_BORDERLESS
+    if !WinExist("ahk_id " hwnd)
+        return
+    if (GameContentRect(hwnd).mode = DISPLAY_MODE_BORDERLESS)
+        return
+    if (WinGetMinMax("ahk_id " hwnd) != 0)
+        return
+    CenterWindowOnMonitor(hwnd, monIdx)
+}
+
 ; Folder that contains main.exe, derived from GamePath (which may be main.exe
-; or a compatibility launcher). Roster files and managed payloads live here.
+; or a compatibility launcher). The auto-login roster and the native mods'
+; own settings live here; see native_mods.ahk.
 ResolveGameDirectory() {
     global gGamePath
     if (gGamePath = "")
@@ -1585,328 +2059,17 @@ ResolveGameDirectory() {
     return dir
 }
 
-ManagedPayloadModules() {
-    return [
-        "osmw_chat.dll",
-        "osmw_login.dll",
-        "osmw_minimap.dll",
-        "osmw_fightspeed.dll",
-        "osmw_weather.dll",
-        "osmw_settings.dll",
-        "osmw_timers.dll",
-        "osmw_inventory.dll",
-        "osmw_fishing.dll"
-    ]
-}
-
-ManagedPayloadModuleCsv() {
-    csv := ""
-    for moduleName in ManagedPayloadModules()
-        csv .= (csv = "" ? "" : ",") moduleName
-    return csv
-}
-
-ManagedPayloadFiles() {
-    files := ["osmw_core.dll", "osmw_core_api.ini"]
-    for moduleName in ManagedPayloadModules()
-        files.Push(moduleName)
-    ; Both historical entry points remain shippable. Each now injects only the
-    ; core when main.exe does not already self-load it.
-    files.Push("osmw_chat_launch.exe")
-    files.Push("osmw_login_launch.exe")
-    return files
-}
-
-PayloadDestPath(gameDir, payloadName) {
-    if (payloadName = "osmw_fishing.mda")
-        return gameDir "\system\osmw_fishing.mda"
-    return gameDir "\" payloadName
-}
-
-; Optional art bank. Missing it must not fail launch: the fishing panel then
-; keeps the same 456x280 geometry and falls back to text/arrows.
-DeployOptionalFishingMda(gameDir, sourceRoot := "") {
-    src := PayloadSourcePath("osmw_fishing.mda", sourceRoot)
-    if (src = "")
-        return
-    dst := PayloadDestPath(gameDir, "osmw_fishing.mda")
-    SplitPath(dst, , &dstDir)
-    if (dstDir != "" && !DirExist(dstDir))
-        DirCreate(dstDir)
-    try FileCopy(src, dst, true)
-    catch as err
-        LogWarn("Launch", "Could not copy osmw_fishing.mda into system\: "
-            . err.Message)
-}
-
-; DLLs and ABI metadata ship in Lib\. Both launchers ship at the release root
-; because they must sit beside main.exe after installation. A source checkout
-; still keeps the launcher builds in Lib\, so prefer the root copy and fall back.
-PayloadSourcePath(payloadName, sourceRoot := "") {
-    if (sourceRoot = "")
-        sourceRoot := A_ScriptDir
-    if (payloadName = "osmw_chat_launch.exe"
-        || payloadName = "osmw_login_launch.exe") {
-        root := sourceRoot "\" payloadName
-        if FileExist(root)
-            return root
-    }
-    lib := sourceRoot "\Lib\" payloadName
-    if FileExist(lib)
-        return lib
-    return ""
-}
-
-_CleanupPayloadStages(entries) {
-    for entry in entries {
-        stage := entry["stage"]
-        if (stage != "" && FileExist(stage)) {
-            try FileDelete(stage)
-        }
-    }
-}
-
-_RollbackPayloadEntries(entries) {
-    rollbackOk := true
-    Loop entries.Length {
-        entry := entries[entries.Length - A_Index + 1]
-        if !entry["committed"]
-            continue
-        dst := entry["dst"]
-        backup := entry["backup"]
-        try {
-            if FileExist(dst)
-                FileDelete(dst)
-            if entry["hadOld"]
-                FileMove(backup, dst, true)
-        } catch as err {
-            rollbackOk := false
-            LogWarn("Launch", "Could not roll back " entry["name"] ": " err.Message
-                . " — recovery copy kept at " backup)
-        }
-    }
-    return rollbackOk
-}
-
-; Stage and commit the entire core/API/feature/launcher set before a client is
-; allowed to start. A filesystem cannot replace twelve files in one primitive,
-; so this is launch-atomic: a failed commit rolls already-moved entries back,
-; retains the old stamp, and returns false. The next launch retries the set.
-EnsureManagedPayload(gameDir, sourceRoot := "") {
-    global APP_VERSION
-    if (gameDir = "" || !DirExist(gameDir))
-        return false
-
-    expectedAbi := "1.0"
-    expectedModules := ManagedPayloadModuleCsv()
-    payloadNames := ManagedPayloadFiles()
-
-    ; Preflight every release input before touching the game directory. Missing
-    ; one feature is a broken package even though the runtime itself can degrade
-    ; around an independently missing feature.
-    sources := Map()
-    for payloadName in payloadNames {
-        src := PayloadSourcePath(payloadName, sourceRoot)
-        if (src = "") {
-            LogWarn("Launch", "Managed payload is incomplete: missing " payloadName)
-            return false
-        }
-        sources[payloadName] := src
-    }
-
-    metadata := sources["osmw_core_api.ini"]
-    metadataFormat := IniRead(metadata, "CoreApi", "Format", "")
-    metadataAbi := IniRead(metadata, "CoreApi", "Abi", "")
-    metadataModules := IniRead(metadata, "CoreApi", "Modules", "")
-    if (metadataFormat != "1" || metadataAbi != expectedAbi
-        || metadataModules != expectedModules) {
-        LogWarn("Launch", "Managed payload metadata is incompatible: expected ABI "
-            expectedAbi " and the release module manifest")
-        return false
-    }
-
-    stampPath := gameDir "\osmw_payload.ini"
-    fresh := (
-        IniRead(stampPath, "Payload", "Version", "") = APP_VERSION
-        && IniRead(stampPath, "Payload", "CoreAbi", "") = expectedAbi
-        && IniRead(stampPath, "Payload", "Modules", "") = expectedModules
-    )
-    if fresh {
-        for payloadName in payloadNames {
-            if !FileExist(gameDir "\" payloadName) {
-                fresh := false
-                break
-            }
-        }
-    }
-    if fresh {
-        DeployOptionalFishingMda(gameDir, sourceRoot)
-        return true
-    }
-
-    token := DllCall("GetCurrentProcessId", "UInt") "-" A_TickCount
-    entries := []
-    for payloadName in payloadNames {
-        src := sources[payloadName]
-        dst := gameDir "\" payloadName
-        ; Same path for an in-game-folder installation. It was already preflighted.
-        if (StrLower(src) = StrLower(dst))
-            continue
-        stage := dst ".osmw-stage-" token
-        backup := dst ".osmw-old-" token
-        try {
-            if FileExist(stage)
-                FileDelete(stage)
-            if FileExist(backup)
-                FileDelete(backup)
-            FileCopy(src, stage, true)
-        } catch as err {
-            if FileExist(stage) {
-                try FileDelete(stage)
-            }
-            _CleanupPayloadStages(entries)
-            LogWarn("Launch", "Could not stage " payloadName ": " err.Message)
-            return false
-        }
-        entries.Push(Map(
-            "name", payloadName, "stage", stage, "dst", dst,
-            "backup", backup, "hadOld", false, "committed", false))
-    }
-
-    ; Build the new stamp off to the side and commit it through the same rollback
-    ; path. Its absence/mismatch is what forces a retry after an interrupted set.
-    stampStage := stampPath ".osmw-stage-" token
-    stampBackup := stampPath ".osmw-old-" token
-    try {
-        if FileExist(stampStage)
-            FileDelete(stampStage)
-        if FileExist(stampBackup)
-            FileDelete(stampBackup)
-        IniWrite(APP_VERSION, stampStage, "Payload", "Version")
-        IniWrite(expectedAbi, stampStage, "Payload", "CoreAbi")
-        IniWrite(expectedModules, stampStage, "Payload", "Modules")
-    } catch as err {
-        if FileExist(stampStage) {
-            try FileDelete(stampStage)
-        }
-        _CleanupPayloadStages(entries)
-        LogWarn("Launch", "Could not stage managed payload stamp: " err.Message)
-        return false
-    }
-    entries.Push(Map(
-        "name", "osmw_payload.ini", "stage", stampStage, "dst", stampPath,
-        "backup", stampBackup, "hadOld", false, "committed", false))
-
-    try {
-        for entry in entries {
-            dst := entry["dst"]
-            backup := entry["backup"]
-            entry["hadOld"] := !!FileExist(dst)
-            if entry["hadOld"]
-                FileMove(dst, backup, true)
-            try FileMove(entry["stage"], dst, true)
-            catch as err {
-                if entry["hadOld"] && FileExist(backup)
-                    try FileMove(backup, dst, true)
-                throw err
-            }
-            entry["committed"] := true
-            LogInfo("Launch", "Deployed " entry["name"] " into the game folder")
-        }
-    } catch as err {
-        rollbackOk := _RollbackPayloadEntries(entries)
-        _CleanupPayloadStages(entries)
-        LogWarn("Launch", "Managed payload commit failed: " err.Message
-            . (rollbackOk ? " — previous payload restored"
-                : " — rollback was incomplete; launch remains blocked"))
-        return false
-    }
-
-    ; All replacements and the stamp committed. Old copies are no longer needed.
-    for entry in entries {
-        backup := entry["backup"]
-        if FileExist(backup) {
-            try FileDelete(backup)
-            catch as err
-                LogWarn("Launch", "Could not remove payload backup " backup ": " err.Message)
-        }
-    }
-    DeployOptionalFishingMda(gameDir, sourceRoot)
-    return true
-}
-
-; Which mod build the game folder is actually running, for diagnostics. A stale
-; answer here explains a whole class of "the fix didn't work" reports.
-DeployedPayloadVersion() {
-    gameDir := ResolveGameDirectory()
-    if (gameDir = "" || !DirExist(gameDir))
-        return ""
-    return IniRead(gameDir "\osmw_payload.ini", "Payload", "Version", "")
-}
-
-; ── The injected mods' logging ───────────────────────────────────
-;
-; osmw_chat.dll and osmw_login.dll each write one log per client per launch into
-; the game folder. That is how a mod problem gets diagnosed and clutter the rest
-; of the time — five clients a launch, every launch, for a player with nothing
-; to investigate — so both DLLs read this key at injection and open no file at
-; all when it is clear. Off is the default on both sides.
-;
-; The key lives in the GAME FOLDER's config.ini, never Maps++'s CONFIG_INI. The
-; two are the same file in a normal install, but ResolveWritableIniPath() falls
-; back to %AppData% when the game folder is not writable and a C DLL cannot
-; follow it there. addons\chat_mod.ahk makes the same distinction for the same
-; reason.
-GameConfigIniPath() {
-    gameDir := ResolveGameDirectory()
-    return (gameDir = "") ? "" : gameDir "\config.ini"
-}
-
-ModLoggingEnabled() {
-    global MOD_LOG_SECTION, MOD_LOG_KEY
-    gameDir := ResolveGameDirectory()
-    if (gameDir = "")
-        return false
-    ; The same chain the DLLs use: config.ini → defaults.ini → off.
-    fallback := IniRead(gameDir "\defaults.ini", MOD_LOG_SECTION, MOD_LOG_KEY, "0")
-    return IniRead(gameDir "\config.ini", MOD_LOG_SECTION, MOD_LOG_KEY, fallback) = "1"
-}
-
-; Writes the one key, leaving the rest of the file alone — the mods write their
-; own keys into it and a section rewrite would race them. Returns false when
-; there is nowhere to write, so the caller can say so rather than failing mute.
-SetModLogging(enabled) {
-    global MOD_LOG_SECTION, MOD_LOG_KEY
-    cfgPath := GameConfigIniPath()
-    if (cfgPath = "") {
-        LogWarn("ModLog", "No game path configured — nothing written")
-        return false
-    }
-    try {
-        EnsureIniUtf16(cfgPath)
-        IniWrite(enabled ? "1" : "0", cfgPath, MOD_LOG_SECTION, MOD_LOG_KEY)
-    } catch as err {
-        LogWarn("ModLog", "Could not write " cfgPath ": " err.Message)
-        return false
-    }
-    LogInfo("ModLog", "Client mod logging turned " (enabled ? "on" : "off")
-        . " — applies to clients launched from now on")
-    return true
-}
-
-; Prefer the historical chat-named 32-bit core helper when it is present;
-; overlay attach still waits for main.exe. GamePath stays pointing at main.exe.
+; Which executable a launch actually starts. GamePath is whatever the user
+; picked: main.exe on a client that loads the mods itself (the mod_autoload
+; patch), or one of the mods' compatibility launchers on a client that does not.
+; Maps++ does not care which, and never substitutes one for the other. Overlay
+; attach still waits for the main.exe window either way.
 ResolveLaunchExecutable(gameDir) {
-    global PROCESS_EXE
-    helper := gameDir "\osmw_chat_launch.exe"
+    global gGamePath, PROCESS_EXE
+    if (gGamePath != "" && FileExist(gGamePath))
+        return gGamePath
     mainExe := gameDir "\" PROCESS_EXE
-    if FileExist(helper)
-        return helper
-    if FileExist(mainExe) {
-        LogWarn("Launch", "osmw_chat_launch.exe missing — launching main.exe without inject")
-        return mainExe
-    }
-    return ""
+    return FileExist(mainExe) ? mainExe : ""
 }
 
 ; Shared by single- and multi-client launch. workDir is ByRef so callers Run
@@ -1919,14 +2082,12 @@ BuildGameLaunchCommand(&workDir) {
     gameDir := ResolveGameDirectory()
     if (gameDir = "")
         return ""
-    if !EnsureManagedPayload(gameDir)
-        return ""
+    ; Auto-login's per-launch consent is an environment variable the client
+    ; inherits, not a file the mods and Maps++ share. Nothing else runs here:
+    ; a launch must not write the mods' settings behind the player's back.
     beforeFn := GetFuncByName("_AutoLogin_BeforeLaunch")
     if beforeFn
         beforeFn(gameDir)
-    chatFn := GetFuncByName("_ChatMod_BeforeLaunch")
-    if chatFn
-        chatFn(gameDir)
     exePath := ResolveLaunchExecutable(gameDir)
     if (exePath = "" || !FileExist(exePath))
         return ""
@@ -1976,7 +2137,11 @@ LaunchGameInstance(monitorWhich := "primary") {
         return
     }
 
+    ; Centred at once, so the display module picks the target monitor's scale,
+    ; then again once it has finished resizing the window for that monitor.
     CenterWindowOnMonitor(hwnd, monIdx)
+    if WaitForGameWindowsSettled([hwnd])
+        RecentreLaunchedWindow(hwnd, monIdx)
     TrayTip("Game instance launched.", "Maps++", "Iconi")
     MaybeSendEnterAfterLaunch([hwnd])
 }
@@ -2335,11 +2500,20 @@ LaunchWithProfile(profile, monitorWhich := "primary", count := 0, plan := "") {
         return
     }
 
+    ; The centring above put each client on the target monitor, which is what
+    ; makes the display module pick that monitor's scale. Wait for it to finish,
+    ; so the layout (or the re-centre) works with the sizes the clients will
+    ; actually have rather than the 800×600 they started at.
+    settled := WaitForGameWindowsSettled(launched)
     applyFn := (layoutName != "") ? GetFuncByName("_WindowLayout_ApplyNamed") : ""
     if applyFn {
         applyFn(layoutName, monIdx)
         TrayTip(launched.Length " client(s) launched and arranged.", "Maps++", "Iconi")
     } else {
+        if settled {
+            for hwnd in launched
+                RecentreLaunchedWindow(hwnd, monIdx)
+        }
         TrayTip(launched.Length " client(s) launched and centered.", "Maps++", "Iconi")
     }
     MaybeSendEnterAfterLaunch(launched)
@@ -2437,7 +2611,7 @@ SendEnterUntilReady(targetHwnds := 0, quiet := false, timeoutMs := 30000) {
 }
 
 ; After a Maps++ launch with auto-login on, click through intros on just the
-; new windows so the injected DLL can fill the stock login.
+; new windows so the client mods' auto-login can fill the stock login.
 MaybeSendEnterAfterLaunch(hwnds) {
     global gLaunchAutoLogin
     if !gLaunchAutoLogin || !IsObject(hwnds) || hwnds.Length = 0
@@ -3511,8 +3685,8 @@ LogTail(count := 40) {
 ; and what the log has been saying.
 
 BuildDiagnosticsReport() {
-    global APP_VERSION, gInterfaceMode, gResolvedBuildStamp, SIGNATURE_NAMES
-    global gAddonHooks, gDisabledAddons, gQuarantinedAddons
+    global APP_VERSION, gResolvedBuildStamp, SIGNATURE_NAMES
+    global gAddonHooks, gDisabledAddons, gQuarantinedAddons, gMinimapSource
 
     out := "osMW Maps++ diagnostics`n"
         . "========================`n"
@@ -3520,22 +3694,29 @@ BuildDiagnosticsReport() {
         . "Generated : " FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss") "`n"
         . "AutoHotkey: " A_AhkVersion "  " (A_PtrSize = 8 ? "64-bit" : "32-bit") "`n"
         . "OS        : " A_OSVersion "`n"
-        . "Interface : " gInterfaceMode "`n"
+        . "Interface : " InterfaceModeLabel() "`n"
         . "Script dir: " A_ScriptDir "`n"
         . "Log       : " LogPath() "`n"
-    ; The injected mods live in the game folder, not beside Maps++, and a locked
-    ; DLL can leave them a build behind. Saying so here turns "the fix didn't
-    ; work" into something answerable without a round trip.
-    deployed := DeployedPayloadVersion()
-    out .= "Mods      : " (deployed = "" ? "<unstamped — deployed before this was tracked, or no game path>"
-        : deployed = APP_VERSION ? deployed " (current)"
-        : deployed " (STALE — Maps++ is " APP_VERSION ")") "`n"
+    ; The native mods are a separate product, updated on their own schedule.
+    ; Maps++ neither ships nor versions them, so all it can honestly report is
+    ; whether this game folder has them -- which still answers "why is the chat
+    ; tab empty" and "why did nothing change in game" without a round trip.
+    out .= "Client mods: " (NativeModsInstalled()
+        ? "installed (" NativeModsIniPath() ")"
+        : "not found in the game folder") "`n"
     ; Off by default, so a report with no osmw_*.log attached is expected rather
     ; than a sign that the mods never ran. Saying which it is here saves the
     ; round trip that would otherwise ask for logs that were never written.
     out .= "Mod logs  : " (ModLoggingEnabled()
-        ? "on — osmw_chat.<pid>.log / osmw_login.<pid>.log in the game folder"
+        ? "on — osmw_core.<pid>.log and friends in the game folder"
         : "off (Tray → Debug → Client Mod Logging, then relaunch the clients)") "`n"
+
+    ; The core's own startup report — the same table Tray → Debug → Client Mods
+    ; Status shows, so the dialog and the report cannot disagree.
+    modStatus := NativeModsReadStatus()
+    out .= "`nClient mod status`n-----------------`n"
+    out .= modStatus.ok ? NativeModsStatusTable(modStatus)
+        : "  " NativeModsStatusSummary(modStatus).text "`n"
 
     ; The addon set is what actually distinguishes one variant from another, and
     ; it says more than a variant name would — it also shows what is switched off.
@@ -3553,6 +3734,24 @@ BuildDiagnosticsReport() {
         }
         out .= "  " Format("{:-16}", name) " " state "`n"
     }
+
+    ; Maps++ chords the client mods also react to in game. Not errors — the
+    ; player may want both — but the first thing to check for "this key does two
+    ; things".
+    out .= "`nIn-game key overlaps`n--------------------`n"
+    modKeys := NativeModsReservedKeys()
+    overlapCount := 0
+    for id, action in GetHotkeyActionsForSettings() {
+        chord := action["chord"]
+        if (chord = "")
+            continue
+        if ((owner := NativeModsKeyConflict(chord, modKeys)) != "") {
+            out .= "  " Format("{:-14}", FormatHotkeyDisplay(chord)) " " action["label"] " — also " owner "`n"
+            overlapCount++
+        }
+    }
+    if (overlapCount = 0)
+        out .= "  (none)`n"
 
     out .= "`nMemory offsets`n--------------`n"
         . "Build stamp: " (gResolvedBuildStamp ? Format("0x{:08X}", gResolvedBuildStamp) : "<unresolved>") "`n"
@@ -3585,6 +3784,27 @@ BuildDiagnosticsReport() {
             . (snap.inBattle ? "  in battle" : "")
             . (snap.isActive ? "  (active)" : "") "`n"
     }
+
+    ; Per client, straight from the windows rather than the snapshot poll, which
+    ; runs only while some addon consumes it. "Why does Tab open the wrong
+    ; minimap" is answered by this section and the Tab source line.
+    out .= "`nMinimap`n-------`n"
+        . "  Tab source: " gMinimapSource "`n"
+    seenPids := Map()
+    for hwnd in GetTopLevelGameWindows() {
+        pid := 0
+        try pid := WinGetPID("ahk_id " hwnd)
+        if (!pid || seenPids.Has(pid))
+            continue
+        seenPids[pid] := true
+        proc := GetClientProcess(pid)
+        line := proc.ok ? NativeMinimapSummary(ReadNativeMinimapState(proc, pid)) : "process not readable"
+        who := CharacterNameFromWindow(hwnd)
+        out .= "  " Format("{:-16}", who = "" ? "PID " pid : who) " " line "`n"
+            . "  " Format("{:-16}", "") " display: " GameDisplaySummary(GameContentRect(hwnd)) "`n"
+    }
+    if (seenPids.Count = 0)
+        out .= "  (no game clients running)`n"
 
     out .= "`nRecent log`n----------`n" LogTail(40) "`n"
     return out

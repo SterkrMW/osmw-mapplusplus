@@ -198,9 +198,22 @@
                     </div>
 
                     <div class="setting-card">
+                        <label class="field">
+                            <span class="field-label">Tab key</span>
+                            <select id="minimapSource" class="select">
+                                <option value="game">The game's minimap where it has one, Maps++ elsewhere</option>
+                                <option value="mapspp">Maps++ wherever it has a map</option>
+                                <option value="off">The game's minimap only (Maps++ never takes Tab)</option>
+                            </select>
+                        </label>
+                        <div class="panel-hint" id="minimapSourceHint">The game now has its own minimap on every map Maps++ ships.
+                            <strong>Open Maps++ minimap</strong> opens this overlay even there — bind it under Hotkeys, or use Tray → Map &amp; Overlay.</div>
+                    </div>
+
+                    <div class="setting-card">
                         <div class="minimap-preview" id="minimapPreview" aria-hidden="true">
                             <div class="preview-chrome">
-                                <span id="previewFrameLabel">Game window · 1024 × 768</span>
+                                <span id="previewFrameLabel">Game window · 800 × 600</span>
                                 <span id="previewAnchorLabel">Centred</span>
                             </div>
                             <div class="preview-stage" id="previewStage">
@@ -226,6 +239,13 @@
                                 <input type="range" id="minimapOpacity" class="range" min="30" max="100" step="5">
                                 <span class="slider-value" id="opacityValue">100%</span>
                             </div>
+                        </label>
+
+                        <label class="field field-check">
+                            <input type="checkbox" id="followGameScale" class="toggle">
+                            <span>Grow with the game's display scale
+                                <small class="field-hint">When the client mods show the game at 2× or 3×, the minimap is enlarged to match.</small>
+                            </span>
                         </label>
                     </div>
 

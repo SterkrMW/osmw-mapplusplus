@@ -389,7 +389,7 @@ _WindowLayout_ApplyPreset(layoutName, monitorIdx := unset, *) {
     windows := FilterWindowsOnMonitor(_WindowLayout_ArrangeableWindows(), monIdx)
     if (windows.Length = 0) {
         TrayTip("No game windows on " _WindowLayout_DisplayLabel(monIdx) "."
-            . (_WindowLayout_MinimizedCount() ? "`nMinimized clients are left alone." : ""),
+            . (_WindowLayout_SkippedCount() ? "`nMinimized, maximized and borderless clients are left alone." : ""),
             "Window Layout", "Iconi")
         return
     }
@@ -404,11 +404,20 @@ _WindowLayout_ApplyPreset(layoutName, monitorIdx := unset, *) {
         return
     }
 
-    ; Use the first window's size to compute positions — never resize. It can
-    ; close between the filter above and here, so this is not assumed to work.
-    try {
-        WinGetPos(, , &winW, &winH, "ahk_id " ordered[1])
-    } catch {
+    ; Slots are sized for the largest client being arranged — never resize.
+    ; Clients used to be assumed identical, but the display module can make one
+    ; 2× and another 1× (it picks per monitor), and slots cut for the small one
+    ; overlap the large one. A window can close between the filter above and
+    ; here, so none of these reads is assumed to work.
+    winW := 0, winH := 0
+    for hwnd in ordered {
+        try {
+            WinGetPos(, , &w, &h, "ahk_id " hwnd)
+            winW := Max(winW, w)
+            winH := Max(winH, h)
+        }
+    }
+    if (winW <= 0 || winH <= 0) {
         TrayTip("A client closed while the layout was being applied — try again.",
             "Window Layout", "Icon!")
         return
@@ -607,20 +616,39 @@ _WindowLayout_IsMinimized(hwnd) {
     return true
 }
 
+; A client a layout must leave where it is. Minimized (above); maximized — a
+; Resizable client filling its monitor, which a move would only un-maximize
+; into a stranger size; or Borderless, which the client mods' display module
+; sizes to cover its whole monitor, so any move just pushes half of it off the
+; screen. Layouts position windows and never size them; the display module owns
+; size, and this is where the two agree to stay out of each other's way.
+_WindowLayout_IsFixedInPlace(hwnd) {
+    global DISPLAY_MODE_BORDERLESS
+    if _WindowLayout_IsMinimized(hwnd)
+        return true
+    try {
+        if (WinGetMinMax("ahk_id " hwnd) = 1)
+            return true
+    }
+    return GameContentRect(hwnd).mode = DISPLAY_MODE_BORDERLESS
+}
+
 ; Top-level game windows that can actually be measured and moved.
 _WindowLayout_ArrangeableWindows() {
     result := []
     for hwnd in GetTopLevelGameWindows() {
-        if !_WindowLayout_IsMinimized(hwnd)
+        if !_WindowLayout_IsFixedInPlace(hwnd)
             result.Push(hwnd)
     }
     return result
 }
 
-_WindowLayout_MinimizedCount() {
+; How many clients the filter above left out, for the "nothing to arrange"
+; messages, which would otherwise claim there are no clients at all.
+_WindowLayout_SkippedCount() {
     n := 0
     for hwnd in GetTopLevelGameWindows() {
-        if _WindowLayout_IsMinimized(hwnd)
+        if _WindowLayout_IsFixedInPlace(hwnd)
             n += 1
     }
     return n
@@ -1224,7 +1252,7 @@ _WindowLayout_CaptureAsPrompt(suggested := "") {
     layout := _WindowLayout_CaptureCurrent(monIdx)
     if !IsObject(layout) {
         TrayTip("No game windows to capture."
-            . (_WindowLayout_MinimizedCount() ? "`nRestore your minimized clients first." : ""),
+            . (_WindowLayout_SkippedCount() ? "`nMinimized, maximized and borderless clients are not captured." : ""),
             "Window Layout", "Iconx")
         return 0
     }
@@ -1608,8 +1636,8 @@ _WindowLayout_SendDetail(id) {
 
     ; A layout captured before any client was running has no reference size; fall
     ; back so the editor still draws boxes of a believable shape.
-    winW := layout.winW ? layout.winW : 1024
-    winH := layout.winH ? layout.winH : 768
+    winW := layout.winW ? layout.winW : GAME_LOGICAL_W
+    winH := layout.winH ? layout.winH : GAME_LOGICAL_H
 
     _WindowLayout_WebPost('{"type":"layout-detail"'
         . ',"id":' layout.id
@@ -1736,7 +1764,8 @@ _WindowLayout_ReferenceWindowSize(monIdx) {
         if (w > 0 && h > 0)
             return {w: w, h: h}
     }
-    return {w: 1024, h: 768}
+    ; The game's own unscaled size: what a client is before any display module.
+    return {w: GAME_LOGICAL_W, h: GAME_LOGICAL_H}
 }
 
 _WindowLayout_WebNew(msg) {
@@ -1780,8 +1809,8 @@ _WindowLayout_WebCapture(msg) {
     captured := _WindowLayout_CaptureCurrent(monIdx)
     if !IsObject(captured) {
         why := "No game windows on " _WindowLayout_DisplayLabel(monIdx) "."
-        if _WindowLayout_MinimizedCount()
-            why .= " Restore your minimized clients first."
+        if _WindowLayout_SkippedCount()
+            why .= " Minimized, maximized and borderless clients are not captured."
         _WindowLayout_WebPost('{"type":"capture-result","ok":false,"message":' _JSON_Str(why) '}')
         return
     }
