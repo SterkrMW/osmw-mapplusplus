@@ -58,6 +58,18 @@ global NATIVE_MODS_BAD_STATES := ["missing", "legacy", "incompatible", "failed",
 ; latter, so a moved prologue costs a notice, never a false one.
 global NATIVE_MODS_AUTOLOAD_RVA := 0xCD360
 global NATIVE_MODS_CORE_DLL := "osmw_core.dll"
+; The minimap mod's marker store (server repo, tools/client-dll/map-markers.md
+; section 4). The header line is the whole version check: any other means a
+; writer this Maps++ does not know, and the file is then not written at all.
+; The two limits are the mod's own (MM_MARKERS_PER_MAP / MM_MARKERS_MAX); a
+; record past either is dropped when the mod loads the file, so Maps++ stops
+; short of them rather than writing markers that would silently vanish.
+global NATIVE_MODS_MARKERS_FILE := "map-markers.tsv"
+global NATIVE_MODS_MARKERS_HEADER := "OSMW-MARKERS`t1"
+global NATIVE_MODS_MARKERS_PER_MAP := 64
+global NATIVE_MODS_MARKERS_MAX := 2048
+global NATIVE_MODS_MARKER_LABEL_MAX := 31     ; bytes in the client's code page
+global NATIVE_MODS_MARKERS_LOCK_MS := 3000    ; the mod's own wait
 ; Maps++'s own record (config.ini [ClientMods]) that the "mods did not load"
 ; notice has been shown, so an unchanged situation is not reported twice.
 global gCoreRefusedNoticeShown := false

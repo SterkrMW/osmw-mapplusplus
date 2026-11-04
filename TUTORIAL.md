@@ -854,6 +854,29 @@ Imported labels go through the same cleaning as ones you type, so a pack from el
 corrupt your file. Anything unusable is skipped and counted in the summary rather than
 silently dropped.
 
+#### Putting POIs on the game's own minimap
+
+The client mods give the game's minimap a marker layer of its own. **Map POIs → Export to Game
+Markers…** copies every POI you have, across every map, onto it, so they show without the Maps++
+overlay open. They go into `map-markers.tsv` in the game folder, which every client there shares,
+and running clients pick them up within a couple of seconds.
+
+- **Your in-game markers are safe.** Maps++ only ever replaces markers it exported itself.
+  Export again after changing your POIs and its markers are updated, and markers for POIs you
+  deleted are taken out. Anything you placed in the game is left exactly as it was.
+- **Remove Exported Game Markers…** takes all of Maps++'s markers back out. Maps++ remembers
+  which markers are its own in `map_markers_export.ini`, next to its other files.
+- An export is a snapshot. Adding a POI in Maps++ doesn't change the game's markers until you
+  export again. If you edit or delete one of Maps++'s markers in the game, the next export puts it
+  back the way Maps++ has it.
+- **Limits are the game's.** It keeps at most 64 markers per map, counting your own, and 2048 in
+  all. Labels are cut to 31 characters (fewer for letters outside your Windows language).
+  Anything that does not fit is counted in the summary.
+- **The marker layer ships switched off** (`[Minimap] MarkerLayer=0` in `osmw.ini`). Exporting
+  still works, and the export tells you, but the markers only show in game once the layer is on.
+- It needs the client mods installed in your game folder. Without them there is no marker layer,
+  and Maps++ says so instead of writing anything.
+
 ### Party Markers (Full / Battle)
 
 | Hotkey | Action |

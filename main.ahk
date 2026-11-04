@@ -514,6 +514,7 @@ _IconForLabel(lbl) {
         case "Pricing Panel…": return "grid_view"
         case "Verify Slot Mapping…": return "track_changes"
         case "Map POIs": return "location_on"
+        case "Export to Game Markers…", "Remove Exported Game Markers…": return "map"
         case "View Mode": return "visibility"
         case "Window Layout", "Apply Preset", "Apply Custom": return "grid_view"
         case "Capture Current As…": return "devices"

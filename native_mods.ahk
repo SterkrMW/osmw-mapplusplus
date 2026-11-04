@@ -426,6 +426,235 @@ NativeModsStatusTable(st) {
     return out
 }
 
+; ── The game's own map markers (map-markers.tsv) ─────────────────
+;
+; The minimap mod's persistent marker layer keeps its markers in one file beside
+; main.exe, shared by every client in the folder. Its write rule, which Maps++
+; follows exactly: take the folder's named mutex, reload the file, change only
+; the records being changed (by their stable id), write a temporary file, then
+; atomically replace. Writing back anything read before the lock is how one
+; client erases another's markers.
+;
+; Maps++ replaces only records whose ids the caller names as its own. Every
+; other line, the player's markers and anything this does not parse alike, is
+; carried over byte for byte. A file whose header is not the one version known
+; here is never written: it belongs to a newer writer, and the mod refuses to
+; overwrite it too. Like every write in this file, it happens only when the user
+; asks for one.
+
+NativeModsMarkersPath() {
+    global NATIVE_MODS_MARKERS_FILE
+    gameDir := ResolveGameDirectory()
+    return (gameDir = "") ? "" : gameDir "\" NATIVE_MODS_MARKERS_FILE
+}
+
+; Whether the game currently draws markers at all. Both gates are the mods'
+; own: the minimap feature, and its marker layer, which ships off.
+NativeModsMarkerLayerOn() {
+    return Trim(NativeModsRead("Addons", "MinimapList", "1")) != "0"
+        && Trim(NativeModsRead("Minimap", "MarkerLayer", "0")) != "0"
+}
+
+; A label as the file stores it: at most NATIVE_MODS_MARKER_LABEL_MAX bytes in
+; the client's code page, cut on a character boundary so a double-byte
+; character is never split, then percent-encoded the way the mod's
+; mm_label_encode does ("%", control characters and every byte outside
+; printable ASCII). A character the code page lacks becomes "?", as it would in
+; anything else the client draws.
+NativeModsMarkerLabel(text) {
+    global NATIVE_MODS_MARKER_LABEL_MAX
+    s := ""
+    for ch in StrSplit(text) {
+        if (StrPut(s ch, "CP0") - 1 > NATIVE_MODS_MARKER_LABEL_MAX)
+            break
+        s .= ch
+    }
+    n := StrPut(s, "CP0") - 1
+    buf := Buffer(n + 1, 0)
+    StrPut(s, buf, "CP0")
+    out := ""
+    loop n {
+        b := NumGet(buf, A_Index - 1, "UChar")
+        out .= (b = 0x25 || b < 0x20 || b > 0x7E) ? Format("%{:02X}", b) : Chr(b)
+    }
+    return out
+}
+
+; The mod's mutex name for a game folder (markers_io.c, mm_store_mutex_name):
+; the folder as GetModuleFileNameA gives it, trailing separator dropped, with
+; \ / : turned to _ and ASCII letters, only, lowercased.
+_NativeModsMarkersMutexName(gameDir) {
+    dir := gameDir
+    while (StrLen(dir) > 1 && (SubStr(dir, -1) = "\" || SubStr(dir, -1) = "/"))
+        dir := SubStr(dir, 1, -1)
+    out := ""
+    loop parse dir {
+        o := Ord(A_LoopField)
+        if (A_LoopField = "\" || A_LoopField = "/" || A_LoopField = ":")
+            out .= "_"
+        else if (o >= 65 && o <= 90)
+            out .= Chr(o + 32)
+        else
+            out .= A_LoopField
+    }
+    return "Global\osmw_map_markers_" out
+}
+
+; {state, h}: "ok" (held), "none" (no mutex to be had, and no client running
+; to contend for the file), "locked" (a client held it past the wait) or
+; "lock-unavailable" (clients are running and the lock cannot be opened).
+_NativeModsMarkersLock(gameDir) {
+    global NATIVE_MODS_MARKERS_LOCK_MS
+    static SYNCHRONIZE_AND_MODIFY := 0x00100001
+    name := _NativeModsMarkersMutexName(gameDir)
+    h := DllCall("CreateMutexW", "Ptr", 0, "Int", 0, "WStr", name, "Ptr")
+    if !h
+        h := DllCall("OpenMutexW", "UInt", SYNCHRONIZE_AND_MODIFY, "Int", 0, "WStr", name, "Ptr")
+    if !h
+        return { state: GetTopLevelGameWindows().Length ? "lock-unavailable" : "none", h: 0 }
+    ; WAIT_ABANDONED (0x80): a client died holding it. The mod takes it anyway,
+    ; and the file it left is whole, because the replace is atomic.
+    r := DllCall("WaitForSingleObject", "Ptr", h, "UInt", NATIVE_MODS_MARKERS_LOCK_MS, "UInt")
+    if (r = 0 || r = 0x80)
+        return { state: "ok", h: h }
+    DllCall("CloseHandle", "Ptr", h)
+    return { state: "locked", h: 0 }
+}
+
+_NativeModsMarkersUnlock(lock) {
+    if lock.h {
+        DllCall("ReleaseMutex", "Ptr", lock.h)
+        DllCall("CloseHandle", "Ptr", lock.h)
+    }
+}
+
+; Replaces the markers in `ownedIds` with `records`, under the mod's lock.
+; Each record is {id, mapFile, x, y, kind, label}, label as plain text; a
+; record's own id also counts as owned, so an export repeated after its list of
+; ids was lost updates its markers instead of doubling them.
+;
+; Returns {ok, reason, written, removedIds, full}. written are the ids now in
+; the file, removedIds the owned ids that were taken out (an id in both was
+; updated), full how many records the mod's limits had no room for. reason, when
+; not ok: "no-game-path" | "not-installed" | "locked" | "lock-unavailable" |
+; "unknown-format" | "read-failed" | "write-failed".
+NativeModsMarkersReplace(ownedIds, records) {
+    global NATIVE_MODS_MARKERS_HEADER, NATIVE_MODS_MARKERS_PER_MAP, NATIVE_MODS_MARKERS_MAX
+    res := { ok: false, reason: "", written: [], removedIds: [], full: 0 }
+    gameDir := ResolveGameDirectory()
+    if (gameDir = "") {
+        res.reason := "no-game-path"
+        return res
+    }
+    if !NativeModsInstalled() {
+        res.reason := "not-installed"
+        return res
+    }
+    path := NativeModsMarkersPath()
+    lock := _NativeModsMarkersLock(gameDir)
+    if (lock.state != "ok" && lock.state != "none") {
+        res.reason := lock.state
+        return res
+    }
+    try {
+        ; Latin-1 maps every byte to one character and back, so lines this
+        ; does not own are written out exactly as they were read.
+        text := ""
+        if FileExist(path) {
+            try {
+                text := FileRead(path, "CP28591")
+            } catch {
+                res.reason := "read-failed"
+                return res
+            }
+        }
+        lines := []
+        if (text != "") {
+            all := StrSplit(text, "`n", "`r")
+            if (all[1] != NATIVE_MODS_MARKERS_HEADER) {
+                res.reason := "unknown-format"
+                return res
+            }
+            loop all.Length - 1 {
+                if (all[A_Index + 1] != "")
+                    lines.Push(all[A_Index + 1])
+            }
+        }
+
+        owned := Map()
+        for id in ownedIds
+            owned[StrLower(id)] := true
+        for r in records
+            owned[r.id] := true
+
+        out := NATIVE_MODS_MARKERS_HEADER "`r`n"
+        perMap := Map()
+        total := 0
+        for line in lines {
+            f := StrSplit(line, "`t")
+            if owned.Has(StrLower(f[1])) {
+                res.removedIds.Push(StrLower(f[1]))
+                continue
+            }
+            out .= line "`r`n"
+            total++
+            ; A map file is at most 65535, so five digits; anything else is a
+            ; record the mod rejects, and counts toward no map.
+            if (f.Length >= 2 && RegExMatch(f[2], "^\d{1,5}$")) {
+                mf := Integer(f[2])
+                perMap[mf] := (perMap.Has(mf) ? perMap[mf] : 0) + 1
+            }
+        }
+
+        seen := Map()
+        for r in records {
+            if seen.Has(r.id)
+                continue
+            seen[r.id] := true
+            onMap := perMap.Has(r.mapFile) ? perMap[r.mapFile] : 0
+            if (onMap >= NATIVE_MODS_MARKERS_PER_MAP || total >= NATIVE_MODS_MARKERS_MAX) {
+                res.full++
+                continue
+            }
+            ; Flags 1 = visible, the only bit the format defines.
+            out .= r.id "`t" r.mapFile "`t" r.x "`t" r.y "`t" r.kind "`t1`t"
+                . NativeModsMarkerLabel(r.label) "`r`n"
+            perMap[r.mapFile] := onMap + 1
+            total++
+            res.written.Push(r.id)
+        }
+
+        tmp := path ".mapspp.tmp"
+        try {
+            f := FileOpen(tmp, "w", "CP28591")
+            f.Write(out)
+            DllCall("FlushFileBuffers", "Ptr", f.Handle)
+            f.Close()
+        } catch as err {
+            try FileDelete(tmp)
+            LogWarn("ClientMods", "Could not write " tmp ": " err.Message)
+            res.reason := "write-failed"
+            return res
+        }
+        ; MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH: a client polling
+        ; the file sees the old one or the new one, never half of either.
+        if !DllCall("MoveFileExW", "WStr", tmp, "WStr", path, "UInt", 0x9) {
+            code := A_LastError
+            try FileDelete(tmp)
+            LogWarn("ClientMods", "Could not replace " path " (error " code ")")
+            res.reason := "write-failed"
+            return res
+        }
+        res.ok := true
+        LogInfo("ClientMods", "map-markers.tsv: wrote " res.written.Length ", took out "
+            . res.removedIds.Length ", " res.full " over the limits"
+            . (lock.state = "none" ? " (no lock: no client running)" : ""))
+        return res
+    } finally {
+        _NativeModsMarkersUnlock(lock)
+    }
+}
+
 ; ── Keys the mods use in game ────────────────────────────────────
 ;
 ; A Maps++ hotkey on one of these does not stop the mod seeing the key, so one

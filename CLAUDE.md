@@ -165,6 +165,7 @@ Column-aligned output (signature dumps, debug state, slot tables) belongs in the
 - `layouts.ini` — user-authored window layouts (owned by `addons\window_layout.ahk`), also via `ResolveWritableIniPath()`. An `[Index]` section maps a numeric id to the display name, and one `[Layout.<id>]` section per layout holds a monitor fingerprint, the authoring client window size, and `Slot<N>=fx|fy|charName|flags` records. Slot positions are **fractions of the target monitor's work area**, not pixels, so a layout survives a resolution change; `WinSize` is used only to draw boxes to scale in the editor, since applying a layout never resizes a window. Deliberately *not* in `maps\`, which `build.ps1` copies into `releases\`.
 - `better_hotkeys.ini` — explicit per-character skill profiles owned by `addons\better_hotkeys.ahk`. Dynamic profile chords are transient hidden entries in the central registry, rebuilt through `OnBeforeApplyHotkeys`; they must not be persisted into `config.ini [Hotkeys]` or exposed in the general Settings hotkey list.
 - `signatures.ini` / `offsets_cache.ini` — persisted byte-signatures and per-build resolved RVAs from the signature calibration system above.
+- `map_markers_export.ini` — which marker ids in a game folder's `map-markers.tsv` Maps++ wrote (owned by `addons\map_pois.ahk`), one `[Folder.<fnv64 of the lowercased game dir>]` section per folder with `GameDir=` and `Ids=`. It is what lets a re-export remove markers for deleted POIs and lets "Remove Exported Game Markers" touch nothing else. Losing it costs only those removals: ids are derived from map + position + label, so a re-export still updates in place.
 - `mapsplusplus.log` (+ `.log.1`) — the rolling log, and `mapsplusplus.log.diagnostics.txt` written by **Copy Diagnostics**. Same `ResolveWritableIniPath()` location rule as the inis. Both are output only; nothing reads them back except `LogTail()`.
 
 **Any save path that writes user text to an ini must call `EnsureIniUtf16(path)` before its first `IniWrite`/`IniDelete`** (`functions.ahk`, near `ResolveWritableIniPath`). Windows fixes an ini's encoding from what is already on disk, and AHK only creates a UTF-16 one when `IniWrite` is what creates the file — a store whose first call is `IniDelete` (deleting a section it is about to rewrite, as `_Pois_Save` and `_BH_SaveProfiles` do) instead gets an ANSI file, and from then on every write through it silently replaces characters outside the system codepage with `?`. Character names and POI labels are exactly the affected values.
@@ -238,6 +239,24 @@ walk returns `unknown` rather than passing for a refusal.
 `[ClientMods] CoreRefusedNoticeShown`, never in `osmw.ini`. A client seen with
 the core loaded clears it. `SmartAppControlState()` decides the wording: SAC is
 only blamed when it is actually on.
+
+**The game's marker file.** Map POIs → Export to Game Markers writes POIs into
+the minimap mod's `map-markers.tsv` (spec: server repo
+`tools/client-dll/map-markers.md` section 4). `NativeModsMarkersReplace` is the
+only writer, and it follows the mod's own rule exactly: take the folder's
+`Global\osmw_map_markers_<dir>` mutex (name derived as `mm_store_mutex_name`
+does), reload, drop only the caller's owned ids, carry every other line over
+byte for byte (Latin-1 in and out), write a temp file, `MoveFileEx`
+replace-with-write-through. A header other than `OSMW-MARKERS<TAB>1` means a
+newer writer and the file is not touched. The mod's limits (64 per map
+counting the player's own, 2048 total) are applied before writing, since the
+mod would drop the excess silently. Marker units are POI raw + 400 / + 300
+(`GAME_COORD_OFFSET_X/Y`); that was confirmed against the mod's own character
+slot position on a live client, not inferred. The output was round-tripped
+through the mod's real `mm_markers_parse`/`mm_markers_serialise` (built MSVC
+x86, as `tests/test_markers.c` does) and came back byte-identical. The layer
+ships off (`[Minimap] MarkerLayer=0`), so the export works but says the markers
+will not show until the player turns it on. Maps++ never turns it on itself.
 
 **Keys the mods take in game** (`NativeModsReservedKeys`: `[Settings] OpenKey`
 F12, `[Fight] CycleKey` F11, Timers' fixed F9, `[Leaderboard] OpenKey`, Chat
